@@ -53,6 +53,7 @@ type SectionDirty<S extends ObjectSectionKeys = ObjectSectionKeys> = S extends "
 interface ImagesDirty {
   cache_images?: { enabled?: boolean };
   save_images_locally?: { enabled?: boolean; path?: string };
+  kometa?: { enabled?: boolean; asset_directory?: string; import_cron?: string };
 }
 
 type NotificationsDirty = {
@@ -561,6 +562,19 @@ const SettingsPage: React.FC = () => {
                                   typeof dirty.images.save_images_locally.path === "string"
                                     ? !!dirty.images.save_images_locally.path
                                     : dirty.images.save_images_locally.path,
+                              }
+                            : undefined,
+                          kometa: dirty.images.kometa
+                            ? {
+                                ...dirty.images.kometa,
+                                asset_directory:
+                                  typeof dirty.images.kometa.asset_directory === "string"
+                                    ? !!dirty.images.kometa.asset_directory
+                                    : dirty.images.kometa.asset_directory,
+                                import_cron:
+                                  typeof dirty.images.kometa.import_cron === "string"
+                                    ? !!dirty.images.kometa.import_cron
+                                    : dirty.images.kometa.import_cron,
                               }
                             : undefined,
                         }

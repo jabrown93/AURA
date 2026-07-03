@@ -2,12 +2,14 @@
 
 import { ReturnErrorMessage } from "@/services/api-error-return";
 import { DeleteTempImages } from "@/services/images/api-images-actions";
+import { GetKometaImportStatus, type KometaImportResult, TriggerKometaImport } from "@/services/kometa/import";
 import { toast } from "sonner";
 
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 
 import { ConfirmDestructiveDialogActionButton } from "@/components/shared/dialog-destructive-action";
 import { PopoverHelp } from "@/components/shared/popover-help";
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -38,6 +40,11 @@ interface ConfigSectionImagesProps {
       path?: boolean;
       episode_naming_convention?: boolean;
     };
+    kometa?: {
+      enabled?: boolean;
+      asset_directory?: boolean;
+      import_cron?: boolean;
+    };
   };
   onChange: <K extends keyof AppConfigImages, F extends keyof AppConfigImages[K]>(
     group: K,
@@ -58,6 +65,9 @@ export const ConfigSectionImages: React.FC<ConfigSectionImagesProps> = ({
 }) => {
   const prevErrorsRef = useRef<string>("{}");
 
+  const [kometaImporting, setKometaImporting] = useState(false);
+  const [kometaResult, setKometaResult] = useState<KometaImportResult | null>(null);
+
   const clearTempImagesFolder = async () => {
     try {
       const response = await DeleteTempImages();
@@ -70,6 +80,35 @@ export const ConfigSectionImages: React.FC<ConfigSectionImagesProps> = ({
       const errorResponse = ReturnErrorMessage<void>(error);
       toast.error(errorResponse.error?.message || "An unexpected error occurred");
     }
+  };
+
+  // Poll import status while an import is running so the UI reflects progress and results.
+  useEffect(() => {
+    if (!kometaImporting) return;
+    let cancelled = false;
+    const interval = setInterval(async () => {
+      const response = await GetKometaImportStatus();
+      if (cancelled || response.status === "error" || !response.data) return;
+      if (response.data.result) setKometaResult(response.data.result);
+      if (!response.data.running) {
+        setKometaImporting(false);
+        toast.success("Kometa asset import finished");
+      }
+    }, 2000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [kometaImporting]);
+
+  const runKometaImport = async () => {
+    const response = await TriggerKometaImport();
+    if (response.status === "error") {
+      toast.error(response.error?.message || "Failed to start Kometa import");
+      return;
+    }
+    setKometaImporting(true);
+    toast.info("Kometa asset import started");
   };
 
   const errors = React.useMemo<Partial<Record<keyof AppConfigImages, string>>>(() => {
@@ -86,8 +125,19 @@ export const ConfigSectionImages: React.FC<ConfigSectionImagesProps> = ({
       }
     }
 
+    // If Kometa mode is enabled (Plex only), an asset directory is required.
+    if (mediaServerType === "Plex" && value.kometa.enabled && !value.kometa.asset_directory) {
+      errs.kometa = "Kometa asset directory is required when Kometa mode is enabled.";
+    }
+
     return errs;
-  }, [mediaServerType, value.save_images_locally.enabled, value.save_images_locally.episode_naming_convention]);
+  }, [
+    mediaServerType,
+    value.save_images_locally.enabled,
+    value.save_images_locally.episode_naming_convention,
+    value.kometa.enabled,
+    value.kometa.asset_directory,
+  ]);
 
   // Emit errors upward
   useEffect(() => {
@@ -252,6 +302,110 @@ export const ConfigSectionImages: React.FC<ConfigSectionImagesProps> = ({
                   <SelectScrollDownButton />
                 </SelectContent>
               </Select>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Kometa Mode (Plex only) */}
+      {mediaServerType === "Plex" && (
+        <div
+          className={cn(
+            "border rounded-md p-3 transition",
+            "border-muted",
+            dirtyFields.kometa?.enabled && "border-amber-500"
+          )}
+        >
+          <div className="flex items-center justify-between mb-2">
+            <Label className="mr-2">Kometa Mode</Label>
+            <div className="flex items-center gap-2">
+              <Switch
+                disabled={!editing}
+                checked={!!value.kometa.enabled}
+                onCheckedChange={(v) => onChange("kometa", "enabled", v)}
+              />
+              {editing && (
+                <PopoverHelp ariaLabel="help-images-kometa">
+                  <p>
+                    Write downloaded images into your Kometa asset directory using Kometa&apos;s folder-per-item naming
+                    (<span className="font-mono">poster.jpg</span>, <span className="font-mono">background.jpg</span>,{" "}
+                    <span className="font-mono">Season01.jpg</span>, <span className="font-mono">S01E01.jpg</span>).
+                    Images are still applied to Plex immediately. Plex only.
+                  </p>
+                </PopoverHelp>
+              )}
+            </div>
+          </div>
+
+          {value.kometa.enabled && (
+            <div className="mt-2 space-y-4">
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <Label className="mr-2">Asset Directory</Label>
+                  {editing && (
+                    <PopoverHelp ariaLabel="help-images-kometa-asset-dir">
+                      <p>
+                        The directory Kometa reads assets from (its <span className="font-mono">asset_directory</span>).
+                        Must be mounted into the Aura container at this exact path.
+                      </p>
+                    </PopoverHelp>
+                  )}
+                </div>
+                <Input
+                  type="text"
+                  disabled={!editing}
+                  value={value.kometa.asset_directory || ""}
+                  onChange={(e) => onChange("kometa", "asset_directory", e.target.value)}
+                  className={cn(
+                    "w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50 transition",
+                    (dirtyFields.kometa?.asset_directory || errors.kometa) && "border-amber-500"
+                  )}
+                  placeholder="/assets"
+                />
+                {errors.kometa && <p className="text-sm text-destructive mt-1">{errors.kometa}</p>}
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <Label className="mr-2">Import Schedule (Cron)</Label>
+                  {editing && (
+                    <PopoverHelp ariaLabel="help-images-kometa-cron">
+                      <p>
+                        Optional cron expression to periodically import existing Kometa assets. Leave blank to only
+                        import manually with the button below.
+                      </p>
+                    </PopoverHelp>
+                  )}
+                </div>
+                <Input
+                  type="text"
+                  disabled={!editing}
+                  value={value.kometa.import_cron || ""}
+                  onChange={(e) => onChange("kometa", "import_cron", e.target.value)}
+                  className={cn(
+                    "w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50 transition",
+                    dirtyFields.kometa?.import_cron && "border-amber-500"
+                  )}
+                  placeholder="0 3 * * * (optional)"
+                />
+              </div>
+
+              {!editing && (
+                <div className="flex flex-col gap-2">
+                  <Button type="button" variant="outline" onClick={runKometaImport} disabled={kometaImporting}>
+                    {kometaImporting ? "Importing…" : "Import Existing Kometa Assets"}
+                  </Button>
+                  {kometaResult && (
+                    <p className="text-sm text-muted-foreground">
+                      Last import: {kometaResult.images_uploaded} images uploaded, {kometaResult.items_registered} items
+                      tracked, {kometaResult.unmatched_folders} unmatched
+                      {kometaResult.skipped_managed_by_aura > 0 &&
+                        `, ${kometaResult.skipped_managed_by_aura} kept as AURA-managed`}
+                      {kometaResult.error && ` — error: ${kometaResult.error}`}
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>

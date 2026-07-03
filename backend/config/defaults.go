@@ -67,6 +67,9 @@ func DefaultConfig() Config {
 			SaveImagesLocally: Config_SaveImagesLocally{
 				Enabled: false,
 			},
+			Kometa: Config_Kometa{
+				Enabled: false,
+			},
 		},
 		Notifications: Config_Notifications{
 			Enabled:              false,

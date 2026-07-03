@@ -136,6 +136,10 @@ func UpdateAppConfig(w http.ResponseWriter, r *http.Request) {
 		jobs.StartAutoDownloadJob()
 	}
 
+	if imagesChanged {
+		jobs.StartKometaImportJob()
+	}
+
 	if mediaServerChanged {
 		autodownload.StartOrRestartPlexWebSocketClient()
 	}
@@ -415,6 +419,36 @@ func checkConfigDifferences_Images(ctx context.Context, oldImages config.Config_
 				Str("old_episode_naming_convention", oldImages.SaveImagesLocally.EpisodeNamingConvention).
 				Str("new_episode_naming_convention", newImages.SaveImagesLocally.EpisodeNamingConvention).
 				Msg("Images.SaveImagesLocally.EpisodeNamingConvention changed")
+			changed = true
+		}
+
+		if oldImages.Kometa.Enabled != newImages.Kometa.Enabled {
+			logAction.AppendResult("Images.Kometa.Enabled changed", fmt.Sprintf("from '%v' to '%v'", oldImages.Kometa.Enabled, newImages.Kometa.Enabled))
+			logging.LOGGER.Info().
+				Timestamp().
+				Bool("old_enabled", oldImages.Kometa.Enabled).
+				Bool("new_enabled", newImages.Kometa.Enabled).
+				Msg("Images.Kometa.Enabled changed")
+			changed = true
+		}
+
+		if oldImages.Kometa.AssetDirectory != newImages.Kometa.AssetDirectory {
+			logAction.AppendResult("Images.Kometa.AssetDirectory changed", fmt.Sprintf("from '%s' to '%s'", oldImages.Kometa.AssetDirectory, newImages.Kometa.AssetDirectory))
+			logging.LOGGER.Info().
+				Timestamp().
+				Str("old_asset_directory", oldImages.Kometa.AssetDirectory).
+				Str("new_asset_directory", newImages.Kometa.AssetDirectory).
+				Msg("Images.Kometa.AssetDirectory changed")
+			changed = true
+		}
+
+		if oldImages.Kometa.ImportCron != newImages.Kometa.ImportCron {
+			logAction.AppendResult("Images.Kometa.ImportCron changed", fmt.Sprintf("from '%s' to '%s'", oldImages.Kometa.ImportCron, newImages.Kometa.ImportCron))
+			logging.LOGGER.Info().
+				Timestamp().
+				Str("old_import_cron", oldImages.Kometa.ImportCron).
+				Str("new_import_cron", newImages.Kometa.ImportCron).
+				Msg("Images.Kometa.ImportCron changed")
 			changed = true
 		}
 	}

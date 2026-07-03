@@ -166,6 +166,11 @@ func runWarmup() (success bool) {
 	config.AppLoadingStep = "Starting Background Jobs"
 	jobs.StartAutoDownloadJob()
 
+	// Cronjob: Kometa Asset Import (only schedules if enabled + ImportCron set)
+	if err := jobs.StartKometaImportJob(); err != nil {
+		logging.LOGGER.Error().Timestamp().Err(err).Msg("Failed to schedule Kometa Asset Import cron job")
+	}
+
 	// Cronjob: Download Queue Processing
 	err := jobs.StartDownloadQueueJob()
 	if err != nil {

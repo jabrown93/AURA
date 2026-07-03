@@ -10,6 +10,7 @@ import (
 	routes_download "aura/routing/download"
 	routes_images "aura/routing/images"
 	routes_jobs "aura/routing/jobs"
+	routes_kometa "aura/routing/kometa"
 	routes_labels_tags "aura/routing/labels-tags"
 	routes_logging "aura/routing/logging"
 	routes_ms "aura/routing/mediaserver"
@@ -112,6 +113,7 @@ func AddRoutes(r *chi.Mux) {
 				r.Get("/media/collection", routes_images.GetCollectionItemImage)
 				r.Get("/mediux/item", routes_images.GetMediuxImage)
 				r.Get("/mediux/avatar", routes_images.GetMediuxAvatarImage)
+				r.Get("/kometa/item", routes_images.GetKometaImage)
 				r.Delete("/temp", routes_images.DeleteTempImages)
 			})
 
@@ -119,6 +121,12 @@ func AddRoutes(r *chi.Mux) {
 			r.Route("/jobs", func(r chi.Router) {
 				r.Get("/", routes_jobs.GetAllJobs)
 				r.Post("/", routes_jobs.RunJob)
+			})
+
+			// Kometa Routes
+			r.Route("/kometa", func(r chi.Router) {
+				r.Post("/import", routes_kometa.TriggerKometaImport)
+				r.Get("/import", routes_kometa.GetKometaImportStatus)
 			})
 
 			// Labels & Tags Route

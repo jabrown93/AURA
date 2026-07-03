@@ -33,8 +33,12 @@ func (p *Plex) DownloadApplyImageToMediaItem(ctx context.Context, item *models.M
 	}
 	logAction.AppendResult("image_rating_key", itemRatingKey)
 
-	// If SaveImageLocally is disabled, skip downloading the image
-	if !config.Current.Images.SaveImagesLocally.Enabled {
+	localEnabled := config.Current.Images.SaveImagesLocally.Enabled
+	kometaEnabled := config.Current.Images.Kometa.Enabled
+
+	// If neither local save nor Kometa mode is enabled, skip downloading the image bytes
+	// and apply it directly to Plex via the MediUX URL.
+	if !localEnabled && !kometaEnabled {
 		return applyImageToMediaItemViaMediuxURL(ctx, item, itemRatingKey, imageFile)
 	}
 
@@ -46,25 +50,26 @@ func (p *Plex) DownloadApplyImageToMediaItem(ctx context.Context, item *models.M
 		return Err
 	}
 
-	// Before we download and save the image locally, we need to get a list of the current posters in Plex
-	// This is to handle the case where the image is already set in Plex, and we need to replace it
-	// with the new image after saving it locally
-	// currentImages, logErr := getAllImages(ctx, item, itemRatingKey, "Current", imageFile.Type)
-	// if logErr.Message != "" {
-	// 	return logErr
-	// }
-
-	// Save the Image Locally
-	_, Err = saveImageLocally(ctx, p, item, imageFile, imageData)
-	if Err.Message != "" {
-		return Err
+	// Save the Image Locally (Plex Local Media Assets naming, next to content)
+	if localEnabled {
+		_, Err = saveImageLocally(ctx, p, item, imageFile, imageData)
+		if Err.Message != "" {
+			return Err
+		}
 	}
 
-	// If Save Image Next to Content is enabled and the Path is set, set the poster in Plex via the MediUX URL
-	// When the Path is set, the image is saved in a different location than Plex expects it to be.
-	// So we need to upload the image to Plex via the MediUX URL.
-	// if isCustomLocalPath {
-	applyImageToMediaItemViaMediuxURL(ctx, item, itemRatingKey, imageFile)
+	// Save the Image into the Kometa asset directory (Kometa naming conventions).
+	// This is non-fatal: a failure to write the asset must never block applying the image to Plex.
+	if kometaEnabled {
+		if kometaErr := saveImageKometa(ctx, p, item, imageFile, imageData); kometaErr.Message != "" {
+			logAction.AppendWarning("kometa_save_failed", map[string]any{
+				"error": kometaErr.Message,
+			})
+		}
+	}
+
+	// Apply the image to Plex via the MediUX URL (preserves existing immediate-apply behavior).
+	Err = applyImageToMediaItemViaMediuxURL(ctx, item, itemRatingKey, imageFile)
 	if Err.Message != "" {
 		return Err
 	}

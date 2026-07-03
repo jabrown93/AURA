@@ -2,6 +2,7 @@ package routes_db
 
 import (
 	autodownload "aura/download/auto"
+	"aura/kometa"
 	"aura/logging"
 	"aura/mediaserver"
 	"aura/mediux"
@@ -91,6 +92,10 @@ func AutoDownloadForceCheck(w http.ResponseWriter, r *http.Request) {
 		}
 
 		for _, posterSet := range req.Item.PosterSets {
+			// Kometa-imported sets have no MediUX set to re-fetch; skip them.
+			if kometa.IsKometaSetID(posterSet.ID) {
+				continue
+			}
 			switch posterSet.Type {
 			case "show":
 				showSet, _, Err := mediux.GetShowSetByID(ctx, posterSet.ID, req.Item.MediaItem.LibraryTitle)

@@ -33,6 +33,11 @@ export const defaultAppConfig = (): AppConfig =>
         path: "",
         episode_naming_convention: "",
       },
+      kometa: {
+        enabled: false,
+        asset_directory: "",
+        import_cron: "",
+      },
     },
     tmdb: {
       api_token: "",

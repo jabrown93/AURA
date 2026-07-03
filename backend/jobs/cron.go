@@ -25,6 +25,7 @@ var (
 
 	// Configurable
 	autodownloadJobID cron.EntryID = 0
+	kometaImportJobID cron.EntryID = 0
 )
 
 var manualPrevRun = map[cron.EntryID]string{}
@@ -96,6 +97,8 @@ func GetListOfJobs() []JobInfo {
 				jobInfo.JobName = "Check for Media Item Changes Job"
 			case handleTempIgnoredItemsJobID:
 				jobInfo.JobName = "Handle Temp Ignored Items Job"
+			case kometaImportJobID:
+				jobInfo.JobName = "Kometa Asset Import Job"
 			default:
 				jobInfo.JobName = "Unknown Job"
 			}
@@ -125,6 +128,8 @@ func TriggerJob(jobName string, jobID string) error {
 		entryID = checkForMediaItemChangesJobID
 	case "Handle Temp Ignored Items Job":
 		entryID = handleTempIgnoredItemsJobID
+	case "Kometa Asset Import Job":
+		entryID = kometaImportJobID
 	default:
 		return fmt.Errorf("unknown job name: %s", jobName)
 	}

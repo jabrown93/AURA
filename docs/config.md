@@ -233,6 +233,10 @@ Images:
     Path: ""
     EpisodeNamingConvention: "match"
     RunningOnWindows: false
+  Kometa:
+    Enabled: false
+    AssetDirectory: ""
+    ImportCron: ""
 ```
 
 ## CacheImages.Enabled
@@ -283,6 +287,62 @@ Images:
   - If `true`, file paths will use Windows-style backslashes (`\`) and handle file permissions accordingly.
   - If `false`, file paths will use Unix-style forward slashes (`/`) and handle file permissions for Unix-based systems.
 - **Note:** This option is only applicable when using Plex as the Media Server and `SaveImagesLocally.Enabled` is `true`. It helps ensure that file paths and permissions are correctly handled based on the operating system you are running the application on.
+
+## Kometa (Plex Only)
+
+Kometa mode makes aura play nicely with [Kometa](https://kometa.wiki/). When enabled, images that aura downloads are also written into Kometa's asset directory using Kometa's folder-per-item conventions (`asset_folders: true`), in addition to being applied to Plex immediately. aura can also import assets already in that directory. This is a Plex-exclusive feature and is independent of `SaveImagesLocally` (they write to different places for different consumers).
+
+The folder-per-item layout aura writes and imports:
+
+```
+<AssetDirectory>/<Item Folder Name>/poster.jpg
+<AssetDirectory>/<Item Folder Name>/background.jpg
+<AssetDirectory>/<Item Folder Name>/Season01.jpg      # Season00 for specials
+<AssetDirectory>/<Item Folder Name>/S01E01.jpg        # episode title cards
+<AssetDirectory>/<Collection Name>/poster.jpg
+```
+
+`Item Folder Name` is the exact name of the folder the movie file lives in, or the show's folder — the same value Kometa uses to look up assets.
+
+### Kometa.Enabled
+
+- **Default:** `false`
+- **Options:** `true` or `false`
+- **Description:** Whether to write downloaded images into the Kometa asset directory and enable importing existing Kometa assets. Plex only.
+
+### Kometa.AssetDirectory
+
+- **Default:** `""` (empty string)
+- **Options:** Any valid directory path
+- **Description:** The directory Kometa reads assets from (its `asset_directory`).
+- **Details:**
+  - Must be mounted into the aura container at this exact path and be writable.
+  - Required when `Kometa.Enabled` is `true`.
+
+### Kometa.ImportCron
+
+- **Default:** `""` (empty string)
+- **Options:** A valid cron expression, or empty
+- **Description:** Optional schedule for automatically importing existing Kometa assets.
+- **Details:**
+  - When set, aura periodically scans the asset directory, uploads matching assets to Plex, and records them.
+  - Leave empty to only import manually via the **Import Existing Kometa Assets** button in Settings (or `POST /api/kometa/import`).
+
+### Importing existing Kometa assets
+
+An import scans `AssetDirectory`, matches each folder to a Plex media item (by `Title (Year)`, a `{tmdb-12345}` hint, or a collection title), uploads the images to Plex, and records them as a "Kometa Import" set so they appear in the aura UI. Items already managed by an aura (MediUX) set keep their existing selections — the import never overwrites them in the database, though the image is still pushed to Plex.
+
+### Migrating from `SaveImagesLocally` to Kometa
+
+If you previously used `SaveImagesLocally`, the `scripts/kometa_migrate.py` helper copies your existing assets (`poster.jpg`, `season01-poster.jpg`, `<episode>-thumb.jpg`, `S01E01.jpg`, …) into the Kometa folder-per-item layout. It runs as a dry-run by default:
+
+```bash
+# Preview the plan
+python3 scripts/kometa_migrate.py --source /data/media --dest /assets
+
+# Perform the migration (copy). Add --move to move instead of copy.
+python3 scripts/kometa_migrate.py --source /data/media --dest /assets --apply
+```
 
 ---
 

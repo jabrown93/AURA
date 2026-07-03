@@ -75,6 +75,7 @@ type Config_AutoDownload struct {
 type Config_Images struct {
 	CacheImages       Config_CacheImages       `json:"cache_images" yaml:"CacheImages"`              // Settings for caching images.
 	SaveImagesLocally Config_SaveImagesLocally `json:"save_images_locally" yaml:"SaveImagesLocally"` // Settings for saving images locally alongside content.
+	Kometa            Config_Kometa            `json:"kometa" yaml:"Kometa"`                         // Settings for Kometa asset directory integration (Plex only).
 }
 
 type Config_CacheImages struct {
@@ -86,6 +87,12 @@ type Config_SaveImagesLocally struct {
 	Path                    string `json:"path,omitempty" yaml:"Path,omitempty"`                                         // By default, this is set to alongside the content. If set, this will override that behavior and save all images to this path.
 	EpisodeNamingConvention string `json:"episode_naming_convention,omitempty" yaml:"EpisodeNamingConvention,omitempty"` // Episode naming convention for the media server. Only needed for Plex. Will default to match
 	RunningOnWindows        bool   `json:"running_on_windows,omitempty" yaml:"RunningOnWindows,omitempty"`               // Whether the application is running on Windows. This affects path formatting.
+}
+
+type Config_Kometa struct {
+	Enabled        bool   `json:"enabled" yaml:"Enabled"`                                    // Whether to write downloaded images into the Kometa asset directory using Kometa naming conventions. Plex exclusive feature.
+	AssetDirectory string `json:"asset_directory,omitempty" yaml:"AssetDirectory,omitempty"` // Path to the Kometa asset directory (the same directory Kometa reads assets from). Uses the folder-per-item (asset_folders: true) layout.
+	ImportCron     string `json:"import_cron,omitempty" yaml:"ImportCron,omitempty"`         // Optional cron expression for periodically importing existing Kometa assets. Empty means import is manual only.
 }
 
 type Config_TMDB struct {

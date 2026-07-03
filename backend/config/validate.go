@@ -4,6 +4,7 @@ import (
 	"aura/logging"
 	"context"
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 
@@ -243,6 +244,39 @@ func ValidateImages(ctx context.Context, Images *Config_Images, msConfig Config_
 		}
 
 	}
+
+	// If Images.Kometa.Enabled is true, validate the Kometa settings (Plex only)
+	if Images.Kometa.Enabled {
+		if msConfig.Type != "Plex" {
+			logAction.SetError("Images.Kometa is only supported for Plex media servers", "Disable Kometa mode or switch to a Plex media server", nil)
+			return false
+		}
+
+		if Images.Kometa.AssetDirectory == "" {
+			logAction.SetError("Images.Kometa.AssetDirectory is required when Kometa mode is enabled", "Set AssetDirectory to the path Kometa reads assets from", nil)
+			return false
+		}
+
+		info, err := os.Stat(Images.Kometa.AssetDirectory)
+		if err != nil || !info.IsDir() {
+			logAction.SetError(
+				fmt.Sprintf("Images.Kometa.AssetDirectory '%s' does not exist or is not a directory", Images.Kometa.AssetDirectory),
+				"Ensure the Kometa asset directory is mounted into the container at this path",
+				nil,
+			)
+			return false
+		}
+
+		if Images.Kometa.ImportCron != "" && !ValidateCron(Images.Kometa.ImportCron) {
+			logAction.SetError(
+				fmt.Sprintf("Images.Kometa.ImportCron: '%s' is not a valid cron expression", Images.Kometa.ImportCron),
+				"Provide a valid cron expression or leave it empty for manual-only imports",
+				nil,
+			)
+			return false
+		}
+	}
+
 	return isValid
 }
 
