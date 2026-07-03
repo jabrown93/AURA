@@ -137,7 +137,9 @@ func UpdateAppConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if imagesChanged {
-		jobs.StartKometaImportJob()
+		if err := jobs.StartKometaImportJob(); err != nil {
+			logging.LOGGER.Error().Timestamp().Err(err).Msg("Failed to reschedule Kometa Asset Import cron job after config update")
+		}
 	}
 
 	if mediaServerChanged {

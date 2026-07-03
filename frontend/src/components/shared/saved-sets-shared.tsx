@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/dialog";
 
 import { cn } from "@/lib/cn";
+import { isKometaSetId } from "@/lib/kometa";
 import { log } from "@/lib/logger";
 
 import type { APIResponse } from "@/types/api/api-response";
@@ -60,6 +61,10 @@ export const refreshPosterSet = async ({
     await Promise.all(
       editSets.map(async (set) => {
         if (set.id === "ignore") {
+          return;
+        }
+        // Kometa-imported sets are local assets with no MediUX counterpart to refresh.
+        if (isKometaSetId(set.id)) {
           return;
         }
 

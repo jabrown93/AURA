@@ -61,12 +61,16 @@ func slug(s string) string {
 }
 
 // normalizeTitle mirrors the media-server cache's title comparison: lowercase with common
-// punctuation removed. Used to match Kometa asset folder names to collection titles.
+// punctuation removed. It also drops filesystem-illegal characters (/, \, <, >, ", |, *)
+// because on-disk asset folder names are sanitized while titles are not; without this a
+// collection like "Alien / Predator" could never match its folder "Alien  Predator".
+// Used to match Kometa asset folder names to collection titles.
 func normalizeTitle(input string) string {
 	var b strings.Builder
 	for _, r := range strings.ToLower(input) {
 		switch r {
-		case '-', '_', '.', ',', ':', ';', '!', '?', '\'', '(', ')', '[', ']', '{', '}':
+		case '-', '_', '.', ',', ':', ';', '!', '?', '\'', '(', ')', '[', ']', '{', '}',
+			'/', '\\', '<', '>', '"', '|', '*':
 			continue
 		default:
 			b.WriteRune(r)

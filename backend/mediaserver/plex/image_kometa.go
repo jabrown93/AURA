@@ -5,8 +5,10 @@ import (
 	"aura/logging"
 	"aura/models"
 	"aura/utils"
+	"aura/utils/httpx"
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"path"
 	"regexp"
@@ -17,11 +19,6 @@ import (
 // MediUX originals are JPEG, and Kometa does not validate content type against the
 // extension, so a fixed ".jpg" keeps the folder-per-item layout unambiguous.
 const kometaAssetExtension = ".jpg"
-
-// kometaAssetBaseNames are the file base names (without extension) AURA may write for a
-// given media item folder. Used to clear stale same-name assets with other extensions
-// so Kometa's "<name>.*" glob resolves to exactly one file.
-var kometaKnownBaseNames = []string{"poster", "background"}
 
 // illegalFilesystemChars matches characters that are unsafe in a directory name across
 // the platforms AURA supports. Used when deriving an asset folder from a title (collections).
@@ -225,10 +222,23 @@ func (p *Plex) UploadImageBytes(ctx context.Context, ratingKey string, imageType
 		endpoint = "arts"
 	}
 
+	// makeRequest defaults a missing Content-Type to application/json, which is wrong for
+	// raw image bytes; label the payload with its detected image MIME type instead.
+	headers := AddPlexHeaders(config.Current.MediaServer, map[string]string{
+		"Content-Type": http.DetectContentType(data),
+	})
+
 	url := fmt.Sprintf("%s/library/metadata/%s/%s", config.Current.MediaServer.URL, ratingKey, endpoint)
-	_, _, Err := makeRequest(ctx, config.Current.MediaServer, url, "POST", data)
+	resp, respBody, Err := httpx.MakeHTTPRequest(ctx, url, "POST", headers, 60, data, "Plex")
 	if Err.Message != "" {
 		return Err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		logAction.SetError(fmt.Sprintf("Plex Server returned a %d status code", resp.StatusCode),
+			"Check the response from the server for more details",
+			map[string]any{"status_code": resp.StatusCode, "error_body": string(respBody)})
+		return *logAction.Error
 	}
 	return logging.LogErrorInfo{}
 }

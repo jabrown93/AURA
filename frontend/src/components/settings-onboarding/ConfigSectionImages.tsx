@@ -82,6 +82,21 @@ export const ConfigSectionImages: React.FC<ConfigSectionImagesProps> = ({
     }
   };
 
+  // On mount, sync with any import that was started elsewhere (cron or direct API call)
+  // so the button state and last result are accurate before the user interacts.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const response = await GetKometaImportStatus();
+      if (cancelled || response.status === "error" || !response.data) return;
+      if (response.data.result) setKometaResult(response.data.result);
+      if (response.data.running) setKometaImporting(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // Poll import status while an import is running so the UI reflects progress and results.
   useEffect(() => {
     if (!kometaImporting) return;

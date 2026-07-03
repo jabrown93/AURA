@@ -177,7 +177,21 @@ func processItem(ctx context.Context, plexClient *plex.Plex, assetDir string, fo
 // import never overwrites the user's AURA selections; if nothing remains, registration is
 // skipped and the item is reported as managed by AURA.
 func registerImportedItem(ctx context.Context, item *models.MediaItem, folderName string, images []models.ImageFile, selected models.SelectedTypes) (registered, managed bool) {
-	_, _, existingSets, _ := database.CheckIfMediaItemExists(ctx, item.TMDB_ID, item.LibraryTitle)
+	ignored, _, existingSets, logErr := database.CheckIfMediaItemExists(ctx, item.TMDB_ID, item.LibraryTitle)
+	if logErr.Message != "" {
+		// Without the existing sets the precedence guard cannot run; skip registration
+		// rather than risk clobbering MediUX-owned selections.
+		logging.LOGGER.Warn().Timestamp().
+			Str("tmdb_id", item.TMDB_ID).
+			Str("library", item.LibraryTitle).
+			Str("error", logErr.Message).
+			Msg("Kometa import: failed to load existing sets; skipping DB registration")
+		return false, false
+	}
+	if ignored {
+		// The user has explicitly ignored this item in AURA; don't create records for it.
+		return false, false
+	}
 	for _, s := range existingSets {
 		if IsKometaSetID(s.ID) {
 			continue

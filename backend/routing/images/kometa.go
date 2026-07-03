@@ -32,6 +32,26 @@ func GetKometaImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Kometa image IDs always encode exactly "<folder>/<file>"; reject anything deeper,
+	// shallower, or containing relative segments before touching the filesystem.
+	folder, file, ok := strings.Cut(rel, "/")
+	if !ok || folder == "" || file == "" || strings.Contains(file, "/") ||
+		folder == "." || folder == ".." || file == "." || file == ".." ||
+		strings.ContainsRune(folder, os.PathSeparator) || strings.ContainsRune(file, os.PathSeparator) {
+		logAction.SetError("Invalid Kometa asset path", "asset_id must encode exactly <folder>/<file>", map[string]any{"asset_id": assetID})
+		httpx.SendResponse(w, ld, nil)
+		return
+	}
+
+	// Only serve known image types; this endpoint must not expose arbitrary files.
+	switch strings.ToLower(filepath.Ext(file)) {
+	case ".jpg", ".jpeg", ".png", ".webp":
+	default:
+		logAction.SetError("Invalid Kometa asset extension", "Only jpg, jpeg, png and webp assets are served", map[string]any{"asset_id": assetID})
+		httpx.SendResponse(w, ld, nil)
+		return
+	}
+
 	assetDir := config.Current.Images.Kometa.AssetDirectory
 	if assetDir == "" {
 		logAction.SetError("Kometa asset directory not configured", "Set the Kometa asset directory in the configuration", nil)
@@ -41,8 +61,8 @@ func GetKometaImage(w http.ResponseWriter, r *http.Request) {
 
 	// Resolve the path and ensure it stays within the asset directory (prevents traversal).
 	cleanBase := filepath.Clean(assetDir)
-	fullPath := filepath.Clean(filepath.Join(cleanBase, filepath.FromSlash(rel)))
-	if fullPath != cleanBase && !strings.HasPrefix(fullPath, cleanBase+string(os.PathSeparator)) {
+	fullPath := filepath.Clean(filepath.Join(cleanBase, folder, file))
+	if !strings.HasPrefix(fullPath, cleanBase+string(os.PathSeparator)) {
 		logAction.SetError("Invalid Kometa asset path", "Resolved path escapes the asset directory", map[string]any{"asset_id": assetID})
 		httpx.SendResponse(w, ld, nil)
 		return

@@ -37,6 +37,14 @@ func TriggerKometaImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if config.Current.Images.Kometa.AssetDirectory == "" {
+		logAction.SetError("Kometa asset directory is not configured", "Set the Kometa asset directory before importing assets", nil)
+		httpx.SendResponse(w, ld, response)
+		return
+	}
+
+	// With enablement and configuration checked above, a false return from StartImport
+	// can only mean an import is already in flight.
 	if started := kometa.StartImport(); !started {
 		response.Running = true
 		response.Message = "A Kometa import is already running"
