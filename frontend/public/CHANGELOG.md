@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.4](https://github.com/jabrown93/AURA/compare/v1.0.3...v1.0.4) (2026-07-04)
+
+
+### Bug Fixes
+
+* **deps:** update module github.com/go-chi/chi to v5 ([#24](https://github.com/jabrown93/AURA/issues/24)) ([e224ec4](https://github.com/jabrown93/AURA/commit/e224ec44b301a6d1d7238acc4a6a2e3713c7ed96))
+
 ## [1.0.3](https://github.com/jabrown93/AURA/compare/v1.0.2...v1.0.3) (2026-07-04)
 
 
