@@ -25,7 +25,9 @@ export function useAppVersion(currentVersion: string = "dev") {
   }
 
   function getChangelogEntriesSince(changelog: string, lastVersion: string) {
-    const regex = /## \[([^\]]+)\] - (\d{4}-\d{2}-\d{2})/g;
+    // Matches both the legacy "## [x.y.z] - YYYY-MM-DD" headings and the
+    // semantic-release format "## [x.y.z](compare-url) (YYYY-MM-DD)" (1-3 #'s).
+    const regex = /^#{1,3} \[([^\]]+)\](?:\([^)]*\))? (?:- )?\(?(\d{4}-\d{2}-\d{2})\)?/gm;
     const entries: { version: string; content: string }[] = [];
     let match;
     const indices: number[] = [];
