@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.1](https://github.com/jabrown93/AURA/compare/v1.0.0...v1.0.1) (2026-07-04)
+
+
+### Bug Fixes
+
+* **deps:** update module github.com/mattn/go-sqlite3 to v1.14.47 ([63f2fda](https://github.com/jabrown93/AURA/commit/63f2fda18c4a7a319e895da1a20cfde6026a96b6))
+
 # 1.0.0 (2026-07-04)
 
 
