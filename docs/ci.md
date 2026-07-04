@@ -12,12 +12,28 @@ in-cluster jobs.
 |---|---|---|---|
 | `ci.yml` | PR → `main`, push → `main`/`renovate/**` | Backend `go build`/`vet`/`test` + gofmt gate; frontend `npm ci`/`lint`/`build`. | No |
 | `codeql.yml` | push/PR → `main`/`beta`, weekly | CodeQL for `go` and `javascript-typescript` (build-mode `none`) via the reusable `jabrown93/.github` workflow. | No |
-| `aura.yml` | push → `main` (paths), manual | Multi-arch build + push `ghcr.io/<owner>/aura:latest` + `:<VERSION.txt>`, SBOM + provenance, cosign keyless sign. | No |
-| `aura-beta.yml` | push → `beta*` (paths), manual | Same, `:beta` + `:<VERSION>-beta`. | No |
+| `release.yml` | push → `main`/`beta`, weekly (Mon 09:00 UTC), manual | semantic-release computes the next version, updates `VERSION.txt`/`version.json`/`frontend/public/CHANGELOG.md`, tags + creates a GitHub Release, then builds the multi-arch image **once** and pushes `:latest`+`:v<version>` (main) or `:beta`+`:v<version>-beta.N` (beta), plus a rolling `:edge` on every `main` push. SBOM + provenance, cosign keyless sign. | No |
 | `dt-sbom.yml` | push → `main`, manual | syft SBOM (Go + npm) → upload to Dependency-Track (`isLatest`). | **Yes** |
 | `pr-license-check.yml` | PR → `main` (same-repo) | Untrusted producer: build SBOM, upload as artifact. No secrets. | No |
 | `pr-license-comment.yml` | `workflow_run` of the check | Trusted consumer: upload PR SBOM to DT, post advisory license comment. | **Yes** |
 | `jekyll-gh-pages.yml` | push → `main` (`docs/**`), manual | Publish `docs/` to GitHub Pages. | Pages setting |
+
+## Versioning
+
+Versions are automated with [semantic-release](https://semantic-release.gitbook.io/)
+(config in `.releaserc.js`) from [Conventional Commits](https://www.conventionalcommits.org/):
+
+- **`main`** — `feat` → minor, `fix`/`perf` → patch, `!`/`BREAKING CHANGE` → major.
+  Each release bumps `VERSION.txt`/`version.json`, prepends `frontend/public/CHANGELOG.md`
+  (surfaced as in-app release notes), tags `v<x.y.z>`, and creates a GitHub Release.
+- **`beta`** — prereleases (`v<x.y.z>-beta.N`), published as `:beta`.
+- **Dependency bumps** (`chore(deps)`/`build(deps)`) do **not** release on push; the
+  weekly Monday run sets `RELEASE_DEPS=true` and rolls them into one patch release.
+- **`:edge`** — every push to `main` publishes a rolling `ghcr.io/<owner>/aura:edge`
+  (and `:edge-<sha>`), independent of releases.
+
+This is the fork's own version line (first release `v1.0.0`); the in-app update check
+and version badge point at `jabrown93/AURA`, not upstream.
 
 ## Images
 

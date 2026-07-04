@@ -1,8 +1,7 @@
 # <img src="https://raw.githubusercontent.com/jabrown93/aura/main/frontend/public/aura_word_logo.svg" alt="aura Logo" width="130" />
 
 [![Version](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/jabrown93/aura/main/version.json)](https://github.com/jabrown93/aura/pkgs/container/aura)
-[![Build](https://img.shields.io/github/actions/workflow/status/jabrown93/aura/aura.yml?label=Latest%20Build&logo=githubactions)](https://github.com/jabrown93/aura/actions/workflows/docker.yml)
-[![Beta Build](https://img.shields.io/github/actions/workflow/status/jabrown93/aura/aura-beta.yml?label=Beta%20Build&logo=githubactions)](https://github.com/jabrown93/aura/actions/workflows/docker.yml)
+[![Release](https://img.shields.io/github/actions/workflow/status/jabrown93/aura/release.yml?label=Release&logo=githubactions)](https://github.com/jabrown93/aura/actions/workflows/release.yml)
 [![Docker Pulls](https://img.shields.io/docker/pulls/mediux/aura?label=Docker%20Pulls&logo=docker)](https://hub.docker.com/r/mediux/aura/tags)
 ![GHCR](https://img.shields.io/badge/dynamic/json?label=GitHub%20Pulls&logo=Github&url=https%3A%2F%2Fghcr-badge.elias.eu.org%2Fapi%2Fmediux-team%2Faura%2Faura&query=downloadCount)
 
