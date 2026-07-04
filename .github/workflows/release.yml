@@ -50,12 +50,26 @@ jobs:
       version: ${{ steps.semantic.outputs.new_release_version }}
       channel: ${{ steps.semantic.outputs.new_release_channel }}
     steps:
+      # Mint a token for the release GitHub App. semantic-release pushes the
+      # version-bump commit + tag AS this app, and the branch ruleset grants that
+      # app (and only it) bypass — so the unsigned bump commit clears required
+      # signatures / status checks while ordinary contributors stay gated.
+      - name: Generate app token
+        id: app-token
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           # Full history + tags so semantic-release can determine the last release.
           fetch-depth: 0
+          # Persist the app token so @semantic-release/git pushes the bump commit
+          # + tag as the app (the ruleset bypass actor).
           persist-credentials: true
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Semantic Release
         id: semantic
@@ -66,7 +80,9 @@ jobs:
           extra_plugins: |
             @semantic-release/exec@7
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # App token (not the default GITHUB_TOKEN) so the tag + GitHub Release
+          # are created by the app that the branch ruleset allows to bypass.
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
           # The weekly scheduled run promotes dependency bumps to a patch release.
           RELEASE_DEPS: ${{ github.event_name == 'schedule' }}
 
