@@ -16,6 +16,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 import { cn } from "@/lib/cn";
 import { type AspectRatio, getAspectRatioClass, getImageSizes } from "@/lib/image-sizes";
+import { isKometaImageId, kometaImageSrc } from "@/lib/kometa";
 import { log } from "@/lib/logger";
 import { useUserPreferencesStore } from "@/lib/stores/global-user-preferences";
 
@@ -106,7 +107,10 @@ export function AssetImage({
   if (imageType === "url") {
     imageSrc = image as string;
   } else if (imageType === "mediux") {
-    imageSrc = `/api/images/mediux/item?asset_id=${(image as ImageFile).id}&modified_date=${(image as ImageFile).modified}`;
+    const assetId = (image as ImageFile).id;
+    imageSrc = isKometaImageId(assetId)
+      ? kometaImageSrc(assetId)
+      : `/api/images/mediux/item?asset_id=${assetId}&modified_date=${(image as ImageFile).modified}`;
   } else if (imageType === "item") {
     imageSrc = `/api/images/media/item?rating_key=${(image as MediaItem).rating_key}&image_type=${aspect}`;
   } else if (imageType === "collection") {

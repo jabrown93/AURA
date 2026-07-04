@@ -56,5 +56,16 @@ func (p *Plex) ApplyCollectionImage(ctx context.Context, collectionItem *models.
 	}
 	defer resp.Body.Close()
 
+	// If Kometa mode is enabled, also write the collection image into the Kometa asset
+	// directory. This is non-fatal: a failure to write the asset must not fail the apply.
+	if config.Current.Images.Kometa.Enabled {
+		imageData, _, imgErr := mediux.GetImage(ctx, imageFile.ID, imageFile.Modified.Format("20060102150405"), mediux.ImageQualityOriginal)
+		if imgErr.Message != "" {
+			logAction.AppendWarning("kometa_save_failed", map[string]any{"error": imgErr.Message})
+		} else if kometaErr := SaveCollectionImageKometa(ctx, collectionItem, imageFile, imageData); kometaErr.Message != "" {
+			logAction.AppendWarning("kometa_save_failed", map[string]any{"error": kometaErr.Message})
+		}
+	}
+
 	return Err
 }

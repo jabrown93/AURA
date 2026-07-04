@@ -3,6 +3,7 @@ package routes_sonarr_radarr
 import (
 	"aura/cache"
 	"aura/database"
+	"aura/kometa"
 	"aura/logging"
 	"aura/mediaserver"
 	"aura/mediux"
@@ -276,6 +277,11 @@ func processSonarrDownloadEvent(ctx context.Context, payload SonarrWebHookOnUpgr
 
 	for _, dbSet := range dbItem.PosterSets {
 		if !dbSet.SelectedTypes.SeasonPoster && !dbSet.SelectedTypes.SpecialSeasonPoster && !dbSet.SelectedTypes.Titlecard {
+			continue
+		}
+
+		// Kometa-imported sets have no MediUX set to re-fetch; skip them.
+		if kometa.IsKometaSetID(dbSet.ID) {
 			continue
 		}
 

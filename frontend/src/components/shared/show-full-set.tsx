@@ -17,6 +17,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { H1, Lead } from "@/components/ui/typography";
 
+import { isKometaSetId } from "@/lib/kometa";
 import { log } from "@/lib/logger";
 import { useOnboardingStore } from "@/lib/stores/global-store-onboarding";
 import { useUserPreferencesStore } from "@/lib/stores/global-user-preferences";
@@ -538,15 +539,17 @@ const ShowFullSetDetails: React.FC<{
             </Avatar>
             {baseSetInfo.user_created}
           </Badge>
-          <Badge
-            className="flex items-center text-sm hover:text-white transition-colors hover:brightness-120 cursor-pointer active:scale-95"
-            onClick={(e) => {
-              e.stopPropagation();
-              window.open(`${mediuxURL}`, "_blank");
-            }}
-          >
-            View on MediUX
-          </Badge>
+          {!isKometaSetId(baseSetInfo.id) && (
+            <Badge
+              className="flex items-center text-sm hover:text-white transition-colors hover:brightness-120 cursor-pointer active:scale-95"
+              onClick={(e) => {
+                e.stopPropagation();
+                window.open(`${mediuxURL}`, "_blank");
+              }}
+            >
+              View on MediUX
+            </Badge>
+          )}
         </div>
 
         {/* Season/Episode Information */}

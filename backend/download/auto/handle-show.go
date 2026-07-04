@@ -1,6 +1,7 @@
 package autodownload
 
 import (
+	"aura/kometa"
 	"aura/logging"
 	"aura/mediaserver"
 	"aura/mediux"
@@ -155,6 +156,14 @@ func handleShow(ctx context.Context, mediaItem models.MediaItem, dbItem models.D
 		setResult.ID = dbSet.ID
 		setResult.Title = dbSet.Title
 		setResult.UserCreated = dbSet.UserCreated
+
+		// Kometa-imported sets are managed on disk, not via MediUX; never re-fetch them.
+		if kometa.IsKometaSetID(dbSet.ID) {
+			setResult.Result = "skipped"
+			setResult.Reason = "Kometa-imported set; not managed via MediUX"
+			result.Sets = append(result.Sets, setResult)
+			continue
+		}
 
 		// If the set is not set to auto-download, then we skip it
 		if !dbSet.AutoDownload {

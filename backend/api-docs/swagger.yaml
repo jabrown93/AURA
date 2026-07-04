@@ -145,10 +145,29 @@ definitions:
         allOf:
         - $ref: '#/definitions/config.Config_CacheImages'
         description: Settings for caching images.
+      kometa:
+        allOf:
+        - $ref: '#/definitions/config.Config_Kometa'
+        description: Settings for Kometa asset directory integration (Plex only).
       save_images_locally:
         allOf:
         - $ref: '#/definitions/config.Config_SaveImagesLocally'
         description: Settings for saving images locally alongside content.
+    type: object
+  config.Config_Kometa:
+    properties:
+      asset_directory:
+        description: 'Path to the Kometa asset directory (the same directory Kometa
+          reads assets from). Uses the folder-per-item (asset_folders: true) layout.'
+        type: string
+      enabled:
+        description: Whether to write downloaded images into the Kometa asset directory
+          using Kometa naming conventions. Plex exclusive feature.
+        type: boolean
+      import_cron:
+        description: Optional cron expression for periodically importing existing
+          Kometa assets. Empty means import is manual only.
+        type: string
     type: object
   config.Config_LabelsAndTags:
     properties:
@@ -431,6 +450,61 @@ definitions:
         type: string
       spec:
         type: string
+    type: object
+  kometa.FolderOutcome:
+    properties:
+      detail:
+        type: string
+      folder:
+        type: string
+      images_failed:
+        type: integer
+      images_skipped_owned:
+        description: assets not uploaded because a MediUX set owns their image type
+        type: integer
+      images_uploaded:
+        type: integer
+      managed_by_aura:
+        description: one or more image types were skipped to protect MediUX selections
+        type: boolean
+      outcome:
+        description: matched, unmatched, collection, skipped, error
+        type: string
+      registered_in_db:
+        type: boolean
+    type: object
+  kometa.ImportResult:
+    properties:
+      collections:
+        type: integer
+      error:
+        type: string
+      finished_at:
+        type: string
+      folders:
+        items:
+          $ref: '#/definitions/kometa.FolderOutcome'
+        type: array
+      folders_scanned:
+        type: integer
+      images_failed:
+        type: integer
+      images_skipped_owned:
+        description: assets not uploaded because a MediUX set owns their image type
+        type: integer
+      images_uploaded:
+        type: integer
+      items_registered:
+        type: integer
+      matched:
+        type: integer
+      skipped_managed_by_aura:
+        description: items where at least one image type was protected
+        type: integer
+      started_at:
+        type: string
+      unmatched_folders:
+        type: integer
     type: object
   logging.LogAction:
     properties:
@@ -1284,6 +1358,15 @@ definitions:
     properties:
       message:
         type: string
+    type: object
+  routes_kometa.importResponse:
+    properties:
+      message:
+        type: string
+      result:
+        $ref: '#/definitions/kometa.ImportResult'
+      running:
+        type: boolean
     type: object
   routes_labels_tags.applyLabelsTagsRequest:
     properties:
@@ -2206,6 +2289,30 @@ paths:
       summary: Health Check
       tags:
       - Health
+  /api/images/kometa/item:
+    get:
+      description: Serve a locally-imported Kometa asset by its image ID (kometa|<folder>/<file>)
+        from the configured asset directory.
+      parameters:
+      - description: Kometa image ID (kometa|<folder>/<file>)
+        in: query
+        name: asset_id
+        required: true
+        type: string
+      produces:
+      - image/jpeg
+      responses:
+        "200":
+          description: Image data
+          schema:
+            type: string
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpx.JSONResponse'
+      summary: Get Kometa Asset Image
+      tags:
+      - Images
   /api/images/media/collection:
     get:
       description: Get a collection item image (poster or backdrop) from the media
@@ -2433,6 +2540,66 @@ paths:
       summary: Run Job
       tags:
       - Jobs
+  /api/kometa/import:
+    get:
+      description: Return whether a Kometa asset import is currently running and the
+        result of the most recent run.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httpx.JSONResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/routes_kometa.importResponse'
+              type: object
+        "401":
+          description: Unauthorized (only when Auth.Enabled=true)
+          schema:
+            $ref: '#/definitions/httpx.UnauthorizedResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpx.JSONResponse'
+      security:
+      - BearerAuth: []
+      summary: Get Kometa Asset Import Status
+      tags:
+      - Kometa
+    post:
+      consumes:
+      - application/json
+      description: Scan the configured Kometa asset directory, upload matching assets
+        to Plex, and record them in the database. Runs asynchronously; poll GET /api/kometa/import
+        for progress.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httpx.JSONResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/routes_kometa.importResponse'
+              type: object
+        "401":
+          description: Unauthorized (only when Auth.Enabled=true)
+          schema:
+            $ref: '#/definitions/httpx.UnauthorizedResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpx.JSONResponse'
+      security:
+      - BearerAuth: []
+      summary: Trigger Kometa Asset Import
+      tags:
+      - Kometa
   /api/labels-tags/apply:
     post:
       consumes:

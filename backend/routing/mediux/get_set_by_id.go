@@ -1,6 +1,7 @@
 package routes_mediux
 
 import (
+	"aura/kometa"
 	"aura/logging"
 	"aura/mediux"
 	"aura/models"
@@ -52,6 +53,13 @@ func GetSetByID(w http.ResponseWriter, r *http.Request) {
 				"set_type":         setType,
 				"valid_item_types": []string{"show", "movie", "collection"},
 			})
+		httpx.SendResponse(w, ld, response)
+		return
+	}
+	// Kometa-imported sets are stored on disk, not on MediUX; there is nothing to fetch.
+	if kometa.IsKometaSetID(setID) {
+		actionGetQueryParams.SetError("Kometa-imported set", "Kometa-imported sets are local assets and have no MediUX set to retrieve",
+			map[string]any{"set_id": setID})
 		httpx.SendResponse(w, ld, response)
 		return
 	}
