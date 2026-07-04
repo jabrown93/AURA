@@ -330,7 +330,7 @@ The folder-per-item layout aura writes and imports:
 
 ### Importing existing Kometa assets
 
-An import scans `AssetDirectory`, matches each folder to a Plex media item (by `Title (Year)`, a `{tmdb-12345}` hint, or a collection title), uploads the images to Plex, and records them as a "Kometa Import" set so they appear in the aura UI. Items already managed by an aura (MediUX) set keep their existing selections — the import never overwrites them in the database, though the image is still pushed to Plex.
+An import scans `AssetDirectory`, matches each folder to a Plex media item (by `Title (Year)`, a `{tmdb-12345}` hint, or a collection title), uploads the images to Plex, and records them as a "Kometa Import" set so they appear in the aura UI. Items already managed by an aura (MediUX) set take precedence: any image type a MediUX set owns is skipped entirely — neither pushed to Plex nor recorded in the database — and items you have ignored in aura are skipped altogether. Skipped assets are reported in the import result.
 
 ### Migrating from `SaveImagesLocally` to Kometa
 

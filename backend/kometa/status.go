@@ -7,13 +7,14 @@ import (
 
 // FolderOutcome captures what happened to a single asset folder during an import.
 type FolderOutcome struct {
-	Folder         string `json:"folder"`
-	Outcome        string `json:"outcome"` // matched, unmatched, collection, error
-	Detail         string `json:"detail,omitempty"`
-	ImagesUploaded int    `json:"images_uploaded"`
-	ImagesFailed   int    `json:"images_failed"`
-	RegisteredInDB bool   `json:"registered_in_db"`
-	ManagedByAura  bool   `json:"managed_by_aura"` // matched but DB registration skipped to protect MediUX selections
+	Folder             string `json:"folder"`
+	Outcome            string `json:"outcome"` // matched, unmatched, collection, skipped, error
+	Detail             string `json:"detail,omitempty"`
+	ImagesUploaded     int    `json:"images_uploaded"`
+	ImagesFailed       int    `json:"images_failed"`
+	ImagesSkippedOwned int    `json:"images_skipped_owned"` // assets not uploaded because a MediUX set owns their image type
+	RegisteredInDB     bool   `json:"registered_in_db"`
+	ManagedByAura      bool   `json:"managed_by_aura"` // one or more image types were skipped to protect MediUX selections
 }
 
 // ImportResult is the summary of the most recent import run.
@@ -26,8 +27,9 @@ type ImportResult struct {
 	UnmatchedFolders     int             `json:"unmatched_folders"`
 	ImagesUploaded       int             `json:"images_uploaded"`
 	ImagesFailed         int             `json:"images_failed"`
+	ImagesSkippedOwned   int             `json:"images_skipped_owned"` // assets not uploaded because a MediUX set owns their image type
 	ItemsRegistered      int             `json:"items_registered"`
-	SkippedManagedByAura int             `json:"skipped_managed_by_aura"`
+	SkippedManagedByAura int             `json:"skipped_managed_by_aura"` // items where at least one image type was protected
 	Error                string          `json:"error,omitempty"`
 	Folders              []FolderOutcome `json:"folders,omitempty"`
 }

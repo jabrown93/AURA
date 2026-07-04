@@ -3826,15 +3826,19 @@ const docTemplate = `{
                 "images_failed": {
                     "type": "integer"
                 },
+                "images_skipped_owned": {
+                    "description": "assets not uploaded because a MediUX set owns their image type",
+                    "type": "integer"
+                },
                 "images_uploaded": {
                     "type": "integer"
                 },
                 "managed_by_aura": {
-                    "description": "matched but DB registration skipped to protect MediUX selections",
+                    "description": "one or more image types were skipped to protect MediUX selections",
                     "type": "boolean"
                 },
                 "outcome": {
-                    "description": "matched, unmatched, collection, error",
+                    "description": "matched, unmatched, collection, skipped, error",
                     "type": "string"
                 },
                 "registered_in_db": {
@@ -3866,6 +3870,10 @@ const docTemplate = `{
                 "images_failed": {
                     "type": "integer"
                 },
+                "images_skipped_owned": {
+                    "description": "assets not uploaded because a MediUX set owns their image type",
+                    "type": "integer"
+                },
                 "images_uploaded": {
                     "type": "integer"
                 },
@@ -3876,6 +3884,7 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "skipped_managed_by_aura": {
+                    "description": "items where at least one image type was protected",
                     "type": "integer"
                 },
                 "started_at": {

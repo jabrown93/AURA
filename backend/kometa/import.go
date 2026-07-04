@@ -101,9 +101,30 @@ func runImport() {
 }
 
 // processItem uploads a folder's assets to a single matched media item and registers them
-// in the database (subject to the precedence guard).
+// in the database. The precedence guard runs BEFORE any upload: image types already owned
+// by a non-Kometa (MediUX) set — and items the user has ignored — are never pushed to Plex,
+// so an import cannot silently replace an AURA-managed image on the server.
 func processItem(ctx context.Context, plexClient *plex.Plex, assetDir string, folder ScannedFolder, item *models.MediaItem, result *ImportResult) {
 	outcome := FolderOutcome{Folder: folder.Name, Outcome: "matched", Detail: item.LibraryTitle}
+
+	// Precedence guard: load AURA's existing records first so owned types are skipped
+	// before their bytes ever reach Plex.
+	ignored, _, existingSets, logErr := database.CheckIfMediaItemExists(ctx, item.TMDB_ID, item.LibraryTitle)
+	if logErr.Message != "" {
+		// Without the existing sets the guard cannot run; skip the item entirely rather
+		// than risk overwriting a MediUX-managed image on Plex.
+		outcome.Outcome = "error"
+		outcome.Detail = "failed to load existing AURA records; skipped to protect MediUX selections"
+		result.Folders = append(result.Folders, outcome)
+		return
+	}
+	if ignored {
+		outcome.Outcome = "skipped"
+		outcome.Detail = "item is ignored in AURA"
+		result.Folders = append(result.Folders, outcome)
+		return
+	}
+	owned := ownedTypes(existingSets)
 
 	// Load full details so season/episode rating keys resolve (and to verify existence).
 	found, Err := mediaserver.GetMediaItemDetails(ctx, item)
@@ -118,6 +139,12 @@ func processItem(ctx context.Context, plexClient *plex.Plex, assetDir string, fo
 	var selected models.SelectedTypes
 
 	for _, asset := range folder.Assets {
+		if typeOwned(owned, asset.Type) {
+			outcome.ImagesSkippedOwned++
+			result.ImagesSkippedOwned++
+			continue
+		}
+
 		imageFile := models.ImageFile{
 			ID:            imageIDForAsset(folder.Name, asset.FileName),
 			Type:          asset.Type,
@@ -154,68 +181,69 @@ func processItem(ctx context.Context, plexClient *plex.Plex, assetDir string, fo
 		markSelected(&selected, asset.Type)
 	}
 
+	outcome.ManagedByAura = outcome.ImagesSkippedOwned > 0
+	if outcome.ManagedByAura {
+		result.SkippedManagedByAura++
+	}
+
 	if len(uploadedImages) == 0 {
-		outcome.Detail = "no images uploaded"
+		if outcome.ManagedByAura && outcome.ImagesFailed == 0 {
+			outcome.Detail = "all image types are managed by AURA; nothing uploaded"
+		} else {
+			outcome.Detail = "no images uploaded"
+		}
 		result.Folders = append(result.Folders, outcome)
 		return
 	}
 
-	registered, managed := registerImportedItem(ctx, item, folder.Name, uploadedImages, selected)
-	outcome.RegisteredInDB = registered
-	outcome.ManagedByAura = managed
-	if registered {
+	outcome.RegisteredInDB = registerImportedItem(ctx, item, folder.Name, uploadedImages, selected)
+	if outcome.RegisteredInDB {
 		result.ItemsRegistered++
-	}
-	if managed {
-		result.SkippedManagedByAura++
 	}
 	result.Folders = append(result.Folders, outcome)
 }
 
-// registerImportedItem writes a synthetic "Kometa Import" poster set for the item. The
-// precedence guard clears any image type already owned by a non-Kometa (MediUX) set so an
-// import never overwrites the user's AURA selections; if nothing remains, registration is
-// skipped and the item is reported as managed by AURA.
-func registerImportedItem(ctx context.Context, item *models.MediaItem, folderName string, images []models.ImageFile, selected models.SelectedTypes) (registered, managed bool) {
-	ignored, _, existingSets, logErr := database.CheckIfMediaItemExists(ctx, item.TMDB_ID, item.LibraryTitle)
-	if logErr.Message != "" {
-		// Without the existing sets the precedence guard cannot run; skip registration
-		// rather than risk clobbering MediUX-owned selections.
-		logging.LOGGER.Warn().Timestamp().
-			Str("tmdb_id", item.TMDB_ID).
-			Str("library", item.LibraryTitle).
-			Str("error", logErr.Message).
-			Msg("Kometa import: failed to load existing sets; skipping DB registration")
-		return false, false
-	}
-	if ignored {
-		// The user has explicitly ignored this item in AURA; don't create records for it.
-		return false, false
-	}
+// ownedTypes merges the selected image types of every non-Kometa (MediUX) set for an item.
+// These types are AURA-managed: the import must neither upload them to Plex nor claim them
+// in the database.
+func ownedTypes(existingSets []models.DBSavedSet) models.SelectedTypes {
+	var owned models.SelectedTypes
 	for _, s := range existingSets {
 		if IsKometaSetID(s.ID) {
 			continue
 		}
-		if s.SelectedTypes.Poster {
-			selected.Poster = false
-		}
-		if s.SelectedTypes.Backdrop {
-			selected.Backdrop = false
-		}
-		if s.SelectedTypes.SeasonPoster {
-			selected.SeasonPoster = false
-		}
-		if s.SelectedTypes.SpecialSeasonPoster {
-			selected.SpecialSeasonPoster = false
-		}
-		if s.SelectedTypes.Titlecard {
-			selected.Titlecard = false
-		}
+		owned.Poster = owned.Poster || s.SelectedTypes.Poster
+		owned.Backdrop = owned.Backdrop || s.SelectedTypes.Backdrop
+		owned.SeasonPoster = owned.SeasonPoster || s.SelectedTypes.SeasonPoster
+		owned.SpecialSeasonPoster = owned.SpecialSeasonPoster || s.SelectedTypes.SpecialSeasonPoster
+		owned.Titlecard = owned.Titlecard || s.SelectedTypes.Titlecard
 	}
+	return owned
+}
 
+// typeOwned reports whether an asset's image type is claimed in the given selected types.
+func typeOwned(owned models.SelectedTypes, assetType string) bool {
+	switch assetType {
+	case "poster":
+		return owned.Poster
+	case "backdrop":
+		return owned.Backdrop
+	case "season_poster":
+		return owned.SeasonPoster
+	case "special_season_poster":
+		return owned.SpecialSeasonPoster
+	case "titlecard":
+		return owned.Titlecard
+	}
+	return false
+}
+
+// registerImportedItem writes a synthetic "Kometa Import" poster set for the item. The
+// caller (processItem) has already excluded AURA-owned types and ignored items, so
+// `selected` only contains types this import may claim.
+func registerImportedItem(ctx context.Context, item *models.MediaItem, folderName string, images []models.ImageFile, selected models.SelectedTypes) (registered bool) {
 	if !anySelected(selected) {
-		// Every uploaded type is owned by a MediUX set; leave AURA's records untouched.
-		return false, true
+		return false
 	}
 
 	now := time.Now()
@@ -240,9 +268,9 @@ func registerImportedItem(ctx context.Context, item *models.MediaItem, folderNam
 	}
 
 	if Err := database.UpsertSavedItem(ctx, dbItem); Err.Message != "" {
-		return false, false
+		return false
 	}
-	return true, false
+	return true
 }
 
 // processCollection uploads a folder's poster/background to a matched collection. Collection

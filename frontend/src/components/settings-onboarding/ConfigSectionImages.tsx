@@ -140,6 +140,12 @@ export const ConfigSectionImages: React.FC<ConfigSectionImagesProps> = ({
       }
     }
 
+    // Kometa mode is Plex-only; if it stays enabled after a server-type change the backend
+    // rejects the save, so tell the user how to resolve it.
+    if (mediaServerType !== "Plex" && value.kometa.enabled) {
+      errs.kometa = "Kometa mode only supports Plex. Disable it or switch the media server type back to Plex.";
+    }
+
     // If Kometa mode is enabled (Plex only), an asset directory is required.
     if (mediaServerType === "Plex" && value.kometa.enabled && !value.kometa.asset_directory) {
       errs.kometa = "Kometa asset directory is required when Kometa mode is enabled.";
@@ -322,8 +328,10 @@ export const ConfigSectionImages: React.FC<ConfigSectionImagesProps> = ({
         </div>
       )}
 
-      {/* Kometa Mode (Plex only) */}
-      {mediaServerType === "Plex" && (
+      {/* Kometa Mode (Plex only). Stays visible while enabled on a non-Plex server so the
+          user can still turn it off — otherwise the save is rejected (Kometa is Plex-only)
+          with no visible switch to clear it. */}
+      {(mediaServerType === "Plex" || value.kometa.enabled) && (
         <div
           className={cn(
             "border rounded-md p-3 transition",
@@ -414,8 +422,8 @@ export const ConfigSectionImages: React.FC<ConfigSectionImagesProps> = ({
                     <p className="text-sm text-muted-foreground">
                       Last import: {kometaResult.images_uploaded} images uploaded, {kometaResult.items_registered} items
                       tracked, {kometaResult.unmatched_folders} unmatched
-                      {kometaResult.skipped_managed_by_aura > 0 &&
-                        `, ${kometaResult.skipped_managed_by_aura} kept as AURA-managed`}
+                      {kometaResult.images_skipped_owned > 0 &&
+                        `, ${kometaResult.images_skipped_owned} skipped (AURA-managed)`}
                       {kometaResult.error && ` — error: ${kometaResult.error}`}
                     </p>
                   )}

@@ -7,10 +7,11 @@ import type { APIResponse } from "@/types/api/api-response";
 
 export interface KometaImportFolderOutcome {
   folder: string;
-  outcome: string; // matched | unmatched | collection | error
+  outcome: string; // matched | unmatched | collection | skipped | error
   detail?: string;
   images_uploaded: number;
   images_failed: number;
+  images_skipped_owned: number; // assets not uploaded because a MediUX set owns their image type
   registered_in_db: boolean;
   managed_by_aura: boolean;
 }
@@ -24,6 +25,7 @@ export interface KometaImportResult {
   unmatched_folders: number;
   images_uploaded: number;
   images_failed: number;
+  images_skipped_owned: number; // assets not uploaded because a MediUX set owns their image type
   items_registered: number;
   skipped_managed_by_aura: number;
   error?: string;
