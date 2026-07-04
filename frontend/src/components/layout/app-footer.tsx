@@ -50,7 +50,7 @@ export function AppFooter({ version = "dev" }: AppFooterProps) {
           </Link>
 
           <Link
-            href="https://github.com/mediux-team/aura"
+            href="https://github.com/jabrown93/aura"
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center hover:text-primary transition-colors active:scale-95 hover:brightness-120"

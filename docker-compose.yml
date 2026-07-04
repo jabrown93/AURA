@@ -1,6 +1,6 @@
 services:
     aura:
-        image: ghcr.io/mediux-team/aura:latest # Use the latest image from GitHub Container Registry
+        image: ghcr.io/jabrown93/aura:latest # Use the latest image from GitHub Container Registry
         container_name: aura # Name of the container
 
         # Automatically restart the container if it crashes or the server reboots

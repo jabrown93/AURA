@@ -2,12 +2,12 @@ name: CI
 
 on:
   pull_request:
-    branches: [master]
+    branches: [main]
   push:
-    # master = post-merge run. renovate/** lets Renovate's branch-automerge
+    # main = post-merge run. renovate/** lets Renovate's branch-automerge
     # updates (which never open a PR) run CI on the branch so the default-branch
-    # ruleset can fast-forward master once the branch is green.
-    branches: [master, 'renovate/**']
+    # ruleset can fast-forward main once the branch is green.
+    branches: [main, 'renovate/**']
 
 permissions:
   contents: read

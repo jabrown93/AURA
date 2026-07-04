@@ -14,7 +14,7 @@ To install aura using a Dockerfile, follow these steps:
 1. **Clone the Repository**: Start by cloning the aura repository from GitHub.
 
     ```bash
-    git clone https://github.com/mediux-team/aura.git
+    git clone https://github.com/jabrown93/aura.git
     cd aura
     ```
 

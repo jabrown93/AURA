@@ -22,8 +22,8 @@ func SendDiscordMessage(ctx context.Context, provider *config.Config_Notificatio
 	embed := map[string]any{
 		"author": map[string]any{
 			"name":     "aura Bot",
-			"url":      "https://github.com/mediux-team/aura",
-			"icon_url": "https://raw.githubusercontent.com/mediux-team/aura/master/frontend/public/aura_logo.png",
+			"url":      "https://github.com/jabrown93/aura",
+			"icon_url": "https://raw.githubusercontent.com/jabrown93/aura/main/frontend/public/aura_logo.png",
 		},
 		"title":       title,
 		"description": message,
@@ -37,7 +37,7 @@ func SendDiscordMessage(ctx context.Context, provider *config.Config_Notificatio
 
 	webhookBody := map[string]any{
 		"name":       "aura Bot",
-		"avatar_url": "https://raw.githubusercontent.com/mediux-team/aura/master/frontend/public/aura_logo.png",
+		"avatar_url": "https://raw.githubusercontent.com/jabrown93/aura/main/frontend/public/aura_logo.png",
 		"embeds":     []map[string]any{embed},
 	}
 

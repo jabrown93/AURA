@@ -5,8 +5,8 @@
 # plus the PR's (untrusted) build, so it holds NO secrets and never reaches the
 # cluster. It only builds the SBOM and hands it to the trusted consumer as an
 # artifact. The privileged upload-to-DT + PR comment runs in pr-license-comment.yml,
-# a `workflow_run` workflow that always executes the master-branch definition, with
-# the OpenBao role pinned to that file @refs/heads/master. This is the
+# a `workflow_run` workflow that always executes the main-branch definition, with
+# the OpenBao role pinned to that file @refs/heads/main. This is the
 # GitHub-recommended pattern for giving secrets to PR-triggered automation without
 # exposing them to PR-controlled code.
 #
@@ -15,7 +15,7 @@ name: PR License Check (Dependency-Track)
 
 on:
   pull_request:
-    branches: [master]
+    branches: [main]
 
 permissions:
   contents: read

@@ -52,7 +52,7 @@ export function useAppVersion(currentVersion: string = "dev") {
   useEffect(() => {
     const fetchLatestVersion = async () => {
       try {
-        const res = await fetch("https://raw.githubusercontent.com/mediux-team/AURA/master/VERSION.txt", {
+        const res = await fetch("https://raw.githubusercontent.com/jabrown93/aura/main/VERSION.txt", {
           cache: "no-store",
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);

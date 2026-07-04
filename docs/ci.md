@@ -10,14 +10,14 @@ in-cluster jobs.
 
 | Workflow | Trigger | What it does | Needs infra? |
 |---|---|---|---|
-| `ci.yml` | PR → `master`, push → `master`/`renovate/**` | Backend `go build`/`vet`/`test` + gofmt gate; frontend `npm ci`/`lint`/`build`. | No |
-| `codeql.yml` | push/PR → `master`/`beta`, weekly | CodeQL for `go` and `javascript-typescript` (build-mode `none`) via the reusable `jabrown93/.github` workflow. | No |
-| `aura.yml` | push → `master` (paths), manual | Multi-arch build + push `ghcr.io/<owner>/aura:latest` + `:<VERSION.txt>`, SBOM + provenance, cosign keyless sign. | No |
+| `ci.yml` | PR → `main`, push → `main`/`renovate/**` | Backend `go build`/`vet`/`test` + gofmt gate; frontend `npm ci`/`lint`/`build`. | No |
+| `codeql.yml` | push/PR → `main`/`beta`, weekly | CodeQL for `go` and `javascript-typescript` (build-mode `none`) via the reusable `jabrown93/.github` workflow. | No |
+| `aura.yml` | push → `main` (paths), manual | Multi-arch build + push `ghcr.io/<owner>/aura:latest` + `:<VERSION.txt>`, SBOM + provenance, cosign keyless sign. | No |
 | `aura-beta.yml` | push → `beta*` (paths), manual | Same, `:beta` + `:<VERSION>-beta`. | No |
-| `dt-sbom.yml` | push → `master`, manual | syft SBOM (Go + npm) → upload to Dependency-Track (`isLatest`). | **Yes** |
-| `pr-license-check.yml` | PR → `master` (same-repo) | Untrusted producer: build SBOM, upload as artifact. No secrets. | No |
+| `dt-sbom.yml` | push → `main`, manual | syft SBOM (Go + npm) → upload to Dependency-Track (`isLatest`). | **Yes** |
+| `pr-license-check.yml` | PR → `main` (same-repo) | Untrusted producer: build SBOM, upload as artifact. No secrets. | No |
 | `pr-license-comment.yml` | `workflow_run` of the check | Trusted consumer: upload PR SBOM to DT, post advisory license comment. | **Yes** |
-| `jekyll-gh-pages.yml` | push → `master` (`docs/**`), manual | Publish `docs/` to GitHub Pages. | Pages setting |
+| `jekyll-gh-pages.yml` | push → `main` (`docs/**`), manual | Publish `docs/` to GitHub Pages. | Pages setting |
 
 ## Images
 
@@ -38,14 +38,14 @@ They stay red until this infra exists:
 2. **OpenBao JWT roles** under the `github-actions` mount, bound to this repo:
    - `dt-sbom-upload` — used by `dt-sbom.yml`.
    - `dt-pr-license` — used by `pr-license-comment.yml`; bind it to
-     `job_workflow_ref` `jabrown93/AURA/.github/workflows/pr-license-comment.yml@refs/heads/master`
+     `job_workflow_ref` `jabrown93/AURA/.github/workflows/pr-license-comment.yml@refs/heads/main`
      so a PR that rewrites the producer cannot mint the key.
    Both map `secret/data/ci/dependency-track/ci-api-key`.
 3. **Dependency-Track** — reachable at
    `dependency-track-api-server.dependency-track.svc.cluster.local:8080`; the CI
    key's **Automation** team needs `BOM_UPLOAD`, `VIEW_PORTFOLIO`, and
    `VIEW_POLICY_VIOLATION`. Projects are auto-created (`github.com/jabrown93/AURA`,
-   version `<sha>` for master and `pr-<n>` for PRs).
+   version `<sha>` for main and `pr-<n>` for PRs).
 
 See `github.com/jabrown93/homelab → docs/dependency-track.md` for the shared
 setup these mirror.

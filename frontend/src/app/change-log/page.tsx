@@ -28,7 +28,7 @@ function ChangelogContent() {
     setLatestVersion(latestVersion);
     if (updates === "true") {
       // Fetch latest changelog from GitHub (raw URL)
-      fetch("https://raw.githubusercontent.com/mediux-team/AURA/master/frontend/public/CHANGELOG.md")
+      fetch("https://raw.githubusercontent.com/jabrown93/aura/main/frontend/public/CHANGELOG.md")
         .then((res) => res.text())
         .then(setContent)
         .catch(() => setContent("Failed to fetch latest changelog from GitHub."));

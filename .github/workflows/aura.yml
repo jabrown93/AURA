@@ -3,7 +3,7 @@ name: Release aura image
 on:
   workflow_dispatch:
   push:
-    branches: ["master"]
+    branches: ["main"]
     paths:
       - "backend/**"
       - "frontend/**"

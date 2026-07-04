@@ -15,14 +15,14 @@
 #            DNS names, not the public gateway. The set is REPO-scoped
 #            (arc-oss-aura). See github.com/jabrown93/homelab -> docs/dependency-track.md.
 #
-# push-to-master + manual only: never runs on pull_request, so fork PR code can't
+# push-to-main + manual only: never runs on pull_request, so fork PR code can't
 # reach the in-cluster runner. DT is visibility-only, so there is no PR gate to
 # lose by not scanning PRs.
 name: Dependency-Track SBOM
 
 on:
   push:
-    branches: [master]
+    branches: [main]
   workflow_dispatch: {}
 
 jobs:

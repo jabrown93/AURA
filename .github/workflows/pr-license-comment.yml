@@ -1,11 +1,11 @@
 ---
 # Consumer half of the advisory PR license check (producer: pr-license-check.yml).
 #
-# `workflow_run` always runs THIS file from the default branch (master), never the
+# `workflow_run` always runs THIS file from the default branch (main), never the
 # PR's version -- that is the trust boundary. The untrusted PR-context producer
 # holds no secrets and only builds the SBOM; the Dependency-Track CI key is
-# exposed only here, to trusted master-pinned code. The OpenBao role `dt-pr-license`
-# is bound to this file @refs/heads/master (job_workflow_ref), so a same-repo PR
+# exposed only here, to trusted main-pinned code. The OpenBao role `dt-pr-license`
+# is bound to this file @refs/heads/main (job_workflow_ref), so a same-repo PR
 # that rewrites the producer cannot mint the key. Advisory only: it never fails
 # anything, it posts a comment.
 #
@@ -13,8 +13,8 @@
 # this repo and empty for forks (which also get no token). See
 # github.com/jabrown93/homelab -> docs/dependency-track.md.
 #
-# NOTE: workflow_run uses the master-branch copy of this file, so the PR that first
-# adds it gets no comment; it activates for PRs opened after this merges to master.
+# NOTE: workflow_run uses the main-branch copy of this file, so the PR that first
+# adds it gets no comment; it activates for PRs opened after this merges to main.
 name: PR License Comment (Dependency-Track)
 
 on:
@@ -89,7 +89,7 @@ jobs:
           # Advisory: never fail. Emit a status + violations.json for the renderer.
           echo '[]' > violations.json
           echo 'unavailable:000' > status.txt
-          # Upload the PR SBOM (no isLatest -> the master version stays canonical).
+          # Upload the PR SBOM (no isLatest -> the main version stays canonical).
           # Use -f so an HTTP error is caught here rather than silently falling
           # through to a STALE pre-existing pr-<n> project on lookup.
           resp=$(curl -fsS -H "X-Api-Key: ${DT_API_KEY}" -X POST "$DT/api/v1/bom" \
