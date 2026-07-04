@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.5](https://github.com/jabrown93/AURA/compare/v1.0.4...v1.0.5) (2026-07-04)
+
+
+### Bug Fixes
+
+* **deps:** update module github.com/swaggo/http-swagger to v2 ([#23](https://github.com/jabrown93/AURA/issues/23)) ([090f641](https://github.com/jabrown93/AURA/commit/090f6413e018fbef1088f9083eb2c996c2c57d74))
+
 ## [1.0.4](https://github.com/jabrown93/AURA/compare/v1.0.3...v1.0.4) (2026-07-04)
 
 
