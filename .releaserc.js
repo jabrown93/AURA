@@ -46,7 +46,11 @@ module.exports = {
       "@semantic-release/git",
       {
         assets: ["VERSION.txt", "version.json", "frontend/public/CHANGELOG.md"],
-        message: "chore(release): v${nextRelease.version} [skip ci]\n\n${nextRelease.notes}",
+        // Keep the release notes OUT of the commit message: the first release
+        // rolls up ~1800 commits (~130 KB of notes), and inlining that via
+        // `git commit -m` overruns the OS argument limit (E2BIG). The full notes
+        // still land in CHANGELOG.md and the GitHub Release body.
+        message: "chore(release): v${nextRelease.version} [skip ci]",
       },
     ],
     ["@semantic-release/github", { successComment: false, failComment: false }],
