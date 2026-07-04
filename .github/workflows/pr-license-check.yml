@@ -1,0 +1,43 @@
+---
+# Producer half of the advisory PR license check (consumer: pr-license-comment.yml).
+#
+# SECURITY BOUNDARY: a `pull_request` build runs the PR's OWN copy of this file
+# plus the PR's (untrusted) build, so it holds NO secrets and never reaches the
+# cluster. It only builds the SBOM and hands it to the trusted consumer as an
+# artifact. The privileged upload-to-DT + PR comment runs in pr-license-comment.yml,
+# a `workflow_run` workflow that always executes the master-branch definition, with
+# the OpenBao role pinned to that file @refs/heads/master. This is the
+# GitHub-recommended pattern for giving secrets to PR-triggered automation without
+# exposing them to PR-controlled code.
+#
+# Public repo -> hosted ubuntu-latest is free/unlimited and has no cluster reach.
+name: PR License Check (Dependency-Track)
+
+on:
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  sbom:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Generate CycloneDX SBOM
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          path: .
+          format: cyclonedx-json
+          output-file: sbom.cdx.json
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sbom
+          if-no-files-found: error
+          path: sbom.cdx.json

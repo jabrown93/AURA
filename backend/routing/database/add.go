@@ -14,11 +14,11 @@ import (
 )
 
 type addItemRequest struct {
-	Complete    bool                     `json:"complete"`
-	MediaItem   models.MediaItem         `json:"media_item"`
-	PosterSet   models.DBPosterSetDetail `json:"poster_set"`
-	AddToDBOnly bool                     `json:"add_to_db_only"` // If true, the item will be added to the database but not have any labels or tags applied. This is for users who want to manage labels and tags manually.
-	AutoAddNewCollectionItems bool       `json:"auto_add_new_collection_items"`
+	Complete                  bool                     `json:"complete"`
+	MediaItem                 models.MediaItem         `json:"media_item"`
+	PosterSet                 models.DBPosterSetDetail `json:"poster_set"`
+	AddToDBOnly               bool                     `json:"add_to_db_only"` // If true, the item will be added to the database but not have any labels or tags applied. This is for users who want to manage labels and tags manually.
+	AutoAddNewCollectionItems bool                     `json:"auto_add_new_collection_items"`
 }
 
 type addItemResponse struct {
