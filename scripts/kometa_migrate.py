@@ -194,7 +194,8 @@ def main(argv=None):
     if failed:
         print("  failed            : %d" % failed)
     if collisions:
-        print("  collisions        : %d (multiple sources map to the same asset; last wins)" % len(collisions))
+        winner = "last wins" if args.overwrite else "first wins (later sources skipped unless --overwrite)"
+        print("  collisions        : %d (multiple sources map to the same asset; %s)" % (len(collisions), winner))
         for a, b in collisions:
             print("    %s  and  %s  ->  %s/%s" % (a, b.src, b.asset_name, b.dest_name))
     if unrecognized_thumbs:

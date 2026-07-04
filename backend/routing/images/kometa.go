@@ -15,7 +15,7 @@ import (
 // @Summary      Get Kometa Asset Image
 // @Description  Serve a locally-imported Kometa asset by its image ID (kometa|<folder>/<file>) from the configured asset directory.
 // @Tags         Images
-// @Produce      image/jpeg
+// @Produce      image/jpeg,image/png,image/webp
 // @Param        asset_id   query     string  true  "Kometa image ID (kometa|<folder>/<file>)"
 // @Success      200  {string}  string "Image data"
 // @Failure      500  {object}  httpx.JSONResponse "Internal Server Error"
@@ -61,9 +61,22 @@ func GetKometaImage(w http.ResponseWriter, r *http.Request) {
 
 	// Resolve the path and ensure it stays within the asset directory (prevents traversal).
 	cleanBase := filepath.Clean(assetDir)
-	fullPath := filepath.Clean(filepath.Join(cleanBase, folder, file))
+	folderPath := filepath.Clean(filepath.Join(cleanBase, folder))
+	fullPath := filepath.Clean(filepath.Join(folderPath, file))
 	if !strings.HasPrefix(fullPath, cleanBase+string(os.PathSeparator)) {
 		logAction.SetError("Invalid Kometa asset path", "Resolved path escapes the asset directory", map[string]any{"asset_id": assetID})
+		httpx.SendResponse(w, ld, nil)
+		return
+	}
+
+	// Prevent symlink escapes: do not allow the folder or file to be symlinks.
+	if info, err := os.Lstat(folderPath); err != nil || info.Mode()&os.ModeSymlink != 0 {
+		logAction.SetError("Invalid Kometa asset path", "Kometa asset folders must not be symlinks", map[string]any{"path": folderPath})
+		httpx.SendResponse(w, ld, nil)
+		return
+	}
+	if info, err := os.Lstat(fullPath); err != nil || info.Mode()&os.ModeSymlink != 0 {
+		logAction.SetError("Invalid Kometa asset path", "Kometa asset files must not be symlinks", map[string]any{"path": fullPath})
 		httpx.SendResponse(w, ld, nil)
 		return
 	}
