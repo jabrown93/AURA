@@ -38,9 +38,10 @@ jobs:
     name: semantic-release
     runs-on: ubuntu-latest
     # Skip semantic-release for a manual tag (re)publish; otherwise skip only on
-    # our own [skip ci] version-bump commits.
+    # our own [skip ci] version-bump commits. github.event.inputs.* reads empty on
+    # non-dispatch events, so this is safe on push/schedule.
     if: >-
-      inputs.publish_tag == '' &&
+      github.event.inputs.publish_tag == '' &&
       (github.event_name != 'push' || !contains(github.event.head_commit.message, '[skip ci]'))
     permissions:
       contents: write # push the version-bump commit, create the tag + GitHub Release
@@ -82,7 +83,7 @@ jobs:
       !cancelled() &&
       needs.release.result != 'failure' &&
       (
-        inputs.publish_tag != '' ||
+        github.event.inputs.publish_tag != '' ||
         needs.release.outputs.published == 'true' ||
         (github.event_name == 'push' && github.ref_name == 'main')
       )
@@ -95,8 +96,21 @@ jobs:
       PUBLISHED: ${{ needs.release.outputs.published }}
       VERSION: ${{ needs.release.outputs.version }}
       CHANNEL: ${{ needs.release.outputs.channel }}
-      PUBLISH_TAG: ${{ inputs.publish_tag }}
+      PUBLISH_TAG: ${{ github.event.inputs.publish_tag }}
     steps:
+      - name: Validate publish_tag
+        if: env.PUBLISH_TAG != ''
+        run: |
+          # Reject anything that isn't a clean vX.Y.Z[-suffix] tag before it is
+          # written to $GITHUB_OUTPUT / used as a checkout ref or Docker tag.
+          # The anchored pattern also rejects newlines (output-injection) and any
+          # char illegal in a Docker tag (e.g. '+', '/', whitespace). Existence
+          # of the tag is enforced by the checkout step below.
+          if [[ ! "${PUBLISH_TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::publish_tag '${PUBLISH_TAG}' must be a vX.Y.Z[-suffix] tag" >&2
+            exit 1
+          fi
+
       - name: Plan checkout ref
         id: plan
         run: |

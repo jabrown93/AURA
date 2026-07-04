@@ -27,6 +27,13 @@ const depReleaseRules = releaseDeps
 // Cap ONLY the Release body: @semantic-release/changelog still writes the full
 // notes to CHANGELOG.md. This is a Lodash template (@semantic-release/github
 // v11+): `<% %>` runs JS, `<%= %>` inserts the value raw (no HTML escaping).
+//
+// Build the "full changelog" link from the runner's repo env so it survives a
+// repo rename/transfer (falls back to the canonical URL for local dry-runs).
+const repoBaseUrl =
+  process.env.GITHUB_SERVER_URL && process.env.GITHUB_REPOSITORY
+    ? `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}`
+    : "https://github.com/jabrown93/AURA";
 const RELEASE_BODY_MAX = 120000; // headroom under GitHub's 125,000 hard cap
 const releaseBodyTemplate =
   "<% var notes = nextRelease.notes || ''; %>" +
@@ -36,7 +43,8 @@ const releaseBodyTemplate =
   `<%= notes.slice(0, ${RELEASE_BODY_MAX}) %>` +
   "\n\n---\n\n**Release notes truncated** — the full list exceeded GitHub's " +
   "125,000-character limit. Full changelog: " +
-  "https://github.com/jabrown93/AURA/blob/v<%= nextRelease.version %>/frontend/public/CHANGELOG.md" +
+  `${repoBaseUrl}/blob/` +
+  "<%= nextRelease.gitTag %>/frontend/public/CHANGELOG.md" +
   "<% } %>";
 
 module.exports = {
