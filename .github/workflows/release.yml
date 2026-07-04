@@ -74,25 +74,15 @@ jobs:
       VERSION: ${{ needs.release.outputs.version }}
       CHANNEL: ${{ needs.release.outputs.channel }}
     steps:
-      - name: Plan tags and checkout ref
+      - name: Plan checkout ref
         id: plan
         run: |
-          short_sha="${GITHUB_SHA::7}"
+          # On a release, build the tag so the baked CHANGELOG/VERSION files match
+          # the release; otherwise build the pushed commit for the rolling :edge.
           if [[ "${PUBLISHED}" == "true" ]]; then
-            # A release was cut: check out its tag so the baked CHANGELOG.md,
-            # VERSION.txt and version.json include the just-released entry.
             echo "ref=v${VERSION}" >> "$GITHUB_OUTPUT"
-            echo "app_version=v${VERSION}" >> "$GITHUB_OUTPUT"
-            if [[ "${CHANNEL}" == "beta" ]]; then
-              echo "tags=${IMAGE}:beta,${IMAGE}:v${VERSION}" >> "$GITHUB_OUTPUT"
-            else
-              echo "tags=${IMAGE}:latest,${IMAGE}:v${VERSION},${IMAGE}:edge,${IMAGE}:edge-${short_sha}" >> "$GITHUB_OUTPUT"
-            fi
           else
-            # No release: rolling :edge build of the pushed commit.
             echo "ref=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
-            echo "app_version=" >> "$GITHUB_OUTPUT"
-            echo "tags=${IMAGE}:edge,${IMAGE}:edge-${short_sha}" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Checkout
@@ -101,15 +91,27 @@ jobs:
           ref: ${{ steps.plan.outputs.ref }}
           persist-credentials: false
 
-      - name: Resolve APP_VERSION
-        id: ver
+      - name: Plan tags and APP_VERSION
+        id: meta
         run: |
-          app_version="${{ steps.plan.outputs.app_version }}"
-          if [[ -z "${app_version}" ]]; then
+          # Derive the sha from the checked-out HEAD so :edge-<sha> and the edge
+          # APP_VERSION describe the commit actually baked into the image. On a
+          # release run that's the semantic-release bump commit, not GITHUB_SHA.
+          head_sha="$(git rev-parse --short=7 HEAD)"
+          if [[ "${PUBLISHED}" == "true" ]]; then
+            app_version="v${VERSION}"
+            if [[ "${CHANNEL}" == "beta" ]]; then
+              tags="${IMAGE}:beta,${IMAGE}:v${VERSION}"
+            else
+              tags="${IMAGE}:latest,${IMAGE}:v${VERSION},${IMAGE}:edge,${IMAGE}:edge-${head_sha}"
+            fi
+          else
             # Edge build: base off the current version file with an -edge suffix.
             base="$(cat VERSION.txt 2>/dev/null || echo v0.0.0)"
-            app_version="${base}-edge.${GITHUB_SHA::7}"
+            app_version="${base}-edge.${head_sha}"
+            tags="${IMAGE}:edge,${IMAGE}:edge-${head_sha}"
           fi
+          echo "tags=${tags}" >> "$GITHUB_OUTPUT"
           echo "app_version=${app_version}" >> "$GITHUB_OUTPUT"
 
       - name: Set up QEMU
@@ -136,8 +138,8 @@ jobs:
           push: true
           platforms: linux/amd64,linux/arm64
           build-args: |
-            APP_VERSION=${{ steps.ver.outputs.app_version }}
-          tags: ${{ steps.plan.outputs.tags }}
+            APP_VERSION=${{ steps.meta.outputs.app_version }}
+          tags: ${{ steps.meta.outputs.tags }}
           provenance: mode=max
           sbom: true
           cache-from: type=gha

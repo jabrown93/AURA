@@ -12,7 +12,7 @@ in-cluster jobs.
 |---|---|---|---|
 | `ci.yml` | PR → `main`, push → `main`/`renovate/**` | Backend `go build`/`vet`/`test` + gofmt gate; frontend `npm ci`/`lint`/`build`. | No |
 | `codeql.yml` | push/PR → `main`/`beta`, weekly | CodeQL for `go` and `javascript-typescript` (build-mode `none`) via the reusable `jabrown93/.github` workflow. | No |
-| `release.yml` | push → `main`/`beta`, weekly (Mon 09:00 UTC), manual | semantic-release computes the next version, updates `VERSION.txt`/`version.json`/`CHANGELOG.md`, tags + creates a GitHub Release, then builds the multi-arch image **once** and pushes `:latest`+`:v<version>` (main) or `:beta`+`:v<version>-beta.N` (beta), plus a rolling `:edge` on every `main` push. SBOM + provenance, cosign keyless sign. | No |
+| `release.yml` | push → `main`/`beta`, weekly (Mon 09:00 UTC), manual | semantic-release computes the next version, updates `VERSION.txt`/`version.json`/`frontend/public/CHANGELOG.md`, tags + creates a GitHub Release, then builds the multi-arch image **once** and pushes `:latest`+`:v<version>` (main) or `:beta`+`:v<version>-beta.N` (beta), plus a rolling `:edge` on every `main` push. SBOM + provenance, cosign keyless sign. | No |
 | `dt-sbom.yml` | push → `main`, manual | syft SBOM (Go + npm) → upload to Dependency-Track (`isLatest`). | **Yes** |
 | `pr-license-check.yml` | PR → `main` (same-repo) | Untrusted producer: build SBOM, upload as artifact. No secrets. | No |
 | `pr-license-comment.yml` | `workflow_run` of the check | Trusted consumer: upload PR SBOM to DT, post advisory license comment. | **Yes** |
