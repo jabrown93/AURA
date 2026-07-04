@@ -21,6 +21,24 @@ const depReleaseRules = releaseDeps
     ]
   : [];
 
+// GitHub rejects a Release body over 125,000 characters (HTTP 422). Normal
+// automated releases are far below that, but a first release with no prior tag
+// rolls up the entire history and can blow past it — which wedged v1.0.0 here.
+// Cap ONLY the Release body: @semantic-release/changelog still writes the full
+// notes to CHANGELOG.md. This is a Lodash template (@semantic-release/github
+// v11+): `<% %>` runs JS, `<%= %>` inserts the value raw (no HTML escaping).
+const RELEASE_BODY_MAX = 120000; // headroom under GitHub's 125,000 hard cap
+const releaseBodyTemplate =
+  "<% var notes = nextRelease.notes || ''; %>" +
+  `<% if (notes.length <= ${RELEASE_BODY_MAX}) { %>` +
+  "<%= notes %>" +
+  "<% } else { %>" +
+  `<%= notes.slice(0, ${RELEASE_BODY_MAX}) %>` +
+  "\n\n---\n\n**Release notes truncated** — the full list exceeded GitHub's " +
+  "125,000-character limit. Full changelog: " +
+  "https://github.com/jabrown93/AURA/blob/v<%= nextRelease.version %>/frontend/public/CHANGELOG.md" +
+  "<% } %>";
+
 module.exports = {
   branches: ["main", { name: "beta", prerelease: true }],
   tagFormat: "v${version}",
@@ -53,6 +71,9 @@ module.exports = {
         message: "chore(release): v${nextRelease.version} [skip ci]",
       },
     ],
-    ["@semantic-release/github", { successComment: false, failComment: false }],
+    [
+      "@semantic-release/github",
+      { successComment: false, failComment: false, releaseBodyTemplate },
+    ],
   ],
 };

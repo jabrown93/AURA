@@ -15,6 +15,15 @@ on:
   schedule:
     - cron: "0 9 * * 1" # Mondays 09:00 UTC — weekly dependency roll-up release
   workflow_dispatch:
+    inputs:
+      publish_tag:
+        description: >-
+          Existing git tag to (re)build and publish as a stable release image
+          (e.g. v1.0.0) — tags it :latest and :v<version>. Skips semantic-release
+          and does not move :edge. Leave empty for a normal automated release.
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -28,7 +37,11 @@ jobs:
   release:
     name: semantic-release
     runs-on: ubuntu-latest
-    if: github.event_name != 'push' || !contains(github.event.head_commit.message, '[skip ci]')
+    # Skip semantic-release for a manual tag (re)publish; otherwise skip only on
+    # our own [skip ci] version-bump commits.
+    if: >-
+      inputs.publish_tag == '' &&
+      (github.event_name != 'push' || !contains(github.event.head_commit.message, '[skip ci]'))
     permissions:
       contents: write # push the version-bump commit, create the tag + GitHub Release
     outputs:
@@ -60,11 +73,19 @@ jobs:
     name: Build & push image
     needs: release
     runs-on: ubuntu-latest
-    # Every main push publishes :edge; releases (main or beta) publish their tags.
-    # Beta pushes without a release, and empty weekly runs, build nothing.
+    # Every main push publishes :edge; releases (main or beta) publish their tags;
+    # a manual publish_tag dispatch (re)publishes an existing tag. Beta pushes
+    # without a release, and empty weekly runs, build nothing. !cancelled() lets
+    # this run when the release job is skipped (manual publish_tag), while a
+    # failed release still blocks the image.
     if: >-
-      needs.release.outputs.published == 'true' ||
-      (github.event_name == 'push' && github.ref_name == 'main')
+      !cancelled() &&
+      needs.release.result != 'failure' &&
+      (
+        inputs.publish_tag != '' ||
+        needs.release.outputs.published == 'true' ||
+        (github.event_name == 'push' && github.ref_name == 'main')
+      )
     permissions:
       contents: read
       packages: write
@@ -74,13 +95,17 @@ jobs:
       PUBLISHED: ${{ needs.release.outputs.published }}
       VERSION: ${{ needs.release.outputs.version }}
       CHANNEL: ${{ needs.release.outputs.channel }}
+      PUBLISH_TAG: ${{ inputs.publish_tag }}
     steps:
       - name: Plan checkout ref
         id: plan
         run: |
-          # On a release, build the tag so the baked CHANGELOG/VERSION files match
-          # the release; otherwise build the pushed commit for the rolling :edge.
-          if [[ "${PUBLISHED}" == "true" ]]; then
+          # Manual publish_tag: build that exact tag. On a release, build the tag
+          # so the baked CHANGELOG/VERSION files match the release; otherwise build
+          # the pushed commit for the rolling :edge.
+          if [[ -n "${PUBLISH_TAG}" ]]; then
+            echo "ref=${PUBLISH_TAG}" >> "$GITHUB_OUTPUT"
+          elif [[ "${PUBLISHED}" == "true" ]]; then
             echo "ref=v${VERSION}" >> "$GITHUB_OUTPUT"
           else
             echo "ref=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
@@ -99,7 +124,13 @@ jobs:
           # APP_VERSION describe the commit actually baked into the image. On a
           # release run that's the semantic-release bump commit, not GITHUB_SHA.
           head_sha="$(git rev-parse --short=7 HEAD)"
-          if [[ "${PUBLISHED}" == "true" ]]; then
+          if [[ -n "${PUBLISH_TAG}" ]]; then
+            # Manual (re)publish of an existing tag as a stable release image.
+            # Does NOT move :edge — that tracks main's HEAD, which may be newer.
+            ver="${PUBLISH_TAG#v}"
+            app_version="v${ver}"
+            tags="${IMAGE}:latest,${IMAGE}:v${ver}"
+          elif [[ "${PUBLISHED}" == "true" ]]; then
             app_version="v${VERSION}"
             if [[ "${CHANNEL}" == "beta" ]]; then
               tags="${IMAGE}:beta,${IMAGE}:v${VERSION}"
