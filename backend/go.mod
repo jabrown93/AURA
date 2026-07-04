@@ -4,6 +4,7 @@ go 1.25.5
 
 require (
 	github.com/go-chi/chi v1.5.5
+	github.com/go-chi/chi/v5 v5.3.0
 	github.com/rs/zerolog v1.34.0
 )
 
@@ -41,7 +42,6 @@ require (
 
 require (
 	github.com/alexedwards/argon2id v1.0.0
-	github.com/go-chi/chi/v5 v5.3.0
 	github.com/go-chi/jwtauth/v5 v5.4.0
 	github.com/go-resty/resty/v2 v2.17.2
 	github.com/gorilla/websocket v1.5.3
