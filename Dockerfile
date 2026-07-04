@@ -1,10 +1,11 @@
 ############################################################################
 ##### Stage 1: Build the backend application
 ############################################################################
-FROM golang:alpine AS backend-builder
+FROM dhi.io/golang:1.26-alpine3.24-dev AS backend-builder
 
-# Install required dependencies for cgo
-RUN apk add --no-cache gcc musl-dev
+# cgo build deps (gcc, musl-dev) plus ca-certificates + tzdata, which are copied
+# into the shellless runtime image (which has no package manager of its own).
+RUN apk add --no-cache gcc musl-dev ca-certificates tzdata
 
 # Set the working directory
 WORKDIR /backend
@@ -21,14 +22,14 @@ COPY backend/ ./
 # Get the version from build arguments/environment variables
 ARG APP_VERSION=dev
 
-# Enable CGO and build the application 
+# Enable CGO and build the application
 ENV CGO_ENABLED=1
 RUN go build -ldflags="-s -w -X main.APP_VERSION=$APP_VERSION" -o main .
 
 ############################################################################
 ##### Stage 2: Build the frontend application
 ############################################################################
-FROM node:alpine AS frontend-builder
+FROM dhi.io/node:26.4.0-alpine3.24-dev AS frontend-builder
 
 # Set the working directory
 WORKDIR /frontend
@@ -52,46 +53,51 @@ ENV NEXT_TELEMETRY_DISABLED=1
 # Build the application
 RUN npm run build || (echo "Build failed" && cat /frontend/.next/build-diagnostics.json 2>/dev/null || true && exit 1)
 
+# Normalize runtime-readable permissions for static assets before they are copied
+# into the shellless runtime image, which has no shell to run chmod. Local git
+# checkouts can carry restrictive modes (for example from a 077 umask) that COPY
+# would otherwise preserve.
+RUN find /frontend/public -type d -exec chmod 755 {} + \
+	&& find /frontend/public -type f -exec chmod 644 {} + \
+	&& find /frontend/.next/static -type d -exec chmod 755 {} + \
+	&& find /frontend/.next/static -type f -exec chmod 644 {} +
+
 ############################################################################
 ##### Stage 3: Build the final image
 ############################################################################
-FROM node:alpine AS final
+FROM dhi.io/node:26.4.0-alpine3.24 AS final
 
 # Set the working directory
 WORKDIR /app
 
-# Install CA certificates and tzdata for timezone support
-RUN apk update && apk add --no-cache ca-certificates tzdata
+# CA certificates (the Go backend makes HTTPS calls) and tzdata (cron/timezone
+# support) come from the -dev builder stage: this runtime image is shellless and
+# rootless, so there is no apk to install them here.
+COPY --from=backend-builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY --from=backend-builder /usr/share/zoneinfo /usr/share/zoneinfo
 
 # Copy the backend application from the builder stage
-COPY --from=backend-builder /backend/main .
+COPY --from=backend-builder /backend/main /app/main
 
-# Copy the frontend build from the builder stage
+# Copy the frontend build from the builder stage (permissions were normalized in
+# the frontend-builder stage, since there is no shell here to run chmod).
 COPY --from=frontend-builder /frontend/.next/standalone /app/
 COPY --from=frontend-builder /frontend/.next/static /app/.next/static
 COPY --from=frontend-builder /frontend/public /app/public
 
-# Normalize runtime-readable permissions for static assets. Local git checkouts can
-# carry restrictive modes (for example from a 077 umask), and COPY preserves them.
-RUN find /app/public -type d -exec chmod 755 {} + \
-	&& find /app/public -type f -exec chmod 644 {} + \
-	&& find /app/.next/static -type d -exec chmod 755 {} + \
-	&& find /app/.next/static -type f -exec chmod 644 {} +
-
-# Get the version from build arguments/environment variables
-ARG APP_VERSION=dev
+# Process supervisor: node spawns and watches both the Go backend and the Next
+# server. A shellless image can't run `sh -c "./main & node server.js"`, so node
+# (the image's runtime) does the job instead.
+COPY docker/launcher.mjs /app/launcher.mjs
 
 # Set environment variables
 ENV NODE_ENV=production
 ENV HOME=/tmp
 ENV XDG_CACHE_HOME=/tmp/.cache
-ENV GOCACHE=/tmp/.cache/go-build
-ENV GOMODCACHE=/tmp/.cache/go-mod
 
 # Expose the ports for both the backend and frontend
 EXPOSE 3000
 EXPOSE 8888
 
-# Command to run both the backend and frontend
-#CMD ["sh", "-c", "./main & NODE_ENV=production npm start --prefix /frontend"]
-CMD ["sh", "-c", "./main & node server.js"]
+# Run both processes under the node supervisor (shellless, so no `sh -c`).
+ENTRYPOINT ["node", "/app/launcher.mjs"]
