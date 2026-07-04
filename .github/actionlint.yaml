@@ -1,0 +1,6 @@
+# Declare the repo-scoped self-hosted ARC runner label so actionlint recognizes
+# it. This runner hosts the privileged, cluster-facing half of the
+# Dependency-Track workflows (see docs/ci.md).
+self-hosted-runner:
+  labels:
+    - arc-oss-aura
