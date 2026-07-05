@@ -8,8 +8,14 @@ names either next to content or under a custom path that mirrors the library str
     <item folder>/backdrop.jpg
     <show folder>/season01-poster.jpg
     <show folder>/season-specials-poster.jpg
-    <show folder>/<Season XX>/<episode base>-thumb.jpg   (episode_naming_convention: match)
     <show folder>/<Season XX>/S01E01.jpg                 (episode_naming_convention: static)
+
+Files ending in "-thumb.jpg" are deliberately skipped. AURA's "match" episode naming writes
+title cards as "<episode base>-thumb.jpg", which is byte-for-byte the same name Plex
+auto-generates for episode thumbnails -- the two cannot be told apart by filename. Rather than
+risk migrating Plex's auto-generated thumbnails, this script excludes every "-thumb.jpg". If
+you need title cards migrated, use AURA's "static" convention, which produces unambiguous
+"S01E01.jpg" names that this script does migrate.
 
 Kometa's asset directory (asset_folders: true) uses a folder per item, named after the
 item's media folder, containing:
@@ -54,9 +60,9 @@ RE_SEASON_POSTER = re.compile(r"^season(\d{1,3})-poster$", re.IGNORECASE)
 RE_SPECIAL_SEASON = re.compile(r"^season-specials-poster$", re.IGNORECASE)
 # Static title card, e.g. "S01E02"
 RE_STATIC_TITLECARD = re.compile(r"^s(\d{1,3})e(\d{1,3})$", re.IGNORECASE)
-# "match" title card, e.g. "Show - S01E02 - Title-thumb"; extract SxxEyy anywhere before -thumb.
-RE_MATCH_TITLECARD = re.compile(r"^(?P<base>.+)-thumb$", re.IGNORECASE)
-RE_SXXEYY_ANYWHERE = re.compile(r"s(\d{1,3})e(\d{1,3})", re.IGNORECASE)
+# "-thumb" images (e.g. "Show - S01E02 - Title-thumb.jpg") are Plex auto-generated thumbnails
+# and are excluded, not migrated -- see the module docstring.
+RE_THUMB = re.compile(r"-thumb$", re.IGNORECASE)
 
 
 class Plan:
@@ -95,36 +101,33 @@ def classify(path):
     if RE_SPECIAL_SEASON.match(base):
         return Plan(path, parent_name, "Season00" + ext_lower)
 
-    # Title cards live inside a season subfolder; the ASSET_NAME is the show folder.
+    # Static-convention title cards live inside a season subfolder; the ASSET_NAME is the show
+    # folder (the grandparent of the file).
     m = RE_STATIC_TITLECARD.match(base)
     if m:
         season, episode = int(m.group(1)), int(m.group(2))
         return Plan(path, grandparent_name, "S%02dE%02d%s" % (season, episode, ext_lower))
 
-    m = RE_MATCH_TITLECARD.match(base)
-    if m:
-        se = RE_SXXEYY_ANYWHERE.search(m.group("base"))
-        if se:
-            season, episode = int(se.group(1)), int(se.group(2))
-            return Plan(path, grandparent_name, "S%02dE%02d%s" % (season, episode, ext_lower))
-        # A -thumb file we cannot map (no SxxEyy in the name) is reported by the caller.
-        return None
-
+    # "-thumb" images are Plex auto-generated episode thumbnails (and match-convention title
+    # cards, which are indistinguishable from them by name). Skip them -- build_plans() counts
+    # how many were excluded.
     return None
 
 
 def build_plans(source):
     plans = []
-    unrecognized_thumbs = []
+    excluded_thumbs = 0
     for root, _dirs, files in os.walk(source):
         for name in files:
             full = os.path.join(root, name)
             plan = classify(full)
             if plan is not None:
                 plans.append(plan)
-            elif name.lower().endswith(("-thumb.jpg", "-thumb.jpeg", "-thumb.png", "-thumb.webp")):
-                unrecognized_thumbs.append(full)
-    return plans, unrecognized_thumbs
+                continue
+            base, ext = os.path.splitext(name)
+            if ext.lower() in IMAGE_EXTS and RE_THUMB.search(base):
+                excluded_thumbs += 1
+    return plans, excluded_thumbs
 
 
 def main(argv=None):
@@ -148,7 +151,7 @@ def main(argv=None):
         # dest inside source would be re-scanned on repeat runs; warn but allow.
         print("warning: --dest is inside --source; re-running may re-scan migrated files", file=sys.stderr)
 
-    plans, unrecognized_thumbs = build_plans(source)
+    plans, excluded_thumbs = build_plans(source)
 
     # Detect destination collisions (two sources mapping to the same target).
     seen = {}
@@ -198,10 +201,8 @@ def main(argv=None):
         print("  collisions        : %d (multiple sources map to the same asset; %s)" % (len(collisions), winner))
         for a, b in collisions:
             print("    %s  and  %s  ->  %s/%s" % (a, b.src, b.asset_name, b.dest_name))
-    if unrecognized_thumbs:
-        print("  unmapped -thumb   : %d (no SxxEyy in the file name; skipped)" % len(unrecognized_thumbs))
-        for t in unrecognized_thumbs:
-            print("    %s" % t)
+    if excluded_thumbs:
+        print("  excluded -thumb   : %d (Plex auto-generated *-thumb.jpg; not migrated)" % excluded_thumbs)
     if not args.apply:
         print("")
         print("Dry run only. Re-run with --apply to perform the migration.")
