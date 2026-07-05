@@ -358,6 +358,10 @@ func reApplySavedImages(item PlexRefreshedItem) {
 
 	applied := 0
 	matchedImages := make([]models.ImageFile, 0)
+	// Track which asset types were actually re-applied so we can hand the same
+	// SelectedTypes the download-queue path passes to AddLabelToMediaItem. This
+	// drives the "Overlay" label removal (and any per-type aura-* labels).
+	appliedTypes := models.SelectedTypes{}
 
 	for _, savedItem := range savedItems.Items {
 		for _, posterSet := range savedItem.PosterSets {
@@ -410,6 +414,7 @@ func reApplySavedImages(item PlexRefreshedItem) {
 						Msg("Plex Event Listener: Failed to re-apply saved image to refreshed item")
 				} else {
 					applied++
+					markAppliedType(&appliedTypes, image)
 					logging.LOGGER.Info().Timestamp().
 						Str("image_type", image.Type).
 						Str("item_title", item.MediaItem.Title).
@@ -429,7 +434,35 @@ func reApplySavedImages(item PlexRefreshedItem) {
 
 	logAction.AppendResult("matched_images", matchedImages)
 	logAction.AppendResult("images_reapplied", applied)
+
+	// Now that we've re-applied the saved images, remove the "Overlay" label (and
+	// apply any per-type aura-* labels) exactly as the download-queue path does, so
+	// Kometa reprocesses the freshly re-applied posters and re-draws its overlays.
+	// Honors LabelsAndTags.RemoveOverlayLabelOnlyOnPosterDownload via appliedTypes.
+	mediaserver.AddLabelToMediaItem(logCtx, item.MediaItem, appliedTypes)
+
 	logAction.Complete()
+}
+
+// markAppliedType records, on the aggregate SelectedTypes, which asset type was
+// successfully re-applied. This mirrors the SelectedTypes the download queue passes
+// to AddLabelToMediaItem so the "Overlay" label removal (and any per-type aura-*
+// labels) behave identically on the WebSocket re-apply path.
+func markAppliedType(types *models.SelectedTypes, image models.ImageFile) {
+	switch image.Type {
+	case "poster":
+		types.Poster = true
+	case "backdrop":
+		types.Backdrop = true
+	case "season_poster":
+		if image.SeasonNumber != nil && *image.SeasonNumber == 0 {
+			types.SpecialSeasonPoster = true
+		} else {
+			types.SeasonPoster = true
+		}
+	case "titlecard":
+		types.Titlecard = true
+	}
 }
 
 func shouldReApplyImage(item PlexRefreshedItem, image models.ImageFile) bool {
