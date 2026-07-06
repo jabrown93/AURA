@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.4](https://github.com/jabrown93/AURA/compare/v1.1.3...v1.1.4) (2026-07-06)
+
+
+### Bug Fixes
+
+* **deps:** update dependency zustand to v5.0.14 ([bd940f1](https://github.com/jabrown93/AURA/commit/bd940f1816fde614f2d12e88e66cc05cbba471ab))
+
 ## [1.1.3](https://github.com/jabrown93/AURA/compare/v1.1.2...v1.1.3) (2026-07-06)
 
 
