@@ -783,11 +783,25 @@ definitions:
     type: object
   models.DBSavedItem:
     properties:
+      failed_at:
+        description: FailedAt is when the entry was moved to the error/warning state.
+        type: string
       media_item:
         $ref: '#/definitions/models.MediaItem'
       poster_sets:
         items:
           $ref: '#/definitions/models.DBPosterSetDetail'
+        type: array
+      queue_errors:
+        description: QueueErrors lists the fatal reasons the entry failed to download.
+        items:
+          type: string
+        type: array
+      queue_warnings:
+        description: QueueWarnings lists non-fatal issues recorded while processing
+          the entry.
+        items:
+          type: string
         type: array
     type: object
   models.DBSavedSet:
@@ -1338,6 +1352,16 @@ definitions:
         $ref: '#/definitions/models.DBSavedItem'
     type: object
   routes_download.RemoveItemFromDownloadQueue_Response:
+    properties:
+      result:
+        type: string
+    type: object
+  routes_download.RetryItemInDownloadQueue_Request:
+    properties:
+      item:
+        $ref: '#/definitions/models.DBSavedItem'
+    type: object
+  routes_download.RetryItemInDownloadQueue_Response:
     properties:
       result:
         type: string
@@ -2276,6 +2300,45 @@ paths:
       summary: Download Queue - Add Item
       tags:
       - Download
+  /api/download/queue/item/retry:
+    post:
+      consumes:
+      - application/json
+      description: Retry a failed (errored) Media Item in the download queue. The
+        errored entry is atomically re-queued as an in-progress entry so the download
+        worker reprocesses it on its next run.
+      parameters:
+      - description: Queue Retry Item Request
+        in: body
+        name: req
+        required: true
+        schema:
+          $ref: '#/definitions/routes_download.RetryItemInDownloadQueue_Request'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httpx.JSONResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/routes_download.RetryItemInDownloadQueue_Response'
+              type: object
+        "401":
+          description: Unauthorized (only when Auth.Enabled=true)
+          schema:
+            $ref: '#/definitions/httpx.UnauthorizedResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpx.JSONResponse'
+      security:
+      - BearerAuth: []
+      summary: Download Queue - Retry Item
+      tags:
+      - Download
   /api/health:
     get:
       description: Check the health status of the application
@@ -2301,6 +2364,8 @@ paths:
         type: string
       produces:
       - image/jpeg
+      - image/png
+      - image/webp
       responses:
         "200":
           description: Image data
