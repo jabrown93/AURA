@@ -1096,6 +1096,69 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/download/queue/item/retry": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Retry a failed (errored) Media Item in the download queue. The errored entry is atomically re-queued as an in-progress entry so the download worker reprocesses it on its next run.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Download"
+                ],
+                "summary": "Download Queue - Retry Item",
+                "parameters": [
+                    {
+                        "description": "Queue Retry Item Request",
+                        "name": "req",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/routes_download.RetryItemInDownloadQueue_Request"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/httpx.JSONResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/routes_download.RetryItemInDownloadQueue_Response"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized (only when Auth.Enabled=true)",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.UnauthorizedResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.JSONResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/health": {
             "get": {
                 "description": "Check the health status of the application",
@@ -1120,7 +1183,9 @@ const docTemplate = `{
             "get": {
                 "description": "Serve a locally-imported Kometa asset by its image ID (kometa|\u003cfolder\u003e/\u003cfile\u003e) from the configured asset directory.",
                 "produces": [
-                    "image/jpeg"
+                    "image/jpeg",
+                    "image/png",
+                    "image/webp"
                 ],
                 "tags": [
                     "Images"
@@ -5111,6 +5176,22 @@ const docTemplate = `{
             }
         },
         "routes_download.RemoveItemFromDownloadQueue_Response": {
+            "type": "object",
+            "properties": {
+                "result": {
+                    "type": "string"
+                }
+            }
+        },
+        "routes_download.RetryItemInDownloadQueue_Request": {
+            "type": "object",
+            "properties": {
+                "item": {
+                    "$ref": "#/definitions/models.DBSavedItem"
+                }
+            }
+        },
+        "routes_download.RetryItemInDownloadQueue_Response": {
             "type": "object",
             "properties": {
                 "result": {

@@ -125,6 +125,10 @@ var possible_actions_paths = map[string]structActionLabelSection{
 		Label:   "Add Item to Download Queue",
 		Section: "DOWNLOAD",
 	},
+	"POST:/api/download/queue/item/retry": {
+		Label:   "Retry Item in Download Queue",
+		Section: "DOWNLOAD",
+	},
 	"DELETE:/api/download/queue/item": {
 		Label:   "Remove Item from Download Queue",
 		Section: "DOWNLOAD",

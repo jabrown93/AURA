@@ -1,12 +1,14 @@
+import apiClient from "@/services/api-client";
 import { ReturnErrorMessage } from "@/services/api-error-return";
-import { AddItemToDownloadQueue } from "@/services/downloads/queue-add";
-import { RemoveItemFromQueue } from "@/services/downloads/queue-remove";
 
 import { log } from "@/lib/logger";
 
 import type { APIResponse } from "@/types/api/api-response";
 import type { DBSavedItem } from "@/types/database/db-poster-set";
 
+export interface RetryItemInQueue_Request {
+  item: DBSavedItem;
+}
 export interface RetryItemInQueue_Response {
   result: string;
 }
@@ -14,9 +16,10 @@ export interface RetryItemInQueue_Response {
 /**
  * Retry a failed (error) download queue entry.
  *
- * The queue processor permanently skips files prefixed with `error_`, so a retry
- * must first remove the error entry and then re-add the item as a fresh
- * in-progress entry that the processor will pick up on its next run.
+ * The backend atomically re-queues the errored entry (strips its `error_`
+ * prefix) so the processor reprocesses it on its next run. This is a single,
+ * atomic operation — there is no window where a remove could succeed but a
+ * re-add fail, leaving the item lost.
  */
 export const RetryItemInQueue = async (dbItem: DBSavedItem): Promise<APIResponse<RetryItemInQueue_Response>> => {
   const safeEntry: DBSavedItem = {
@@ -32,22 +35,19 @@ export const RetryItemInQueue = async (dbItem: DBSavedItem): Promise<APIResponse
   );
 
   try {
-    // 1. Clear the existing error_ entry so it stops being skipped.
-    const removeResp = await RemoveItemFromQueue(safeEntry);
-    if (removeResp.status === "error") {
-      throw new Error(removeResp.error?.message || "Failed to clear the errored queue entry before retrying");
+    const req: RetryItemInQueue_Request = { item: safeEntry };
+    const response = await apiClient.post<APIResponse<RetryItemInQueue_Response>>(`/download/queue/item/retry`, req);
+    if (response.data.status === "error") {
+      throw new Error(response.data.error?.message || "Unknown error while retrying download queue item");
     }
-
-    // 2. Re-add as a fresh in-progress entry for reprocessing.
-    const addResp = await AddItemToDownloadQueue(safeEntry);
-    if (addResp.status === "error") {
-      throw new Error(addResp.error?.message || "Failed to re-add the item to the download queue");
-    }
-
-    return {
-      status: "success",
-      data: { result: addResp.data?.result || "Item re-added to download queue" },
-    };
+    log(
+      "INFO",
+      "API - Download Queue",
+      "Retry",
+      `Retried '${safeEntry.media_item.title}' (TMDB ID: ${safeEntry.media_item.tmdb_id}) in the download queue`,
+      response.data
+    );
+    return response.data;
   } catch (error) {
     log(
       "ERROR",
