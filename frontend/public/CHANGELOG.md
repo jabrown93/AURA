@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.2](https://github.com/jabrown93/AURA/compare/v1.1.1...v1.1.2) (2026-07-06)
+
+
+### Bug Fixes
+
+* **deps:** migrate to js-yaml v5 ([#37](https://github.com/jabrown93/AURA/issues/37)) ([02a0a2f](https://github.com/jabrown93/AURA/commit/02a0a2f47c17ee643c85fe482443425e2e73e384))
+
 ## [1.1.1](https://github.com/jabrown93/AURA/compare/v1.1.0...v1.1.1) (2026-07-06)
 
 
