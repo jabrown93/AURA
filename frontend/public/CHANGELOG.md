@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.5](https://github.com/jabrown93/AURA/compare/v1.1.4...v1.1.5) (2026-07-06)
+
+
+### Bug Fixes
+
+* **deps:** update radix-ui-primitives monorepo ([9435191](https://github.com/jabrown93/AURA/commit/9435191e43aaff63b3af123d8dbec4b35e4841a7))
+
 ## [1.1.4](https://github.com/jabrown93/AURA/compare/v1.1.3...v1.1.4) (2026-07-06)
 
 
