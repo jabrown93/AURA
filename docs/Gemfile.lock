@@ -1,9 +1,12 @@
 GEM
   remote: https://rubygems.org/
   specs:
-    activesupport (3.2.22.5)
-      i18n (~> 0.6, >= 0.6.4)
-      multi_json (~> 1.0)
+    activesupport (6.0.6.1)
+      concurrent-ruby (~> 1.0, >= 1.0.2)
+      i18n (>= 0.7, < 2)
+      minitest (~> 5.1)
+      tzinfo (~> 1.1)
+      zeitwerk (~> 2.2, >= 2.2.2)
     addressable (2.9.0)
       public_suffix (>= 2.0.2, < 8.0)
     base64 (0.3.0)
@@ -233,7 +236,7 @@ GEM
       jekyll (>= 3.5, < 5.0)
       jekyll-feed (~> 0.9)
       jekyll-seo-tag (~> 2.1)
-    multi_json (1.21.1)
+    minitest (5.27.0)
     net-http (0.9.1)
       uri (>= 0.11.1)
     nokogiri (1.19.4)
@@ -283,10 +286,14 @@ GEM
     simpleidn (0.2.3)
     terminal-table (1.8.0)
       unicode-display_width (~> 1.1, >= 1.1.1)
+    thread_safe (0.3.6)
     typhoeus (1.6.0)
       ethon (>= 0.18.0)
+    tzinfo (1.2.11)
+      thread_safe (~> 0.1)
     unicode-display_width (1.8.0)
     uri (1.1.1)
+    zeitwerk (2.8.2)
 
 PLATFORMS
   aarch64-linux-android
