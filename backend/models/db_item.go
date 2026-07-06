@@ -7,6 +7,15 @@ import "time"
 type DBSavedItem struct {
 	MediaItem  MediaItem           `json:"media_item"`
 	PosterSets []DBPosterSetDetail `json:"poster_sets,omitempty"`
+
+	// Queue-only, transient failure metadata. The download-queue processor
+	// populates these when it moves an entry to the error_/warning_ state so the
+	// UI can show why it failed. They are never persisted to the database
+	// (UpsertSavedItem reads explicit columns, not the marshalled struct) and are
+	// omitted from every other response via omitempty.
+	QueueErrors   []string   `json:"queue_errors,omitempty"`
+	QueueWarnings []string   `json:"queue_warnings,omitempty"`
+	FailedAt      *time.Time `json:"failed_at,omitempty"`
 }
 
 // PosterSetDetail groups poster set details per media item.

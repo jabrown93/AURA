@@ -463,6 +463,7 @@ const DownloadQueuePage: React.FC = () => {
                             selectable={bulkMode}
                             selected={selectedKeys.has(key)}
                             onToggleSelected={(checked) => toggleSelected(key, checked)}
+                            showFailureDetails
                           />
                         );
                       })}
@@ -493,6 +494,7 @@ const DownloadQueuePage: React.FC = () => {
                         key={entry.media_item.tmdb_id}
                         entry={entry}
                         fetchQueueEntries={fetchQueueEntries}
+                        showFailureDetails
                       />
                     ))}
                   </ResponsiveGrid>

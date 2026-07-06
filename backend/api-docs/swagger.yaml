@@ -783,11 +783,27 @@ definitions:
     type: object
   models.DBSavedItem:
     properties:
+      failed_at:
+        type: string
       media_item:
         $ref: '#/definitions/models.MediaItem'
       poster_sets:
         items:
           $ref: '#/definitions/models.DBPosterSetDetail'
+        type: array
+      queue_errors:
+        description: |-
+          Queue-only, transient failure metadata. The download-queue processor
+          populates these when it moves an entry to the error_/warning_ state so the
+          UI can show why it failed. They are never persisted to the database
+          (UpsertSavedItem reads explicit columns, not the marshalled struct) and are
+          omitted from every other response via omitempty.
+        items:
+          type: string
+        type: array
+      queue_warnings:
+        items:
+          type: string
         type: array
     type: object
   models.DBSavedSet:

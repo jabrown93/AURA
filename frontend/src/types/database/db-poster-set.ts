@@ -9,6 +9,11 @@ export interface DBSavedItem {
   //library_title: string;
   media_item: MediaItem;
   poster_sets: DBPosterSetDetail[];
+  // Queue-only failure metadata, populated by the download-queue processor when an
+  // entry is moved to the error/warning state. Absent on all other DBSavedItem uses.
+  queue_errors?: string[];
+  queue_warnings?: string[];
+  failed_at?: string;
 }
 
 export interface DBPosterSetDetail extends PosterSet {

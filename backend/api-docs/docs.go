@@ -4348,6 +4348,9 @@ const docTemplate = `{
         "models.DBSavedItem": {
             "type": "object",
             "properties": {
+                "failed_at": {
+                    "type": "string"
+                },
                 "media_item": {
                     "$ref": "#/definitions/models.MediaItem"
                 },
@@ -4355,6 +4358,19 @@ const docTemplate = `{
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/models.DBPosterSetDetail"
+                    }
+                },
+                "queue_errors": {
+                    "description": "Queue-only, transient failure metadata. The download-queue processor\npopulates these when it moves an entry to the error_/warning_ state so the\nUI can show why it failed. They are never persisted to the database\n(UpsertSavedItem reads explicit columns, not the marshalled struct) and are\nomitted from every other response via omitempty.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "queue_warnings": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
                     }
                 }
             }
