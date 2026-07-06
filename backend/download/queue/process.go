@@ -13,15 +13,65 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"time"
 )
 
-func finalizeQueueFile(filePath, fileName string, hasErrors, hasWarnings bool) error {
+// finalizeQueueFile moves a processed queue entry to its terminal state. On a
+// clean success the file is removed. When there are errors/warnings the entry is
+// enriched with the collected reasons and a failed_at timestamp, written back in
+// place, then atomically renamed to the error_/warning_ prefix so the API and UI
+// can surface why it failed. Files that could not be parsed into a usable entry
+// (empty TMDB ID) keep their original bytes and are simply renamed, so we never
+// fabricate a broken entry.
+func finalizeQueueFile(filePath, fileName string, item models.DBSavedItem, fileErrors, fileWarnings []string) error {
+	hasErrors := len(fileErrors) > 0
+	hasWarnings := len(fileWarnings) > 0
+
+	if !hasErrors && !hasWarnings {
+		return os.Remove(filePath)
+	}
+
+	prefix := "warning_"
 	if hasErrors {
-		return os.Rename(filePath, path.Join(FolderPath, fmt.Sprintf("error_%s", fileName)))
+		prefix = "error_"
 	}
-	if hasWarnings {
-		return os.Rename(filePath, path.Join(FolderPath, fmt.Sprintf("warning_%s", fileName)))
+	destPath := path.Join(FolderPath, prefix+fileName)
+
+	// Only enrich entries we actually parsed. Unparseable files have no usable
+	// identity, so move the original bytes untouched.
+	if item.MediaItem.TMDB_ID == "" {
+		return os.Rename(filePath, destPath)
 	}
+
+	// Record why the entry failed so the UI can display it.
+	item.QueueErrors = fileErrors
+	item.QueueWarnings = fileWarnings
+	now := time.Now()
+	item.FailedAt = &now
+
+	enriched, marshalErr := json.Marshal(item)
+	if marshalErr != nil {
+		// Fall back to a bare rename so the entry still leaves the in-progress state.
+		return os.Rename(filePath, destPath)
+	}
+
+	// Write the enriched entry to a temp file first. GetQueueItems and
+	// ProcessQueueItems only look at ".json" files, so the ".tmp" file is
+	// invisible to them while the original in-progress ".json" stays intact and
+	// fully readable. We then atomically rename the temp into the final
+	// error_/warning_ name and drop the original, so a concurrent reader never
+	// observes a half-written ".json" (which would fail to decode and transiently
+	// drop the entry). The temp name is deterministic, so a crash leaves at most
+	// one stale ".tmp" that the next run overwrites.
+	tmpPath := filePath + ".tmp"
+	if writeErr := os.WriteFile(tmpPath, enriched, 0644); writeErr != nil {
+		return os.Rename(filePath, destPath)
+	}
+	if renameErr := os.Rename(tmpPath, destPath); renameErr != nil {
+		_ = os.Remove(tmpPath)
+		return os.Rename(filePath, destPath)
+	}
+	// The enriched entry now exists under its final name; drop the original.
 	return os.Remove(filePath)
 }
 
@@ -75,6 +125,10 @@ func ProcessQueueItems() {
 
 		filePath := path.Join(FolderPath, file.Name())
 
+		// Declared up front so the finalizeAndNotify closure can enrich it with
+		// the collected errors/warnings when moving the file to its terminal state.
+		var queueItem models.DBSavedItem
+
 		finalizeAndNotify := func(
 			mediaItem models.MediaItem,
 			set models.DBPosterSetDetail,
@@ -84,7 +138,7 @@ func ProcessQueueItems() {
 			issues := FileIssues{Errors: fileErrors, Warnings: fileWarnings}
 			SendNotification(issues, mediaItem, set, tmdbPoster, tmdbBackdrop)
 
-			if err := finalizeQueueFile(filePath, file.Name(), len(fileErrors) > 0, len(fileWarnings) > 0); err != nil {
+			if err := finalizeQueueFile(filePath, file.Name(), queueItem, fileErrors, fileWarnings); err != nil {
 				subAction.AppendWarning(fmt.Sprintf("file_%s", file.Name()), "Failed to move or delete processed file")
 			}
 			ld.Log()
@@ -98,7 +152,6 @@ func ProcessQueueItems() {
 			continue
 		}
 
-		var queueItem models.DBSavedItem
 		if err := json.Unmarshal(data, &queueItem); err != nil {
 			fileErrors = append(fileErrors, fmt.Sprintf("parse json failed: %v", err))
 			finalizeAndNotify(models.MediaItem{}, models.DBPosterSetDetail{}, "", "")
@@ -271,7 +324,7 @@ func ProcessQueueItems() {
 			continue
 		}
 
-		if err := finalizeQueueFile(filePath, file.Name(), len(fileErrors) > 0, len(fileWarnings) > 0); err != nil {
+		if err := finalizeQueueFile(filePath, file.Name(), queueItem, fileErrors, fileWarnings); err != nil {
 			fileWarnings = append(fileWarnings, fmt.Sprintf("finalize file failed: %v", err))
 		}
 

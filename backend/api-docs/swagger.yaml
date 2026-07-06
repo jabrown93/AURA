@@ -783,11 +783,25 @@ definitions:
     type: object
   models.DBSavedItem:
     properties:
+      failed_at:
+        description: FailedAt is when the entry was moved to the error/warning state.
+        type: string
       media_item:
         $ref: '#/definitions/models.MediaItem'
       poster_sets:
         items:
           $ref: '#/definitions/models.DBPosterSetDetail'
+        type: array
+      queue_errors:
+        description: QueueErrors lists the fatal reasons the entry failed to download.
+        items:
+          type: string
+        type: array
+      queue_warnings:
+        description: QueueWarnings lists non-fatal issues recorded while processing
+          the entry.
+        items:
+          type: string
         type: array
     type: object
   models.DBSavedSet:

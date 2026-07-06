@@ -4348,6 +4348,10 @@ const docTemplate = `{
         "models.DBSavedItem": {
             "type": "object",
             "properties": {
+                "failed_at": {
+                    "description": "FailedAt is when the entry was moved to the error/warning state.",
+                    "type": "string"
+                },
                 "media_item": {
                     "$ref": "#/definitions/models.MediaItem"
                 },
@@ -4355,6 +4359,20 @@ const docTemplate = `{
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/models.DBPosterSetDetail"
+                    }
+                },
+                "queue_errors": {
+                    "description": "QueueErrors lists the fatal reasons the entry failed to download.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "queue_warnings": {
+                    "description": "QueueWarnings lists non-fatal issues recorded while processing the entry.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
                     }
                 }
             }
