@@ -15,9 +15,11 @@ import DownloadModal from "@/components/shared/download-modal";
 import { renderTypeBadges } from "@/components/shared/saved-sets-shared";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Separator } from "@/components/ui/separator";
 import { H4 } from "@/components/ui/typography";
 
+import { cn } from "@/lib/cn";
 import { useMediaStore } from "@/lib/stores/global-store-media-store";
 
 import type { DBSavedItem } from "@/types/database/db-poster-set";
@@ -26,7 +28,11 @@ import type { BaseSetInfo } from "@/types/media-and-posters/sets";
 const DownloadQueueEntry: React.FC<{
   entry: DBSavedItem;
   fetchQueueEntries?: () => Promise<void>;
-}> = ({ entry, fetchQueueEntries }) => {
+  // Bulk-selection support (used by the download queue Error section).
+  selectable?: boolean;
+  selected?: boolean;
+  onToggleSelected?: (checked: boolean) => void;
+}> = ({ entry, fetchQueueEntries, selectable = false, selected = false, onToggleSelected }) => {
   const posterSets = Array.isArray(entry.poster_sets) ? entry.poster_sets : [];
   const baseSetInfo: BaseSetInfo = {
     id: posterSets[0]?.id || "",
@@ -69,23 +75,43 @@ const DownloadQueueEntry: React.FC<{
   };
 
   return (
-    <Card className="relative w-full max-w-md mx-auto">
+    <Card
+      className={cn(
+        "relative w-full max-w-md mx-auto transition-shadow",
+        selectable && "cursor-pointer",
+        selected && "ring-2 ring-primary"
+      )}
+      onClick={selectable ? () => onToggleSelected?.(!selected) : undefined}
+    >
       <CardHeader>
-        {/* Top Left: Delete File */}
+        {/* Top Left: Bulk-select checkbox (bulk mode) or Delete File (normal) */}
         <div className="absolute top-2 left-2">
-          <ConfirmDestructiveDialogActionButton
-            variant="outline"
-            className="text-destructive border-1 shadow-none hover:text-red-500 cursor-pointer"
-            confirmText="Delete File"
-            title="Delete Downloaded File?"
-            description="Are you sure you want to delete the downloaded file for this media item? This action cannot be undone."
-            onConfirm={onDeleteConfirm}
-          >
-            <Trash2 className="w-5 h-5" />
-          </ConfirmDestructiveDialogActionButton>
+          {selectable ? (
+            <Checkbox
+              checked={selected}
+              onCheckedChange={(checked) => onToggleSelected?.(checked === true)}
+              onClick={(e) => e.stopPropagation()}
+              aria-label={`Select ${entry.media_item.title}`}
+              className="h-6 w-6 border-1 border-primary cursor-pointer"
+            />
+          ) : (
+            <ConfirmDestructiveDialogActionButton
+              variant="outline"
+              className="text-destructive border-1 shadow-none hover:text-red-500 cursor-pointer"
+              confirmText="Delete File"
+              title="Delete Downloaded File?"
+              description="Are you sure you want to delete the downloaded file for this media item? This action cannot be undone."
+              onConfirm={onDeleteConfirm}
+            >
+              <Trash2 className="w-5 h-5" />
+            </ConfirmDestructiveDialogActionButton>
+          )}
         </div>
         {/* Top Right: Dropdown Menu */}
-        <div className="absolute top-2 right-2 justify-end">
+        <div
+          className="absolute top-2 right-2 justify-end"
+          onClick={selectable ? (e) => e.stopPropagation() : undefined}
+        >
           <DownloadModal baseSetInfo={baseSetInfo} formItems={formItems} />
         </div>
       </CardHeader>
@@ -107,7 +133,8 @@ const DownloadQueueEntry: React.FC<{
             //href={formatMediaItemUrl(entry.MediaItem)}
             href={"/media-item/"}
             className="text-primary hover:underline"
-            onClick={() => {
+            onClick={(e) => {
+              if (selectable) e.stopPropagation();
               setMediaItem(entry.media_item);
             }}
           >
