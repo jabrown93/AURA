@@ -34,10 +34,12 @@ func RemoveFromQueue(ctx context.Context, deleteItem models.DBSavedItem) (delete
 		return deleted, Err
 	}
 
-	// Build a regex pattern to match the file name for the item to be deleted
+	// Build a regex pattern to match the file name for the item to be deleted.
+	// QuoteMeta escapes any regex metacharacters in the library title (e.g.
+	// "Movies (4K)") so the pattern matches the literal filename AddToQueue wrote.
 	pattern := fmt.Sprintf(`^(error_|warning_)?%s_%s_\d+\.json$`,
-		strings.ReplaceAll(deleteItem.MediaItem.LibraryTitle, " ", `_`),
-		deleteItem.MediaItem.TMDB_ID,
+		regexp.QuoteMeta(strings.ReplaceAll(deleteItem.MediaItem.LibraryTitle, " ", `_`)),
+		regexp.QuoteMeta(deleteItem.MediaItem.TMDB_ID),
 	)
 	re := regexp.MustCompile(pattern)
 

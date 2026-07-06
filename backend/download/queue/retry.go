@@ -40,10 +40,12 @@ func RetryFromQueue(ctx context.Context, retryItem models.DBSavedItem) (retried 
 
 	// Match only errored files for this item (LibraryTitle + TMDB ID). This uses
 	// the same name construction as RemoveFromQueue so retry and delete target
-	// the same set of files.
+	// the same set of files. QuoteMeta escapes regex metacharacters (e.g. a
+	// library named "Movies (4K)") so the pattern matches the literal filename
+	// AddToQueue wrote rather than being interpreted as regex syntax.
 	pattern := fmt.Sprintf(`^error_%s_%s_\d+\.json$`,
-		strings.ReplaceAll(retryItem.MediaItem.LibraryTitle, " ", `_`),
-		retryItem.MediaItem.TMDB_ID,
+		regexp.QuoteMeta(strings.ReplaceAll(retryItem.MediaItem.LibraryTitle, " ", `_`)),
+		regexp.QuoteMeta(retryItem.MediaItem.TMDB_ID),
 	)
 	re := regexp.MustCompile(pattern)
 
