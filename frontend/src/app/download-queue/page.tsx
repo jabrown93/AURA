@@ -404,6 +404,7 @@ const DownloadQueuePage: React.FC = () => {
                         <div className="flex flex-wrap items-center gap-3 rounded-md border p-3">
                           <div className="flex items-center gap-2 select-none">
                             <Checkbox
+                              id="select-all-error-entries"
                               checked={allErrorsSelected}
                               onCheckedChange={(checked) =>
                                 setSelectedKeys(checked ? new Set(uniqueErrorKeys) : new Set())
@@ -412,15 +413,12 @@ const DownloadQueuePage: React.FC = () => {
                               aria-label={allErrorsSelected ? "Deselect all error entries" : "Select all error entries"}
                               className="h-5 w-5 border-1 border-primary cursor-pointer"
                             />
-                            <span
-                              className={cn("text-sm", !bulkActionRunning && "cursor-pointer")}
-                              onClick={() => {
-                                if (bulkActionRunning) return;
-                                setSelectedKeys(allErrorsSelected ? new Set() : new Set(uniqueErrorKeys));
-                              }}
+                            <label
+                              htmlFor="select-all-error-entries"
+                              className={cn("text-sm", bulkActionRunning ? "cursor-not-allowed" : "cursor-pointer")}
                             >
                               {allErrorsSelected ? "Deselect All" : "Select All"}
-                            </span>
+                            </label>
                           </div>
 
                           <span className="text-sm text-muted-foreground">
@@ -455,11 +453,11 @@ const DownloadQueuePage: React.FC = () => {
                     </div>
 
                     <ResponsiveGrid size="regular">
-                      {errorEntries.map((entry) => {
+                      {errorEntries.map((entry, index) => {
                         const key = errorEntryKey(entry);
                         return (
                           <DownloadQueueEntry
-                            key={entry.media_item.tmdb_id}
+                            key={`${key}-${index}`}
                             entry={entry}
                             fetchQueueEntries={fetchQueueEntries}
                             selectable={bulkMode}

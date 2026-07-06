@@ -81,7 +81,20 @@ const DownloadQueueEntry: React.FC<{
         selectable && "cursor-pointer",
         selected && "ring-2 ring-primary"
       )}
+      role={selectable ? "button" : undefined}
+      tabIndex={selectable ? 0 : undefined}
+      aria-pressed={selectable ? selected : undefined}
       onClick={selectable ? () => onToggleSelected?.(!selected) : undefined}
+      onKeyDown={
+        selectable
+          ? (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onToggleSelected?.(!selected);
+              }
+            }
+          : undefined
+      }
     >
       <CardHeader>
         {/* Top Left: Bulk-select checkbox (bulk mode) or Delete File (normal) */}
