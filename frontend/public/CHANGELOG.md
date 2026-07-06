@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.1](https://github.com/jabrown93/AURA/compare/v1.1.0...v1.1.1) (2026-07-06)
+
+
+### Bug Fixes
+
+* **deps:** drop dead go-chi/chi v1 and http-swagger v1 ([#36](https://github.com/jabrown93/AURA/issues/36)) ([5f41ad9](https://github.com/jabrown93/AURA/commit/5f41ad96843ef0f795df2b0bf6ac7f79c1d3822f)), closes [#25](https://github.com/jabrown93/AURA/issues/25) [#29](https://github.com/jabrown93/AURA/issues/29) [#25](https://github.com/jabrown93/AURA/issues/25)
+
 # [1.1.0](https://github.com/jabrown93/AURA/compare/v1.0.5...v1.1.0) (2026-07-06)
 
 
