@@ -1,5 +1,23 @@
 # Changelog
 
+# [1.1.0](https://github.com/jabrown93/AURA/compare/v1.0.5...v1.1.0) (2026-07-06)
+
+
+### Bug Fixes
+
+* **deps:** update module github.com/go-chi/chi/v5 to v5.3.1 ([22eba42](https://github.com/jabrown93/AURA/commit/22eba424debaf9b2dafe9e311c918de96dd7cac5))
+* **deps:** update module github.com/rs/zerolog to v1.35.1 ([bdf5fc1](https://github.com/jabrown93/AURA/commit/bdf5fc11133db7b855728ab7db273ae74ea3721f))
+* **deps:** update module github.com/swaggo/http-swagger to v2 ([#26](https://github.com/jabrown93/AURA/issues/26)) ([c0e10f9](https://github.com/jabrown93/AURA/commit/c0e10f9e32730ea7eb1e3c3140e6ef59cc7bb663))
+* **deps:** update module golang.org/x/text to v0.38.0 ([e5a0697](https://github.com/jabrown93/AURA/commit/e5a069700c8ff6c05dcee9a44d8f744ca4ab62f3))
+* **deps:** update module golang.org/x/text to v0.39.0 ([a91aecc](https://github.com/jabrown93/AURA/commit/a91aecc5bee40c6d06e2138438ee058debc07e48))
+* **plex:** remove Overlay label on WebSocket auto-reapply ([#30](https://github.com/jabrown93/AURA/issues/30)) ([1498f02](https://github.com/jabrown93/AURA/commit/1498f02356999a251cc266a0b31e90844e844503))
+* **scripts:** exclude Plex auto-generated -thumb.jpg from kometa migration ([#31](https://github.com/jabrown93/AURA/issues/31)) ([e443e11](https://github.com/jabrown93/AURA/commit/e443e11d5091fbfafaf38ed797b88ad908161342))
+
+
+### Features
+
+* **download-queue:** bulk select/retry/delete for error entries ([#32](https://github.com/jabrown93/AURA/issues/32)) ([d3721cb](https://github.com/jabrown93/AURA/commit/d3721cb7e0cdb3870b0c3ee3ebc57a704eb65f9a)), closes [#35](https://github.com/jabrown93/AURA/issues/35)
+
 ## [1.0.5](https://github.com/jabrown93/AURA/compare/v1.0.4...v1.0.5) (2026-07-04)
 
 
