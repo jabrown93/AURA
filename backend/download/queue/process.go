@@ -55,12 +55,24 @@ func finalizeQueueFile(filePath, fileName string, item models.DBSavedItem, fileE
 		return os.Rename(filePath, destPath)
 	}
 
-	// Overwrite in place, then atomically rename to the prefixed path so a reader
-	// never observes a half-written file under the final name.
-	if writeErr := os.WriteFile(filePath, enriched, 0644); writeErr != nil {
+	// Write the enriched entry to a temp file first. GetQueueItems and
+	// ProcessQueueItems only look at ".json" files, so the ".tmp" file is
+	// invisible to them while the original in-progress ".json" stays intact and
+	// fully readable. We then atomically rename the temp into the final
+	// error_/warning_ name and drop the original, so a concurrent reader never
+	// observes a half-written ".json" (which would fail to decode and transiently
+	// drop the entry). The temp name is deterministic, so a crash leaves at most
+	// one stale ".tmp" that the next run overwrites.
+	tmpPath := filePath + ".tmp"
+	if writeErr := os.WriteFile(tmpPath, enriched, 0644); writeErr != nil {
 		return os.Rename(filePath, destPath)
 	}
-	return os.Rename(filePath, destPath)
+	if renameErr := os.Rename(tmpPath, destPath); renameErr != nil {
+		_ = os.Remove(tmpPath)
+		return os.Rename(filePath, destPath)
+	}
+	// The enriched entry now exists under its final name; drop the original.
+	return os.Remove(filePath)
 }
 
 func ProcessQueueItems() {

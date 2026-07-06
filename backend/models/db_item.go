@@ -13,9 +13,13 @@ type DBSavedItem struct {
 	// UI can show why it failed. They are never persisted to the database
 	// (UpsertSavedItem reads explicit columns, not the marshalled struct) and are
 	// omitted from every other response via omitempty.
-	QueueErrors   []string   `json:"queue_errors,omitempty"`
-	QueueWarnings []string   `json:"queue_warnings,omitempty"`
-	FailedAt      *time.Time `json:"failed_at,omitempty"`
+
+	// QueueErrors lists the fatal reasons the entry failed to download.
+	QueueErrors []string `json:"queue_errors,omitempty"`
+	// QueueWarnings lists non-fatal issues recorded while processing the entry.
+	QueueWarnings []string `json:"queue_warnings,omitempty"`
+	// FailedAt is when the entry was moved to the error/warning state.
+	FailedAt *time.Time `json:"failed_at,omitempty"`
 }
 
 // PosterSetDetail groups poster set details per media item.
