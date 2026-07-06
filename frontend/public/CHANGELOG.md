@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.3](https://github.com/jabrown93/AURA/compare/v1.1.2...v1.1.3) (2026-07-06)
+
+
+### Bug Fixes
+
+* **deps:** update dependency axios to v1.16.0 [security] ([#38](https://github.com/jabrown93/AURA/issues/38)) ([5442efe](https://github.com/jabrown93/AURA/commit/5442efe258951c9af3bf7604039c2e58d4a8b946))
+
 ## [1.1.2](https://github.com/jabrown93/AURA/compare/v1.1.1...v1.1.2) (2026-07-06)
 
 
