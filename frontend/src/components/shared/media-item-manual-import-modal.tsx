@@ -2,7 +2,7 @@
 
 import { makePlural } from "@/helper/make_plural";
 import { downloadImageFileForMediaItem } from "@/services/downloads/download-image";
-import yaml from "js-yaml";
+import * as yaml from "js-yaml";
 import { User } from "lucide-react";
 
 import { useEffect, useState } from "react";
