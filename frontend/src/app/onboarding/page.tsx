@@ -4,7 +4,7 @@ import { makePlural } from "@/helper/make_plural";
 import { finalizeOnboarding } from "@/services/config/onboarding-finalize";
 import { GetNotificationTemplateVariables } from "@/services/config/template-variables";
 import { UpdateAppConfig } from "@/services/config/update";
-import yaml from "js-yaml";
+import * as yaml from "js-yaml";
 import { toast } from "sonner";
 
 import type { JSX } from "react";
