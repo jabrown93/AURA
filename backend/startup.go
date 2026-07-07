@@ -68,7 +68,13 @@ func runPreFlight() (success bool) {
 	defer action.Complete()
 
 	success = false
-	config.AppFullyLoaded = false
+
+	// Note: config.AppFullyLoaded is intentionally NOT reset here. It is owned solely by
+	// activateFullRoutes (main.go), only ever transitions false->true, and only once. It
+	// is already false on every path that reaches preflight (boot, onboarding, retry).
+	// Clobbering it back to false here would let a background preflight retry undo the
+	// onboarding path's activation, stranding the UI on /app-loading even though full
+	// routes are live.
 
 	// Validate Media Server Connection
 	config.AppLoadingStep = "Validating Media Server Connection"

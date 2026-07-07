@@ -60,6 +60,11 @@ func main() {
 		// which path reaches it: the boot-time preflight retry loop or the
 		// onboarding-finalization callback, which can race if the user completes
 		// onboarding in the UI while a background retry is in flight.
+		// activated is closed exactly once, from inside activateFullRoutes' sync.Once,
+		// to tell the background preflight-retry loop to stop. The retry loop selects on
+		// this channel rather than reading config.AppFullyLoaded directly, which would be
+		// an unsynchronized cross-goroutine read of that package-level flag (a data race).
+		activated := make(chan struct{})
 		var activateOnce sync.Once
 		activateFullRoutes := func() {
 			activateOnce.Do(func() {
@@ -80,6 +85,7 @@ func main() {
 					logging.LOGGER.Warn().Timestamp().Bool("notifications_enabled", config.Current.Notifications.Enabled).Bool("dev_version", strings.Contains(APP_VERSION, "dev")).Msg("App start notification not sent")
 				}
 				activeHandler.Store(routing.NewRouter()) // swap to full routes
+				close(activated)                         // stop any in-flight retry loop
 				logging.LOGGER.Info().Timestamp().Msg("Main routes active.")
 			})
 		}
@@ -113,7 +119,7 @@ func main() {
 		// a manual restart.
 		config.Valid = false
 		activeHandler.Store(routing.NewRouter()) // stays onboarding
-		go retryPreFlightUntilReady(activateFullRoutes)
+		go retryPreFlightUntilReady(activateFullRoutes, activated)
 	}()
 
 	// Keep process alive while startAPI runs.
@@ -125,18 +131,28 @@ func main() {
 // boot does not leave the app permanently stuck serving onboarding-only routes:
 // with the config already valid, the only thing missing is a reachable
 // dependency, so we keep polling until it comes back. It stops early if
-// onboarding finalization has already brought the app fully online.
-func retryPreFlightUntilReady(activateFullRoutes func()) {
+// onboarding finalization has already brought the app fully online, signalled by
+// the activated channel being closed (from inside activateFullRoutes' sync.Once).
+func retryPreFlightUntilReady(activateFullRoutes func(), activated <-chan struct{}) {
 	ticker := time.NewTicker(preflightRetryInterval)
 	defer ticker.Stop()
-	for range ticker.C {
-		if config.AppFullyLoaded {
+	for {
+		select {
+		case <-activated:
 			return
-		}
-		logging.LOGGER.Warn().Timestamp().Msg("Retrying preflight checks after earlier failure")
-		if runPreFlight() {
-			activateFullRoutes()
-			return
+		case <-ticker.C:
+			// Re-check before spending a preflight cycle, in case activation happened
+			// via the onboarding callback between ticks.
+			select {
+			case <-activated:
+				return
+			default:
+			}
+			logging.LOGGER.Warn().Timestamp().Msg("Retrying preflight checks after earlier failure")
+			if runPreFlight() {
+				activateFullRoutes()
+				return
+			}
 		}
 	}
 }
