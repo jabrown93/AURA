@@ -6,6 +6,7 @@ package kometa
 
 import (
 	"fmt"
+	"path"
 	"regexp"
 	"strings"
 )
@@ -46,9 +47,13 @@ func setIDForItem(tmdbID, libraryTitle string) string {
 	return fmt.Sprintf("%s%s-%s", SetIDPrefix, tmdbID, slug(libraryTitle))
 }
 
-// imageIDForAsset builds the ImageFile ID for an imported asset.
-func imageIDForAsset(folderName, fileName string) string {
-	return ImageIDPrefix + folderName + "/" + fileName
+// imageIDForAsset builds the ImageFile ID for an imported asset. relDir is the asset folder's
+// path relative to the Kometa asset directory: just "<item-folder>" for the flat layout, or
+// "<library-subfolder>/<item-folder>" when a per-library subfolder is configured. The ID stays
+// backward compatible with the flat layout (relDir == "<item-folder>" yields the original
+// "kometa|<folder>/<file>" form), so previously-saved IDs keep resolving.
+func imageIDForAsset(relDir, fileName string) string {
+	return ImageIDPrefix + path.Join(relDir, fileName)
 }
 
 var slugStripper = regexp.MustCompile(`[^a-zA-Z0-9]+`)

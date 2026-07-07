@@ -32,16 +32,25 @@ func GetKometaImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Kometa image IDs always encode exactly "<folder>/<file>"; reject anything deeper,
-	// shallower, or containing relative segments before touching the filesystem.
-	folder, file, ok := strings.Cut(rel, "/")
-	if !ok || folder == "" || file == "" || strings.Contains(file, "/") ||
-		folder == "." || folder == ".." || file == "." || file == ".." ||
-		strings.ContainsRune(folder, os.PathSeparator) || strings.ContainsRune(file, os.PathSeparator) {
-		logAction.SetError("Invalid Kometa asset path", "asset_id must encode exactly <folder>/<file>", map[string]any{"asset_id": assetID})
+	// A Kometa image ID encodes a path relative to the asset directory: "<item>/<file>" for
+	// the flat layout, or "<library-subfolder>/<item>/<file>" when a per-library subfolder is
+	// configured. Require at least a folder and a file, and reject any empty or relative
+	// segment (and embedded separators) before touching the filesystem.
+	segments := strings.Split(rel, "/")
+	if len(segments) < 2 {
+		logAction.SetError("Invalid Kometa asset path", "asset_id must encode at least <folder>/<file>", map[string]any{"asset_id": assetID})
 		httpx.SendResponse(w, ld, nil)
 		return
 	}
+	for _, seg := range segments {
+		if seg == "" || seg == "." || seg == ".." ||
+			strings.ContainsRune(seg, os.PathSeparator) || strings.ContainsRune(seg, '\\') {
+			logAction.SetError("Invalid Kometa asset path", "asset_id contains an invalid path segment", map[string]any{"asset_id": assetID})
+			httpx.SendResponse(w, ld, nil)
+			return
+		}
+	}
+	file := segments[len(segments)-1]
 
 	// Only serve known image types; this endpoint must not expose arbitrary files.
 	switch strings.ToLower(filepath.Ext(file)) {
@@ -61,24 +70,23 @@ func GetKometaImage(w http.ResponseWriter, r *http.Request) {
 
 	// Resolve the path and ensure it stays within the asset directory (prevents traversal).
 	cleanBase := filepath.Clean(assetDir)
-	folderPath := filepath.Clean(filepath.Join(cleanBase, folder))
-	fullPath := filepath.Clean(filepath.Join(folderPath, file))
+	fullPath := filepath.Clean(filepath.Join(cleanBase, filepath.FromSlash(rel)))
 	if !strings.HasPrefix(fullPath, cleanBase+string(os.PathSeparator)) {
 		logAction.SetError("Invalid Kometa asset path", "Resolved path escapes the asset directory", map[string]any{"asset_id": assetID})
 		httpx.SendResponse(w, ld, nil)
 		return
 	}
 
-	// Prevent symlink escapes: do not allow the folder or file to be symlinks.
-	if info, err := os.Lstat(folderPath); err != nil || info.Mode()&os.ModeSymlink != 0 {
-		logAction.SetError("Invalid Kometa asset path", "Kometa asset folders must not be symlinks", map[string]any{"path": folderPath})
-		httpx.SendResponse(w, ld, nil)
-		return
-	}
-	if info, err := os.Lstat(fullPath); err != nil || info.Mode()&os.ModeSymlink != 0 {
-		logAction.SetError("Invalid Kometa asset path", "Kometa asset files must not be symlinks", map[string]any{"path": fullPath})
-		httpx.SendResponse(w, ld, nil)
-		return
+	// Prevent symlink escapes at any level: neither the file nor any directory between the
+	// asset root and the file may be a symlink.
+	current := cleanBase
+	for _, seg := range segments {
+		current = filepath.Join(current, seg)
+		if info, err := os.Lstat(current); err != nil || info.Mode()&os.ModeSymlink != 0 {
+			logAction.SetError("Invalid Kometa asset path", "Kometa asset paths must not contain symlinks", map[string]any{"path": current})
+			httpx.SendResponse(w, ld, nil)
+			return
+		}
 	}
 
 	data, err := os.ReadFile(fullPath)

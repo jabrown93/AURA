@@ -168,6 +168,15 @@ definitions:
         description: Optional cron expression for periodically importing existing
           Kometa assets. Empty means import is manual only.
         type: string
+      library_asset_folders:
+        additionalProperties:
+          type: string
+        description: Optional per-library subfolder (relative to AssetDirectory) keyed
+          by Plex library title. When set, a library's assets are written to <AssetDirectory>/<subfolder>/<item>/...
+          instead of directly under AssetDirectory. Must match the per-library asset_directory
+          configured in Kometa itself. A library with no entry keeps writing flat
+          to AssetDirectory.
+        type: object
       sonarr_radarr_fallback:
         description: When a media-server lookup fails (e.g. Plex returns a 404) but
           the item exists in Sonarr/Radarr, still write the downloaded images into

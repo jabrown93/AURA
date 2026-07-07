@@ -463,6 +463,16 @@ func checkConfigDifferences_Images(ctx context.Context, oldImages config.Config_
 				Msg("Images.Kometa.SonarrRadarrFallback changed")
 			changed = true
 		}
+
+		if !reflect.DeepEqual(oldImages.Kometa.LibraryAssetFolders, newImages.Kometa.LibraryAssetFolders) {
+			logAction.AppendResult("Images.Kometa.LibraryAssetFolders changed", fmt.Sprintf("from '%v' to '%v'", oldImages.Kometa.LibraryAssetFolders, newImages.Kometa.LibraryAssetFolders))
+			logging.LOGGER.Info().
+				Timestamp().
+				Interface("old_library_asset_folders", oldImages.Kometa.LibraryAssetFolders).
+				Interface("new_library_asset_folders", newImages.Kometa.LibraryAssetFolders).
+				Msg("Images.Kometa.LibraryAssetFolders changed")
+			changed = true
+		}
 	}
 	newValid = config.ValidateImages(ctx, newImages, msConfig)
 	return changed, newValid

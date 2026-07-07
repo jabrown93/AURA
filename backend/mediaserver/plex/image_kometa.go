@@ -57,7 +57,8 @@ func saveImageKometa(ctx context.Context, p *Plex, item *models.MediaItem, image
 		return *logAction.Error
 	}
 
-	assetDir := path.Join(config.Current.Images.Kometa.AssetDirectory, assetName)
+	subfolder := config.Current.Images.Kometa.SubfolderFor(item.LibraryTitle)
+	assetDir := path.Join(config.Current.Images.Kometa.AssetDirectory, subfolder, assetName)
 	logAction.AppendResult("kometa_asset_dir", assetDir)
 	logAction.AppendResult("kometa_file_name", fileName)
 
@@ -69,16 +70,20 @@ func saveImageKometa(ctx context.Context, p *Plex, item *models.MediaItem, image
 // callers save Kometa assets for items that can no longer be resolved on the media server, using
 // a folder name obtained elsewhere (e.g. from Sonarr/Radarr). It performs no Plex upload.
 //
+// subfolder is an already-sanitized per-library folder relative to the asset directory (from
+// Config_Kometa.SubfolderFor); pass "" to write directly under the asset directory.
+//
 // It returns the on-disk file name written (e.g. "poster.jpg", "Season01.jpg") so callers can
 // build a matching Kometa image ID. ok=false means the image type is not written as a Kometa
 // asset (the caller should skip it); a non-empty Err means the write itself failed.
-func SaveKometaAssetWithName(ctx context.Context, assetName string, imageFile models.ImageFile, imageData []byte) (fileName string, ok bool, Err logging.LogErrorInfo) {
+func SaveKometaAssetWithName(ctx context.Context, subfolder, assetName string, imageFile models.ImageFile, imageData []byte) (fileName string, ok bool, Err logging.LogErrorInfo) {
 	_, logAction := logging.AddSubActionToContext(ctx, fmt.Sprintf(
-		"Plex: Saving Kometa Asset '%s' into folder '%s'", imageFile.Type, assetName), logging.LevelDebug)
+		"Plex: Saving Kometa Asset '%s' into folder '%s'", imageFile.Type, path.Join(subfolder, assetName)), logging.LevelDebug)
 	defer logAction.Complete()
 
 	// The asset folder must be a single path segment: reject empty names or anything containing a
 	// separator so a caller can never write into the asset root or escape it via nested paths.
+	// (subfolder is trusted config, already sanitized to a safe relative path by SubfolderFor.)
 	if assetName == "" || strings.ContainsAny(assetName, `/\`) {
 		logAction.SetError("Invalid Kometa asset folder name", "The asset folder name must be a single, non-empty path segment",
 			map[string]any{"asset_name": assetName})
@@ -90,7 +95,7 @@ func SaveKometaAssetWithName(ctx context.Context, assetName string, imageFile mo
 		return "", false, logging.LogErrorInfo{}
 	}
 
-	assetDir := path.Join(config.Current.Images.Kometa.AssetDirectory, assetName)
+	assetDir := path.Join(config.Current.Images.Kometa.AssetDirectory, subfolder, assetName)
 	logAction.AppendResult("kometa_asset_dir", assetDir)
 	logAction.AppendResult("kometa_file_name", fileName)
 
@@ -235,7 +240,8 @@ func SaveCollectionImageKometa(ctx context.Context, collectionItem *models.Colle
 		fileName = "background" + kometaAssetExtension
 	}
 
-	assetDir := path.Join(config.Current.Images.Kometa.AssetDirectory, assetName)
+	subfolder := config.Current.Images.Kometa.SubfolderFor(collectionItem.LibraryTitle)
+	assetDir := path.Join(config.Current.Images.Kometa.AssetDirectory, subfolder, assetName)
 	logAction.AppendResult("kometa_asset_dir", assetDir)
 	logAction.AppendResult("kometa_file_name", fileName)
 

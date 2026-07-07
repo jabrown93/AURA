@@ -1,6 +1,10 @@
 package config
 
-import "aura/models"
+import (
+	"strings"
+
+	"aura/models"
+)
 
 var (
 	// Config State Variables
@@ -90,10 +94,52 @@ type Config_SaveImagesLocally struct {
 }
 
 type Config_Kometa struct {
-	Enabled              bool   `json:"enabled" yaml:"Enabled"`                                                 // Whether to write downloaded images into the Kometa asset directory using Kometa naming conventions. Plex exclusive feature.
-	AssetDirectory       string `json:"asset_directory,omitempty" yaml:"AssetDirectory,omitempty"`              // Path to the Kometa asset directory (the same directory Kometa reads assets from). Uses the folder-per-item (asset_folders: true) layout.
-	ImportCron           string `json:"import_cron,omitempty" yaml:"ImportCron,omitempty"`                      // Optional cron expression for periodically importing existing Kometa assets. Empty means import is manual only.
-	SonarrRadarrFallback bool   `json:"sonarr_radarr_fallback,omitempty" yaml:"SonarrRadarrFallback,omitempty"` // When a media-server lookup fails (e.g. Plex returns a 404) but the item exists in Sonarr/Radarr, still write the downloaded images into the Kometa asset directory, deriving the asset folder name from the Sonarr/Radarr path. Requires Enabled. Plex exclusive feature.
+	Enabled              bool              `json:"enabled" yaml:"Enabled"`                                                 // Whether to write downloaded images into the Kometa asset directory using Kometa naming conventions. Plex exclusive feature.
+	AssetDirectory       string            `json:"asset_directory,omitempty" yaml:"AssetDirectory,omitempty"`              // Path to the Kometa asset directory (the same directory Kometa reads assets from). Uses the folder-per-item (asset_folders: true) layout.
+	LibraryAssetFolders  map[string]string `json:"library_asset_folders,omitempty" yaml:"LibraryAssetFolders,omitempty"`   // Optional per-library subfolder (relative to AssetDirectory) keyed by Plex library title. When set, a library's assets are written to <AssetDirectory>/<subfolder>/<item>/... instead of directly under AssetDirectory. Must match the per-library asset_directory configured in Kometa itself. A library with no entry keeps writing flat to AssetDirectory.
+	ImportCron           string            `json:"import_cron,omitempty" yaml:"ImportCron,omitempty"`                      // Optional cron expression for periodically importing existing Kometa assets. Empty means import is manual only.
+	SonarrRadarrFallback bool              `json:"sonarr_radarr_fallback,omitempty" yaml:"SonarrRadarrFallback,omitempty"` // When a media-server lookup fails (e.g. Plex returns a 404) but the item exists in Sonarr/Radarr, still write the downloaded images into the Kometa asset directory, deriving the asset folder name from the Sonarr/Radarr path. Requires Enabled. Plex exclusive feature.
+}
+
+// SubfolderFor returns the Kometa asset subfolder configured for the given library title,
+// relative to AssetDirectory. It returns "" when no per-library subfolder is configured, in
+// which case assets are written directly under AssetDirectory (the flat, backward-compatible
+// layout). The value is cleaned to a safe relative path; any absolute or parent-escaping
+// value collapses to "" so a lookup can never redirect writes outside AssetDirectory.
+func (k Config_Kometa) SubfolderFor(libraryTitle string) string {
+	return SanitizeKometaSubfolder(k.LibraryAssetFolders[libraryTitle])
+}
+
+// SanitizeKometaSubfolder normalizes a per-library asset subfolder into a safe path relative
+// to the Kometa asset directory. It trims whitespace and slashes, converts backslashes to
+// forward slashes, drops "." and ".." segments, and returns "" for anything that is empty,
+// absolute, or would escape the asset directory.
+func SanitizeKometaSubfolder(raw string) string {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return ""
+	}
+	// Normalize Windows separators so path.Clean sees a single-style path.
+	s = strings.ReplaceAll(s, "\\", "/")
+	// Reject absolute paths outright; they must not redirect writes outside AssetDirectory.
+	if strings.HasPrefix(s, "/") {
+		return ""
+	}
+	segments := make([]string, 0)
+	for _, seg := range strings.Split(s, "/") {
+		seg = strings.TrimSpace(seg)
+		switch seg {
+		case "", ".", "..":
+			// Skip empty and relative segments; ".." must never climb out of AssetDirectory.
+			if seg == ".." {
+				return ""
+			}
+			continue
+		default:
+			segments = append(segments, seg)
+		}
+	}
+	return strings.Join(segments, "/")
 }
 
 type Config_TMDB struct {

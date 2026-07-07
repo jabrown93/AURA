@@ -275,6 +275,27 @@ func ValidateImages(ctx context.Context, Images *Config_Images, msConfig Config_
 			)
 			return false
 		}
+
+		// Per-library subfolders must be safe paths relative to AssetDirectory. Reject absolute
+		// or parent-escaping values (which would redirect writes outside the asset directory) and
+		// normalize the rest in place so the write and import paths agree on the same value. Empty
+		// values are dropped, meaning that library keeps writing flat to AssetDirectory.
+		for title, raw := range Images.Kometa.LibraryAssetFolders {
+			if strings.TrimSpace(raw) == "" {
+				delete(Images.Kometa.LibraryAssetFolders, title)
+				continue
+			}
+			sub := SanitizeKometaSubfolder(raw)
+			if sub == "" {
+				logAction.SetError(
+					fmt.Sprintf("Images.Kometa.LibraryAssetFolders['%s']: '%s' is not a valid relative subfolder", title, raw),
+					"Use a path relative to the Kometa asset directory (no leading '/' and no '..')",
+					nil,
+				)
+				return false
+			}
+			Images.Kometa.LibraryAssetFolders[title] = sub
+		}
 	}
 
 	return isValid
