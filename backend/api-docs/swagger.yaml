@@ -168,6 +168,12 @@ definitions:
         description: Optional cron expression for periodically importing existing
           Kometa assets. Empty means import is manual only.
         type: string
+      sonarr_radarr_fallback:
+        description: When a media-server lookup fails (e.g. Plex returns a 404) but
+          the item exists in Sonarr/Radarr, still write the downloaded images into
+          the Kometa asset directory, deriving the asset folder name from the Sonarr/Radarr
+          path. Requires Enabled. Plex exclusive feature.
+        type: boolean
     type: object
   config.Config_LabelsAndTags:
     properties:

@@ -4,6 +4,7 @@ import (
 	"aura/cache"
 	"aura/config"
 	"aura/database"
+	"aura/kometa"
 	"aura/logging"
 	"aura/mediaserver"
 	"aura/models"
@@ -263,6 +264,14 @@ func processPlexRefreshMessage(messageInfo PlexRefreshMessage) {
 
 	_, Err := mediaserver.GetMediaItemDetails(ctx, &refreshedItem.MediaItem)
 	if Err.Message != "" {
+		// Plex can't resolve the refreshed item (e.g. it was removed/renamed). If the Sonarr/Radarr
+		// → Kometa fallback is enabled, still write the item's saved images into the Kometa asset
+		// folder so Kometa can re-apply them on its next run.
+		if handled, _, _ := kometa.SaveSavedSetsViaSonarrRadarrFallback(ctx, refreshedItem.MediaItem); handled {
+			logAction.AppendResult("kometa_fallback", "saved images to the Kometa asset folder via Sonarr/Radarr")
+			ld.Log()
+			return
+		}
 		logAction.SetError(
 			"Failed to refresh item details",
 			"Review errors for more details",

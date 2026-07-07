@@ -3,6 +3,7 @@ package autodownload
 import (
 	"aura/cache"
 	"aura/database"
+	"aura/kometa"
 	"aura/logging"
 	"aura/mediaserver"
 	"aura/models"
@@ -131,14 +132,21 @@ func CheckItem(ctx context.Context, dbItem models.DBSavedItem) (result AutoDownl
 
 	// Get the latest Show Media Item from the media server
 	found, Err := mediaserver.GetMediaItemDetails(ctx, mediaItem)
-	if Err.Message != "" {
+	if Err.Message != "" || !found {
+		// The media server can't resolve the item (e.g. Plex returns a 404). If the Sonarr/Radarr
+		// → Kometa fallback is enabled and the item exists in Sonarr/Radarr, still write its saved
+		// auto-download images into the Kometa asset folder instead of failing outright.
+		if handled, _, _ := kometa.SaveSavedSetsViaSonarrRadarrFallback(ctx, dbItem.MediaItem); handled {
+			result.OverallResult = "warning"
+			result.OverallMessage = "Media item not on media server; saved images to the Kometa asset folder via Sonarr/Radarr"
+			return result
+		}
 		result.OverallResult = "error"
-		result.OverallMessage = "Failed to get latest Media Item details from media server"
-		return result
-	}
-	if !found {
-		result.OverallResult = "error"
-		result.OverallMessage = "Media Item not found on media server"
+		if Err.Message != "" {
+			result.OverallMessage = "Failed to get latest Media Item details from media server"
+		} else {
+			result.OverallMessage = "Media Item not found on media server"
+		}
 		return result
 	}
 
