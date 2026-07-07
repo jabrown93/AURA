@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.6](https://github.com/jabrown93/AURA/compare/v1.1.5...v1.1.6) (2026-07-07)
+
+
+### Bug Fixes
+
+* **deps:** update react monorepo to v19.2.7 ([27e889b](https://github.com/jabrown93/AURA/commit/27e889bc5c45f20bfeb86f903c8ddbfc2777d016))
+
 ## [1.1.5](https://github.com/jabrown93/AURA/compare/v1.1.4...v1.1.5) (2026-07-06)
 
 
