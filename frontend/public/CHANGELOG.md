@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.1](https://github.com/jabrown93/AURA/compare/v1.4.0...v1.4.1) (2026-07-07)
+
+
+### Bug Fixes
+
+* **startup:** retry preflight so a boot-time media-server outage self-heals ([#41](https://github.com/jabrown93/AURA/issues/41)) ([f0e0599](https://github.com/jabrown93/AURA/commit/f0e0599cbfb2f7d6b586a0fcae372cded7861ba1))
+
 # [1.4.0](https://github.com/jabrown93/AURA/compare/v1.3.0...v1.4.0) (2026-07-07)
 
 
