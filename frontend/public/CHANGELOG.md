@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.4](https://github.com/jabrown93/AURA/compare/v1.4.3...v1.4.4) (2026-07-07)
+
+
+### Bug Fixes
+
+* **deps:** update dependency lucide-react to v1.23.0 ([13c6db7](https://github.com/jabrown93/AURA/commit/13c6db74099b6144b79253d98fe8aa61d3593fe6))
+
 ## [1.4.3](https://github.com/jabrown93/AURA/compare/v1.4.2...v1.4.3) (2026-07-07)
 
 
