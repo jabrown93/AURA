@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"aura/config"
 )
 
 // ScannedAsset is a single recognized asset file within a Kometa asset folder.
@@ -48,12 +50,14 @@ var (
 // is the first segment of a configured subfolder so a library folder is never mistaken for an
 // item folder.
 func Scan(assetDir string, subfolders []string) ([]ScannedFolder, error) {
-	// Distinct, non-empty subfolders and the set of root-level names they occupy.
+	// Distinct, safe subfolders and the set of root-level names they occupy. Sanitize here
+	// (not just at the caller) so Scan can never be driven outside assetDir: any absolute or
+	// parent-escaping value collapses to "" and is dropped.
 	seen := make(map[string]bool)
 	skipRoot := make(map[string]bool)
 	cleaned := make([]string, 0, len(subfolders))
 	for _, sub := range subfolders {
-		sub = strings.Trim(strings.ReplaceAll(sub, "\\", "/"), "/")
+		sub = config.SanitizeKometaSubfolder(sub)
 		if sub == "" || seen[sub] {
 			continue
 		}

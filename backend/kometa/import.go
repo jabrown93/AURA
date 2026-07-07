@@ -33,18 +33,13 @@ func importEnabled() bool {
 	return k.Enabled && k.AssetDirectory != "" && config.Current.MediaServer.Type == "Plex"
 }
 
-// configuredSubfolders returns the distinct, sanitized per-library subfolders (relative to the
-// asset directory) from the current config, so the import scan can descend into each one.
+// configuredSubfolders returns the per-library asset subfolders from the current config for
+// the import scan to descend into. Scan sanitizes and de-duplicates these values.
 func configuredSubfolders() []string {
-	seen := make(map[string]bool)
-	subs := make([]string, 0, len(config.Current.Images.Kometa.LibraryAssetFolders))
-	for _, raw := range config.Current.Images.Kometa.LibraryAssetFolders {
-		sub := config.SanitizeKometaSubfolder(raw)
-		if sub == "" || seen[sub] {
-			continue
-		}
-		seen[sub] = true
-		subs = append(subs, sub)
+	folders := config.Current.Images.Kometa.LibraryAssetFolders
+	subs := make([]string, 0, len(folders))
+	for _, raw := range folders {
+		subs = append(subs, raw)
 	}
 	return subs
 }
