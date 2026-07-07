@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.4.7](https://github.com/jabrown93/AURA/compare/v1.4.6...v1.4.7) (2026-07-07)
+
+
+### Bug Fixes
+
+* **deps:** update dependency react-icons to v5.7.0 ([a57bf4f](https://github.com/jabrown93/AURA/commit/a57bf4f7ce442bb635d33cace6fbdbdf016c1755))
+* **deps:** update dependency tailwind-merge to v3.6.0 ([5ef2b2d](https://github.com/jabrown93/AURA/commit/5ef2b2d81db09ae9def8d827b650bafce3e8b9db))
+* **deps:** update dependency zod to v4.4.3 ([b589a84](https://github.com/jabrown93/AURA/commit/b589a84a80984f2f1d16952c3298e09489922fc4))
+
 ## [1.4.6](https://github.com/jabrown93/AURA/compare/v1.4.5...v1.4.6) (2026-07-07)
 
 
