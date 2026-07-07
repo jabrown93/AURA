@@ -2,11 +2,14 @@ package kometa
 
 import (
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
+
+	"aura/config"
 )
 
 // ScannedAsset is a single recognized asset file within a Kometa asset folder.
@@ -18,9 +21,10 @@ type ScannedAsset struct {
 	ModTime  time.Time // file modification time
 }
 
-// ScannedFolder is one depth-1 directory in the asset directory and its recognized assets.
+// ScannedFolder is one item-level directory in the asset directory and its recognized assets.
 type ScannedFolder struct {
-	Name         string         // folder base name (the Kometa ASSET_NAME)
+	Name         string         // folder base name (the Kometa ASSET_NAME); used for title/tmdb matching
+	RelDir       string         // path relative to the asset directory: "<name>" (flat) or "<subfolder>/<name>"
 	Assets       []ScannedAsset // recognized asset files
 	Unrecognized int            // count of files that did not match any known asset name
 }
@@ -35,48 +39,92 @@ var (
 	reEpisode    = regexp.MustCompile(`(?i)^s(\d{1,3})e(\d{1,3})$`)
 )
 
-// Scan walks the asset directory one level deep and classifies the recognized asset files
-// in each folder. It reads only names and modification times; image bytes are read later,
-// one file at a time, during upload.
-func Scan(assetDir string) ([]ScannedFolder, error) {
-	entries, err := os.ReadDir(assetDir)
+// Scan discovers item-level asset folders under the asset directory and classifies their
+// recognized asset files. It reads only names and modification times; image bytes are read
+// later, one file at a time, during upload.
+//
+// subfolders is the set of per-library subfolders (relative to assetDir) configured via
+// Config_Kometa.LibraryAssetFolders. When non-empty, Scan descends one level into each
+// subfolder to find item folders (RelDir = "<subfolder>/<item>"). It still scans the asset
+// root one level deep for the flat layout (RelDir = "<item>"), but skips any root entry that
+// is the first segment of a configured subfolder so a library folder is never mistaken for an
+// item folder.
+func Scan(assetDir string, subfolders []string) ([]ScannedFolder, error) {
+	// Distinct, safe subfolders and the set of root-level names they occupy. Sanitize here
+	// (not just at the caller) so Scan can never be driven outside assetDir: any absolute or
+	// parent-escaping value collapses to "" and is dropped.
+	seen := make(map[string]bool)
+	skipRoot := make(map[string]bool)
+	cleaned := make([]string, 0, len(subfolders))
+	for _, sub := range subfolders {
+		sub = config.SanitizeKometaSubfolder(sub)
+		if sub == "" || seen[sub] {
+			continue
+		}
+		seen[sub] = true
+		cleaned = append(cleaned, sub)
+		skipRoot[strings.SplitN(sub, "/", 2)[0]] = true
+	}
+
+	folders := make([]ScannedFolder, 0)
+
+	// Flat layout: item folders directly under the asset root.
+	rootEntries, err := os.ReadDir(assetDir)
 	if err != nil {
 		return nil, err
 	}
-
-	folders := make([]ScannedFolder, 0, len(entries))
-	for _, entry := range entries {
-		if !entry.IsDir() {
+	for _, entry := range rootEntries {
+		if !entry.IsDir() || skipRoot[entry.Name()] {
 			continue
 		}
-		folder := ScannedFolder{Name: entry.Name()}
+		folders = append(folders, scanAssetFolder(assetDir, entry.Name()))
+	}
 
-		files, err := os.ReadDir(filepath.Join(assetDir, entry.Name()))
+	// Per-library layout: item folders one level inside each configured subfolder.
+	for _, sub := range cleaned {
+		subEntries, err := os.ReadDir(filepath.Join(assetDir, filepath.FromSlash(sub)))
 		if err != nil {
-			// Unreadable subfolder: record it as having no assets and move on.
-			folders = append(folders, folder)
+			// Subfolder does not exist yet or is unreadable; nothing to import from it.
 			continue
 		}
-
-		for _, file := range files {
-			if file.IsDir() {
+		for _, entry := range subEntries {
+			if !entry.IsDir() {
 				continue
 			}
-			asset, ok := classifyAsset(file.Name())
-			if !ok {
-				folder.Unrecognized++
-				continue
-			}
-			if info, err := file.Info(); err == nil {
-				asset.ModTime = info.ModTime()
-			}
-			folder.Assets = append(folder.Assets, asset)
+			folders = append(folders, scanAssetFolder(assetDir, sub+"/"+entry.Name()))
 		}
-
-		folders = append(folders, folder)
 	}
 
 	return folders, nil
+}
+
+// scanAssetFolder reads a single item-level asset folder at relDir (relative to assetDir) and
+// classifies its files. relDir uses forward slashes; Name is its base segment.
+func scanAssetFolder(assetDir, relDir string) ScannedFolder {
+	folder := ScannedFolder{Name: path.Base(relDir), RelDir: relDir}
+
+	files, err := os.ReadDir(filepath.Join(assetDir, filepath.FromSlash(relDir)))
+	if err != nil {
+		// Unreadable folder: record it as having no assets and move on.
+		return folder
+	}
+
+	for _, file := range files {
+		if file.IsDir() {
+			continue
+		}
+		asset, ok := classifyAsset(file.Name())
+		if !ok {
+			folder.Unrecognized++
+			continue
+		}
+		if info, err := file.Info(); err == nil {
+			asset.ModTime = info.ModTime()
+		}
+		folder.Assets = append(folder.Assets, asset)
+	}
+
+	return folder
 }
 
 // classifyAsset maps a file name to an internal asset type, or ok=false if it is not a

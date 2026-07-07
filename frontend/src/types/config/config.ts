@@ -67,6 +67,7 @@ export interface AppConfigSaveImagesLocally {
 export interface AppConfigKometa {
   enabled: boolean; // Whether to write downloaded images into the Kometa asset directory (Plex only).
   asset_directory: string; // Path to the Kometa asset directory (folder-per-item layout).
+  library_asset_folders?: Record<string, string>; // Optional per-library subfolder (relative to asset_directory) keyed by Plex library title. A library with no entry writes flat to asset_directory.
   import_cron: string; // Optional cron for importing existing Kometa assets. Empty = manual only.
   sonarr_radarr_fallback: boolean; // When a media-server lookup fails but the item is in Sonarr/Radarr, still write images to the Kometa asset folder (folder name derived from the Sonarr/Radarr path).
 }

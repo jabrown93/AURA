@@ -36,6 +36,7 @@ export const defaultAppConfig = (): AppConfig =>
       kometa: {
         enabled: false,
         asset_directory: "",
+        library_asset_folders: {},
         import_cron: "",
         sonarr_radarr_fallback: false,
       },

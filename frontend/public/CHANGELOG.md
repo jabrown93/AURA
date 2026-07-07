@@ -1,5 +1,19 @@
 # Changelog
 
+# [1.4.0](https://github.com/jabrown93/AURA/compare/v1.3.0...v1.4.0) (2026-07-07)
+
+
+### Features
+
+* **kometa:** per-library asset subfolders ([#43](https://github.com/jabrown93/AURA/issues/43)) ([aece13d](https://github.com/jabrown93/AURA/commit/aece13d730518f7589fcf21956c38a44eb2dc885))
+
+# [1.3.0](https://github.com/jabrown93/AURA/compare/v1.2.1...v1.3.0) (2026-07-07)
+
+
+### Features
+
+* **scripts:** add in-place Kometa asset directory normalizer ([#42](https://github.com/jabrown93/AURA/issues/42)) ([5c9dea3](https://github.com/jabrown93/AURA/commit/5c9dea32564e742724d1d618d769215cc0a71970))
+
 ## [1.2.1](https://github.com/jabrown93/AURA/compare/v1.2.0...v1.2.1) (2026-07-07)
 
 
