@@ -1,5 +1,12 @@
 # Changelog
 
+# [1.2.0](https://github.com/jabrown93/AURA/compare/v1.1.6...v1.2.0) (2026-07-07)
+
+
+### Features
+
+* **kometa:** save assets via Sonarr/Radarr when media-server lookup fails ([#39](https://github.com/jabrown93/AURA/issues/39)) ([3648e91](https://github.com/jabrown93/AURA/commit/3648e91bf4a3e96efb7a60375c6183e7415f0bcc))
+
 ## [1.1.6](https://github.com/jabrown93/AURA/compare/v1.1.5...v1.1.6) (2026-07-07)
 
 
