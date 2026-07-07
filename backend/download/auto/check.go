@@ -133,13 +133,16 @@ func CheckItem(ctx context.Context, dbItem models.DBSavedItem) (result AutoDownl
 	// Get the latest Show Media Item from the media server
 	found, Err := mediaserver.GetMediaItemDetails(ctx, mediaItem)
 	if Err.Message != "" || !found {
-		// The media server can't resolve the item (e.g. Plex returns a 404). If the Sonarr/Radarr
-		// → Kometa fallback is enabled and the item exists in Sonarr/Radarr, still write its saved
-		// auto-download images into the Kometa asset folder instead of failing outright.
-		if handled, _, _ := kometa.SaveSavedSetsViaSonarrRadarrFallback(ctx, dbItem.MediaItem); handled {
-			result.OverallResult = "warning"
-			result.OverallMessage = "Media item not on media server; saved images to the Kometa asset folder via Sonarr/Radarr"
-			return result
+		// Only when the item is genuinely gone (a 404): if the Sonarr/Radarr → Kometa fallback is
+		// enabled and the item exists in Sonarr/Radarr, write its saved auto-download images into
+		// the Kometa asset folder instead of failing outright. Transient/auth/server errors keep
+		// failing so the check is retried.
+		if mediaserver.IsItemNotFound(Err) {
+			if handled, _, _ := kometa.SaveSavedSetsViaSonarrRadarrFallback(ctx, dbItem.MediaItem); handled {
+				result.OverallResult = "warning"
+				result.OverallMessage = "Media item not on media server; saved images to the Kometa asset folder via Sonarr/Radarr"
+				return result
+			}
 		}
 		result.OverallResult = "error"
 		if Err.Message != "" {

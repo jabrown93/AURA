@@ -22,9 +22,11 @@ import (
 //
 // Return semantics:
 //   - found=true: folderName is usable.
-//   - found=false, Err empty: no configured Sonarr/Radarr app matches the item's type+library, or
-//     Sonarr/Radarr is not configured — the caller should keep its normal failure behavior.
-//   - found=false, Err set: a matching app was found but the lookup/derivation failed.
+//   - found=false, Err empty: nothing to fall back to — Sonarr/Radarr is not configured, no app
+//     matches the item's type+library, or the only matching app has incomplete config (it is
+//     skipped). The caller should keep its normal failure behavior.
+//   - found=false, Err set: a matching, fully-configured app was found but the item lookup or the
+//     path derivation failed.
 func GetItemFolderName(ctx context.Context, tmdbID, itemType, libraryTitle string) (folderName string, found bool, Err logging.LogErrorInfo) {
 	if len(config.Current.SonarrRadarr.Applications) == 0 {
 		return "", false, logging.LogErrorInfo{}

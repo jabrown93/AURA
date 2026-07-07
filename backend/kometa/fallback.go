@@ -57,6 +57,17 @@ func SaveViaSonarrRadarrFallback(ctx context.Context, item models.MediaItem, pos
 	}
 	logAction.AppendResult("kometa_asset_folder", folderName)
 
+	// Precedence guard (mirrors the Kometa importer): never *claim* an image type that an existing
+	// MediUX set already owns. UpsertSavedItem enforces SelectedTypes uniqueness by transferring
+	// ownership to the newly-registered set and clearing that type on all other sets for the item,
+	// so registering a MediUX-owned type here would strip it from that set and break its
+	// auto-download / re-apply. We still write the bytes to disk (harmless, and the whole point) —
+	// we just do not register those types as a synthetic set. If we cannot determine ownership we
+	// write only and register nothing, to stay safe.
+	_, _, existingSets, dbErr := database.CheckIfMediaItemExists(ctx, item.TMDB_ID, item.LibraryTitle)
+	owned := ownedTypes(existingSets)
+	canRegister := dbErr.Message == ""
+
 	var written []models.ImageFile
 	var selected models.SelectedTypes
 	var writeErrors []string
@@ -85,16 +96,19 @@ func SaveViaSonarrRadarrFallback(ctx context.Context, item models.MediaItem, pos
 				continue
 			}
 
-			// Record the asset as a Kometa image so it is served from disk like a normal import.
-			written = append(written, models.ImageFile{
-				ID:            imageIDForAsset(folderName, fileName),
-				Type:          image.Type,
-				Modified:      image.Modified,
-				ItemTMDB_ID:   item.TMDB_ID,
-				SeasonNumber:  image.SeasonNumber,
-				EpisodeNumber: image.EpisodeNumber,
-			})
-			markSelected(&selected, image.Type)
+			// Only claim (register) types not already owned by a MediUX set, so the uniqueness
+			// pass in UpsertSavedItem never strips a type from that set.
+			if canRegister && !typeOwned(owned, image.Type) {
+				written = append(written, models.ImageFile{
+					ID:            imageIDForAsset(folderName, fileName),
+					Type:          image.Type,
+					Modified:      image.Modified,
+					ItemTMDB_ID:   item.TMDB_ID,
+					SeasonNumber:  image.SeasonNumber,
+					EpisodeNumber: image.EpisodeNumber,
+				})
+				markSelected(&selected, image.Type)
+			}
 		}
 	}
 
@@ -110,7 +124,9 @@ func SaveViaSonarrRadarrFallback(ctx context.Context, item models.MediaItem, pos
 
 	if len(written) == 0 {
 		// The item matched Sonarr/Radarr (so it is "handled" and the caller should not fall through
-		// to its own error), but nothing was written.
+		// to its own error). Nothing new is registered — either every selected type is already
+		// owned by a MediUX set (its bytes were still written to the Kometa folder above) or the
+		// downloads failed (see Err).
 		return true, false, Err
 	}
 
@@ -126,6 +142,11 @@ func SaveViaSonarrRadarrFallback(ctx context.Context, item models.MediaItem, pos
 // auto-download sets to write.
 func SaveSavedSetsViaSonarrRadarrFallback(ctx context.Context, item models.MediaItem) (handled bool, registered bool, Err logging.LogErrorInfo) {
 	if !fallbackEnabled() {
+		return false, false, logging.LogErrorInfo{}
+	}
+	// Guard before querying: an empty TMDB ID / library title would make GetAllSavedSets an
+	// unbounded scan, and there is nothing to resolve against Sonarr/Radarr anyway.
+	if item.TMDB_ID == "" || item.LibraryTitle == "" {
 		return false, false, logging.LogErrorInfo{}
 	}
 

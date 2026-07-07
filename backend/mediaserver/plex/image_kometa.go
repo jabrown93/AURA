@@ -77,6 +77,14 @@ func SaveKometaAssetWithName(ctx context.Context, assetName string, imageFile mo
 		"Plex: Saving Kometa Asset '%s' into folder '%s'", imageFile.Type, assetName), logging.LevelDebug)
 	defer logAction.Complete()
 
+	// The asset folder must be a single path segment: reject empty names or anything containing a
+	// separator so a caller can never write into the asset root or escape it via nested paths.
+	if assetName == "" || strings.ContainsAny(assetName, `/\`) {
+		logAction.SetError("Invalid Kometa asset folder name", "The asset folder name must be a single, non-empty path segment",
+			map[string]any{"asset_name": assetName})
+		return "", true, *logAction.Error
+	}
+
 	fileName, ok = kometaFileName(imageFile)
 	if !ok {
 		return "", false, logging.LogErrorInfo{}

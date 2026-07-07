@@ -181,21 +181,26 @@ func ProcessQueueItems() {
 			// The media server can't resolve the item (e.g. Plex returns a 404 for a stale rating
 			// key). If the Sonarr/Radarr → Kometa fallback is enabled and the item exists in
 			// Sonarr/Radarr, still write the downloaded images into the Kometa asset folder (folder
-			// name resolved from the Sonarr/Radarr path) and record a synthetic Kometa set, so the
+			// name from the Sonarr/Radarr path) and record a synthetic Kometa set, so the
 			// assets are not lost just because the media server lost the item.
-			if handled, _, kErr := kometa.SaveViaSonarrRadarrFallback(ctx, queueItem.MediaItem, queueItem.PosterSets); handled {
-				if kErr.Message != "" {
-					fileWarnings = append(fileWarnings, fmt.Sprintf("kometa fallback: %s", kErr.Message))
+			//
+			// Only fall back on a genuine 404 (a stale/removed rating key). Transient, auth, and
+			// server errors are left to fail so the download is retried and eventually applied.
+			if mediaserver.IsItemNotFound(mediaErr) {
+				if handled, _, kErr := kometa.SaveViaSonarrRadarrFallback(ctx, queueItem.MediaItem, queueItem.PosterSets); handled {
+					if kErr.Message != "" {
+						fileWarnings = append(fileWarnings, fmt.Sprintf("kometa fallback: %s", kErr.Message))
+					}
+					// Treat as a completed download: the images were saved to the Kometa asset folder
+					// even though the media-server apply was skipped.
+					finalizeAndNotify(
+						queueItem.MediaItem,
+						models.DBPosterSetDetail{},
+						mediuxItemInfo.TMDB_PosterPath,
+						mediuxItemInfo.TMDB_BackdropPath,
+					)
+					continue
 				}
-				// Treat as a completed download: the images were saved to the Kometa asset folder
-				// even though the media-server apply was skipped.
-				finalizeAndNotify(
-					queueItem.MediaItem,
-					models.DBPosterSetDetail{},
-					mediuxItemInfo.TMDB_PosterPath,
-					mediuxItemInfo.TMDB_BackdropPath,
-				)
-				continue
 			}
 
 			fileErrors = append(fileErrors, fmt.Sprintf("media server lookup failed for '%s' in '%s': %s", queueItem.MediaItem.Title, queueItem.MediaItem.LibraryTitle, mediaErr.Message))
