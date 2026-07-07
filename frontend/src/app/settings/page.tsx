@@ -53,7 +53,7 @@ type SectionDirty<S extends ObjectSectionKeys = ObjectSectionKeys> = S extends "
 interface ImagesDirty {
   cache_images?: { enabled?: boolean };
   save_images_locally?: { enabled?: boolean; path?: string };
-  kometa?: { enabled?: boolean; asset_directory?: string; import_cron?: string };
+  kometa?: { enabled?: boolean; asset_directory?: string; library_asset_folders?: boolean; import_cron?: string };
 }
 
 type NotificationsDirty = {
@@ -583,6 +583,7 @@ const SettingsPage: React.FC = () => {
                   onChange={updateImagesField}
                   errorsUpdate={(errs) => updateSectionErrors("images", errs as Record<string, string>)}
                   mediaServerType={newConfig.media_server.type}
+                  libraries={newConfig.media_server.libraries || []}
                 />
                 <ConfigSectionAutoDownload
                   value={newConfig.auto_download}

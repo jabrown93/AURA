@@ -236,6 +236,7 @@ Images:
   Kometa:
     Enabled: false
     AssetDirectory: ""
+    LibraryAssetFolders: {}
     ImportCron: ""
 ```
 
@@ -304,6 +305,14 @@ The folder-per-item layout aura writes and imports:
 
 `Item Folder Name` is the exact name of the folder the movie file lives in, or the show's folder — the same value Kometa uses to look up assets.
 
+By default every library writes into the same `AssetDirectory`. If you run Kometa with a separate `asset_directory` per library, set `Kometa.LibraryAssetFolders` (below) so aura writes each library's assets into a matching subfolder:
+
+```
+<AssetDirectory>/movies/<Movie Folder>/poster.jpg
+<AssetDirectory>/tv/<Show Folder>/poster.jpg
+<AssetDirectory>/anime/<Show Folder>/Season01.jpg
+```
+
 ### Kometa.Enabled
 
 - **Default:** `false`
@@ -319,6 +328,29 @@ The folder-per-item layout aura writes and imports:
   - Must be mounted into the aura container at this exact path and be writable.
   - Required when `Kometa.Enabled` is `true`.
 
+### Kometa.LibraryAssetFolders
+
+- **Default:** `{}` (empty — every library writes flat to `AssetDirectory`)
+- **Options:** A map of Plex library title → subfolder (relative to `AssetDirectory`)
+- **Description:** Optional per-library subfolder so each Plex library writes its assets into its own folder under `AssetDirectory`.
+- **Details:**
+  - Keyed by the exact Plex **library title** (e.g. `Movies`, `TV Shows`, `Anime`); the value is a path **relative to** `AssetDirectory` (e.g. `movies`, `tv`, `anime`).
+  - A library with no entry keeps writing directly under `AssetDirectory` (the default flat layout), so existing setups are unaffected.
+  - The subfolder must match the per-library `asset_directory` you configured in **Kometa itself** — aura writes there, Kometa reads from there. aura cannot infer these names.
+  - Values must be relative: leading `/` and `..` segments are rejected on save so a subfolder can never escape `AssetDirectory`.
+  - Imports and the in-app asset preview understand this layout automatically, and still read any assets that remain directly under `AssetDirectory`.
+  - Configure this in **Settings → Images → Kometa Mode → Per-Library Subfolders**, which lists each of your Plex movie/show libraries.
+
+  ```yaml
+  Kometa:
+    Enabled: true
+    AssetDirectory: /media/assets/kometa
+    LibraryAssetFolders:
+      Movies: movies
+      TV Shows: tv
+      Anime: anime
+  ```
+
 ### Kometa.ImportCron
 
 - **Default:** `""` (empty string)
@@ -330,7 +362,7 @@ The folder-per-item layout aura writes and imports:
 
 ### Importing existing Kometa assets
 
-An import scans `AssetDirectory`, matches each folder to a Plex media item (by `Title (Year)`, a `{tmdb-12345}` hint, or a collection title), uploads the images to Plex, and records them as a "Kometa Import" set so they appear in the aura UI. Items already managed by an aura (MediUX) set take precedence: any image type a MediUX set owns is skipped entirely — neither pushed to Plex nor recorded in the database — and items you have ignored in aura are skipped altogether. Skipped assets are reported in the import result.
+An import scans `AssetDirectory` — and, when `LibraryAssetFolders` is set, one level inside each configured library subfolder — matching each item folder to a Plex media item (by `Title (Year)`, a `{tmdb-12345}` hint, or a collection title), uploads the images to Plex, and records them as a "Kometa Import" set so they appear in the aura UI. Items already managed by an aura (MediUX) set take precedence: any image type a MediUX set owns is skipped entirely — neither pushed to Plex nor recorded in the database — and items you have ignored in aura are skipped altogether. Skipped assets are reported in the import result.
 
 ### Migrating from `SaveImagesLocally` to Kometa
 

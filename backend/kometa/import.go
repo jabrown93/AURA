@@ -33,6 +33,22 @@ func importEnabled() bool {
 	return k.Enabled && k.AssetDirectory != "" && config.Current.MediaServer.Type == "Plex"
 }
 
+// configuredSubfolders returns the distinct, sanitized per-library subfolders (relative to the
+// asset directory) from the current config, so the import scan can descend into each one.
+func configuredSubfolders() []string {
+	seen := make(map[string]bool)
+	subs := make([]string, 0, len(config.Current.Images.Kometa.LibraryAssetFolders))
+	for _, raw := range config.Current.Images.Kometa.LibraryAssetFolders {
+		sub := config.SanitizeKometaSubfolder(raw)
+		if sub == "" || seen[sub] {
+			continue
+		}
+		seen[sub] = true
+		subs = append(subs, sub)
+	}
+	return subs
+}
+
 // runImport performs the import synchronously against a background context and records the
 // result. It recovers from panics so a bad asset directory can never crash the process.
 func runImport() {
@@ -56,7 +72,7 @@ func runImport() {
 	// Refresh the library/collection cache so matching runs against current data.
 	mediaserver.GetAllLibrarySectionsAndItems(ctx, true)
 
-	folders, err := Scan(assetDir)
+	folders, err := Scan(assetDir, configuredSubfolders())
 	if err != nil {
 		result.Error = err.Error()
 		logAction.SetError("Failed to scan Kometa asset directory", "Ensure the asset directory is readable", map[string]any{"error": err.Error(), "path": assetDir})
@@ -88,7 +104,7 @@ func runImport() {
 
 		result.UnmatchedFolders++
 		result.Folders = append(result.Folders, FolderOutcome{
-			Folder:  folder.Name,
+			Folder:  folder.RelDir,
 			Outcome: "unmatched",
 			Detail:  "no matching media item or collection in the library",
 		})
@@ -105,7 +121,7 @@ func runImport() {
 // by a non-Kometa (MediUX) set — and items the user has ignored — are never pushed to Plex,
 // so an import cannot silently replace an AURA-managed image on the server.
 func processItem(ctx context.Context, plexClient *plex.Plex, assetDir string, folder ScannedFolder, item *models.MediaItem, result *ImportResult) {
-	outcome := FolderOutcome{Folder: folder.Name, Outcome: "matched", Detail: item.LibraryTitle}
+	outcome := FolderOutcome{Folder: folder.RelDir, Outcome: "matched", Detail: item.LibraryTitle}
 
 	// Precedence guard: load AURA's existing records first so owned types are skipped
 	// before their bytes ever reach Plex.
@@ -146,7 +162,7 @@ func processItem(ctx context.Context, plexClient *plex.Plex, assetDir string, fo
 		}
 
 		imageFile := models.ImageFile{
-			ID:            imageIDForAsset(folder.Name, asset.FileName),
+			ID:            imageIDForAsset(folder.RelDir, asset.FileName),
 			Type:          asset.Type,
 			Modified:      asset.ModTime,
 			ItemTMDB_ID:   item.TMDB_ID,
@@ -162,7 +178,7 @@ func processItem(ctx context.Context, plexClient *plex.Plex, assetDir string, fo
 			continue
 		}
 
-		data, err := os.ReadFile(filepath.Join(assetDir, folder.Name, asset.FileName))
+		data, err := os.ReadFile(filepath.Join(assetDir, filepath.FromSlash(folder.RelDir), asset.FileName))
 		if err != nil {
 			outcome.ImagesFailed++
 			result.ImagesFailed++
@@ -276,14 +292,14 @@ func registerImportedItem(ctx context.Context, item *models.MediaItem, folderNam
 // processCollection uploads a folder's poster/background to a matched collection. Collection
 // assets are applied to Plex only (not recorded as AURA saved sets).
 func processCollection(ctx context.Context, plexClient *plex.Plex, assetDir string, folder ScannedFolder, coll *models.CollectionItem, result *ImportResult) {
-	outcome := FolderOutcome{Folder: folder.Name, Outcome: "collection", Detail: coll.LibraryTitle}
+	outcome := FolderOutcome{Folder: folder.RelDir, Outcome: "collection", Detail: coll.LibraryTitle}
 
 	for _, asset := range folder.Assets {
 		// Collections only carry a poster and a background.
 		if asset.Type != "poster" && asset.Type != "backdrop" {
 			continue
 		}
-		data, err := os.ReadFile(filepath.Join(assetDir, folder.Name, asset.FileName))
+		data, err := os.ReadFile(filepath.Join(assetDir, filepath.FromSlash(folder.RelDir), asset.FileName))
 		if err != nil {
 			outcome.ImagesFailed++
 			result.ImagesFailed++

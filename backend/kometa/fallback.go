@@ -10,6 +10,7 @@ import (
 	sonarr_radarr "aura/sonarr-radarr"
 	"context"
 	"fmt"
+	"path"
 )
 
 // fallbackEnabled reports whether the Sonarr/Radarr → Kometa fallback can run given the current
@@ -55,7 +56,10 @@ func SaveViaSonarrRadarrFallback(ctx context.Context, item models.MediaItem, pos
 		}
 		return false, false, logging.LogErrorInfo{}
 	}
-	logAction.AppendResult("kometa_asset_folder", folderName)
+	// Resolve the per-library subfolder (relative to the asset directory) once for this item,
+	// so the fallback writes to the same location the live apply path would.
+	subfolder := config.Current.Images.Kometa.SubfolderFor(item.LibraryTitle)
+	logAction.AppendResult("kometa_asset_folder", path.Join(subfolder, folderName))
 
 	// Precedence guard (mirrors the Kometa importer): never *claim* an image type that an existing
 	// MediUX set already owns. UpsertSavedItem enforces SelectedTypes uniqueness by transferring
@@ -86,7 +90,7 @@ func SaveViaSonarrRadarrFallback(ctx context.Context, item models.MediaItem, pos
 				continue
 			}
 
-			fileName, ok, wErr := plex.SaveKometaAssetWithName(ctx, folderName, image, data)
+			fileName, ok, wErr := plex.SaveKometaAssetWithName(ctx, subfolder, folderName, image, data)
 			if !ok {
 				// Image type is not a Kometa asset type; skip silently.
 				continue
@@ -100,7 +104,7 @@ func SaveViaSonarrRadarrFallback(ctx context.Context, item models.MediaItem, pos
 			// pass in UpsertSavedItem never strips a type from that set.
 			if canRegister && !typeOwned(owned, image.Type) {
 				written = append(written, models.ImageFile{
-					ID:            imageIDForAsset(folderName, fileName),
+					ID:            imageIDForAsset(path.Join(subfolder, folderName), fileName),
 					Type:          image.Type,
 					Modified:      image.Modified,
 					ItemTMDB_ID:   item.TMDB_ID,
