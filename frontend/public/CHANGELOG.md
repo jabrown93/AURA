@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.1](https://github.com/jabrown93/AURA/compare/v1.2.0...v1.2.1) (2026-07-07)
+
+
+### Bug Fixes
+
+* **deps:** update dependency @hookform/resolvers to v5.4.0 ([694a541](https://github.com/jabrown93/AURA/commit/694a5418e0a443a8e7c37e5392b7e588216545f0))
+* **deps:** update radix-ui-primitives monorepo ([#40](https://github.com/jabrown93/AURA/issues/40)) ([25098ef](https://github.com/jabrown93/AURA/commit/25098eff47c4b3c0609511ee6d393b8b3cb17929))
+
 # [1.2.0](https://github.com/jabrown93/AURA/compare/v1.1.6...v1.2.0) (2026-07-07)
 
 
