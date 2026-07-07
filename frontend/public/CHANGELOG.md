@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.5](https://github.com/jabrown93/AURA/compare/v1.4.4...v1.4.5) (2026-07-07)
+
+
+### Bug Fixes
+
+* **deps:** update dependency motion to v12.42.2 ([ac754bb](https://github.com/jabrown93/AURA/commit/ac754bb4ef4ff67faacdc7129ec716256f701891))
+
 ## [1.4.4](https://github.com/jabrown93/AURA/compare/v1.4.3...v1.4.4) (2026-07-07)
 
 
