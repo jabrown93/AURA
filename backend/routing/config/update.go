@@ -453,6 +453,16 @@ func checkConfigDifferences_Images(ctx context.Context, oldImages config.Config_
 				Msg("Images.Kometa.ImportCron changed")
 			changed = true
 		}
+
+		if oldImages.Kometa.SonarrRadarrFallback != newImages.Kometa.SonarrRadarrFallback {
+			logAction.AppendResult("Images.Kometa.SonarrRadarrFallback changed", fmt.Sprintf("from '%v' to '%v'", oldImages.Kometa.SonarrRadarrFallback, newImages.Kometa.SonarrRadarrFallback))
+			logging.LOGGER.Info().
+				Timestamp().
+				Bool("old_sonarr_radarr_fallback", oldImages.Kometa.SonarrRadarrFallback).
+				Bool("new_sonarr_radarr_fallback", newImages.Kometa.SonarrRadarrFallback).
+				Msg("Images.Kometa.SonarrRadarrFallback changed")
+			changed = true
+		}
 	}
 	newValid = config.ValidateImages(ctx, newImages, msConfig)
 	return changed, newValid

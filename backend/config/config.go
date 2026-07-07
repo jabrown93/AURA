@@ -90,9 +90,10 @@ type Config_SaveImagesLocally struct {
 }
 
 type Config_Kometa struct {
-	Enabled        bool   `json:"enabled" yaml:"Enabled"`                                    // Whether to write downloaded images into the Kometa asset directory using Kometa naming conventions. Plex exclusive feature.
-	AssetDirectory string `json:"asset_directory,omitempty" yaml:"AssetDirectory,omitempty"` // Path to the Kometa asset directory (the same directory Kometa reads assets from). Uses the folder-per-item (asset_folders: true) layout.
-	ImportCron     string `json:"import_cron,omitempty" yaml:"ImportCron,omitempty"`         // Optional cron expression for periodically importing existing Kometa assets. Empty means import is manual only.
+	Enabled              bool   `json:"enabled" yaml:"Enabled"`                                                 // Whether to write downloaded images into the Kometa asset directory using Kometa naming conventions. Plex exclusive feature.
+	AssetDirectory       string `json:"asset_directory,omitempty" yaml:"AssetDirectory,omitempty"`              // Path to the Kometa asset directory (the same directory Kometa reads assets from). Uses the folder-per-item (asset_folders: true) layout.
+	ImportCron           string `json:"import_cron,omitempty" yaml:"ImportCron,omitempty"`                      // Optional cron expression for periodically importing existing Kometa assets. Empty means import is manual only.
+	SonarrRadarrFallback bool   `json:"sonarr_radarr_fallback,omitempty" yaml:"SonarrRadarrFallback,omitempty"` // When a media-server lookup fails (e.g. Plex returns a 404) but the item exists in Sonarr/Radarr, still write the downloaded images into the Kometa asset directory, deriving the asset folder name from the Sonarr/Radarr path. Requires Enabled. Plex exclusive feature.
 }
 
 type Config_TMDB struct {

@@ -64,6 +64,40 @@ func saveImageKometa(ctx context.Context, p *Plex, item *models.MediaItem, image
 	return writeKometaAsset(assetDir, fileName, imageData, logAction)
 }
 
+// SaveKometaAssetWithName writes downloaded image bytes into the Kometa asset directory using a
+// caller-supplied asset folder name, rather than deriving it from the Plex file path. This lets
+// callers save Kometa assets for items that can no longer be resolved on the media server, using
+// a folder name obtained elsewhere (e.g. from Sonarr/Radarr). It performs no Plex upload.
+//
+// It returns the on-disk file name written (e.g. "poster.jpg", "Season01.jpg") so callers can
+// build a matching Kometa image ID. ok=false means the image type is not written as a Kometa
+// asset (the caller should skip it); a non-empty Err means the write itself failed.
+func SaveKometaAssetWithName(ctx context.Context, assetName string, imageFile models.ImageFile, imageData []byte) (fileName string, ok bool, Err logging.LogErrorInfo) {
+	_, logAction := logging.AddSubActionToContext(ctx, fmt.Sprintf(
+		"Plex: Saving Kometa Asset '%s' into folder '%s'", imageFile.Type, assetName), logging.LevelDebug)
+	defer logAction.Complete()
+
+	// The asset folder must be a single path segment: reject empty names or anything containing a
+	// separator so a caller can never write into the asset root or escape it via nested paths.
+	if assetName == "" || strings.ContainsAny(assetName, `/\`) {
+		logAction.SetError("Invalid Kometa asset folder name", "The asset folder name must be a single, non-empty path segment",
+			map[string]any{"asset_name": assetName})
+		return "", true, *logAction.Error
+	}
+
+	fileName, ok = kometaFileName(imageFile)
+	if !ok {
+		return "", false, logging.LogErrorInfo{}
+	}
+
+	assetDir := path.Join(config.Current.Images.Kometa.AssetDirectory, assetName)
+	logAction.AppendResult("kometa_asset_dir", assetDir)
+	logAction.AppendResult("kometa_file_name", fileName)
+
+	Err = writeKometaAsset(assetDir, fileName, imageData, logAction)
+	return fileName, true, Err
+}
+
 // kometaAssetName derives the Kometa ASSET_NAME (the media item's folder name) for a
 // movie or show. For movies it is the parent directory of the movie file; for shows it is
 // the base name of the series location.

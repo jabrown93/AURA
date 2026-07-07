@@ -4,6 +4,7 @@ import (
 	"aura/cache"
 	"aura/config"
 	"aura/database"
+	"aura/kometa"
 	"aura/logging"
 	"aura/mediaserver"
 	"aura/models"
@@ -263,6 +264,17 @@ func processPlexRefreshMessage(messageInfo PlexRefreshMessage) {
 
 	_, Err := mediaserver.GetMediaItemDetails(ctx, &refreshedItem.MediaItem)
 	if Err.Message != "" {
+		// Only when Plex genuinely no longer has the item (a 404, e.g. it was removed/renamed): if
+		// the Sonarr/Radarr → Kometa fallback is enabled, write the item's saved images into the
+		// Kometa asset folder so Kometa can re-apply them on its next run. Transient/auth/server
+		// errors fall through to the normal error handling below.
+		if mediaserver.IsItemNotFound(Err) {
+			if handled, _, _ := kometa.SaveSavedSetsViaSonarrRadarrFallback(ctx, refreshedItem.MediaItem); handled {
+				logAction.AppendResult("kometa_fallback", "saved images to the Kometa asset folder via Sonarr/Radarr")
+				ld.Log()
+				return
+			}
+		}
 		logAction.SetError(
 			"Failed to refresh item details",
 			"Review errors for more details",

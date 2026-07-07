@@ -37,6 +37,7 @@ export const defaultAppConfig = (): AppConfig =>
         enabled: false,
         asset_directory: "",
         import_cron: "",
+        sonarr_radarr_fallback: false,
       },
     },
     tmdb: {

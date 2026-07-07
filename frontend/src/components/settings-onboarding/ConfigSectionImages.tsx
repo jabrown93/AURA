@@ -44,6 +44,7 @@ interface ConfigSectionImagesProps {
       enabled?: boolean;
       asset_directory?: boolean;
       import_cron?: boolean;
+      sonarr_radarr_fallback?: boolean;
     };
   };
   onChange: <K extends keyof AppConfigImages, F extends keyof AppConfigImages[K]>(
@@ -411,6 +412,34 @@ export const ConfigSectionImages: React.FC<ConfigSectionImagesProps> = ({
                   )}
                   placeholder="0 3 * * * (optional)"
                 />
+              </div>
+
+              <div
+                className={cn(
+                  "flex items-center justify-between border rounded-md p-3 transition",
+                  "border-muted",
+                  dirtyFields.kometa?.sonarr_radarr_fallback && "border-amber-500"
+                )}
+              >
+                <Label className="mr-2">Sonarr/Radarr Fallback</Label>
+                <div className="flex items-center gap-2">
+                  <Switch
+                    disabled={!editing}
+                    checked={!!value.kometa.sonarr_radarr_fallback}
+                    onCheckedChange={(v) => onChange("kometa", "sonarr_radarr_fallback", v)}
+                  />
+                  {editing && (
+                    <PopoverHelp ariaLabel="help-images-kometa-sonarr-radarr-fallback">
+                      <p>
+                        When a media-server lookup fails (for example Plex returns a 404 for an item it can no longer
+                        find) but the show or movie still exists in Sonarr/Radarr, save the downloaded images into the
+                        Kometa asset folder anyway. The asset folder name is taken from the Sonarr/Radarr path, and the
+                        images are recorded as a Kometa set rather than applied to Plex. Requires a Sonarr/Radarr
+                        instance configured for this library.
+                      </p>
+                    </PopoverHelp>
+                  )}
+                </div>
               </div>
 
               {!editing && (

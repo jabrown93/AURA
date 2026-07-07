@@ -8,7 +8,21 @@ import (
 	"aura/models"
 	"context"
 	"fmt"
+	"net/http"
 )
+
+// IsItemNotFound reports whether a media-server lookup error means the item is genuinely absent
+// (an HTTP 404), as opposed to a transient/auth/server failure (timeout, 401, 5xx, connection
+// error). Callers use this to decide whether it is safe to take a "the item is gone" path
+// instead of leaving the operation failed for retry. The status code is carried in the error's
+// Detail by the media-server HTTP wrappers.
+func IsItemNotFound(Err logging.LogErrorInfo) bool {
+	if Err.Detail == nil {
+		return false
+	}
+	code, ok := Err.Detail["status_code"].(int)
+	return ok && code == http.StatusNotFound
+}
 
 type MediaServerInterface interface {
 	// Test Connection (returns the Server Version if connection is successful)
