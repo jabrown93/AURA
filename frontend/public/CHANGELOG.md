@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.6](https://github.com/jabrown93/AURA/compare/v1.4.5...v1.4.6) (2026-07-07)
+
+
+### Bug Fixes
+
+* **deps:** update dependency react-hook-form to v7.80.0 ([a3daa21](https://github.com/jabrown93/AURA/commit/a3daa21229a5446e0c0a03ff312636891e8d4d48))
+
 ## [1.4.5](https://github.com/jabrown93/AURA/compare/v1.4.4...v1.4.5) (2026-07-07)
 
 
