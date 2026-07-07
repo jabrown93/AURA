@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.3](https://github.com/jabrown93/AURA/compare/v1.4.2...v1.4.3) (2026-07-07)
+
+
+### Bug Fixes
+
+* **deps:** update dependency cronstrue to v3.24.0 ([b68ffb1](https://github.com/jabrown93/AURA/commit/b68ffb1c302eff00edad7cf5c6182f8d817237a6))
+
 ## [1.4.2](https://github.com/jabrown93/AURA/compare/v1.4.1...v1.4.2) (2026-07-07)
 
 
