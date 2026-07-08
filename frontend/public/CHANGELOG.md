@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.9](https://github.com/jabrown93/AURA/compare/v1.4.8...v1.4.9) (2026-07-08)
+
+
+### Bug Fixes
+
+* **deps:** update module golang.org/x/text to v0.40.0 ([9ed721a](https://github.com/jabrown93/AURA/commit/9ed721ab09737fabbc8978da8bcd9bd44bb64ff7))
+
 ## [1.4.8](https://github.com/jabrown93/AURA/compare/v1.4.7...v1.4.8) (2026-07-08)
 
 
