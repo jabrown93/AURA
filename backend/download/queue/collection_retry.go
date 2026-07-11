@@ -37,10 +37,11 @@ func RetryCollectionFromQueue(ctx context.Context, retryItem models.CollectionQu
 	}
 
 	// Match only errored files for this collection (LibraryTitle + RatingKey),
-	// using the same name construction as RemoveCollectionFromQueue.
+	// using the same sanitized name construction as AddCollectionToQueue /
+	// RemoveCollectionFromQueue.
 	pattern := fmt.Sprintf(`^error_%s_%s_\d+\.json$`,
-		regexp.QuoteMeta(strings.ReplaceAll(retryItem.CollectionItem.LibraryTitle, " ", `_`)),
-		regexp.QuoteMeta(retryItem.CollectionItem.RatingKey),
+		regexp.QuoteMeta(sanitizeQueueSegment(retryItem.CollectionItem.LibraryTitle)),
+		regexp.QuoteMeta(sanitizeQueueSegment(retryItem.CollectionItem.RatingKey)),
 	)
 	re := regexp.MustCompile(pattern)
 

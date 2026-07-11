@@ -7,8 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path"
-	"strings"
+	"path/filepath"
 	"time"
 )
 
@@ -27,12 +26,26 @@ func AddCollectionToQueue(ctx context.Context, item models.CollectionQueueItem) 
 
 	Err = logging.LogErrorInfo{}
 
+	// Sanitize the attacker-controlled Collection fields into safe single path
+	// segments, then verify the resulting name is a local (non-traversing) path
+	// element before writing. Defense in depth: sanitizeQueueSegment already
+	// strips path separators, and filepath.IsLocal rejects anything that could
+	// still escape CollectionFolderPath (CodeQL go/path-injection).
 	timestamp := time.Now().Unix()
-	fileName := path.Join(CollectionFolderPath, fmt.Sprintf("%s_%s_%d.json",
-		strings.ReplaceAll(item.CollectionItem.LibraryTitle, " ", `_`),
-		item.CollectionItem.RatingKey,
+	baseName := fmt.Sprintf("%s_%s_%d.json",
+		sanitizeQueueSegment(item.CollectionItem.LibraryTitle),
+		sanitizeQueueSegment(item.CollectionItem.RatingKey),
 		timestamp,
-	))
+	)
+	if !filepath.IsLocal(baseName) {
+		logAction.SetError("Refusing to write collection queue entry with a non-local file name",
+			"The collection's library title or rating key produced an unsafe file name",
+			map[string]any{
+				"file": baseName,
+			})
+		return *logAction.Error
+	}
+	fileName := filepath.Join(CollectionFolderPath, baseName)
 
 	jsonData, marshalErr := json.Marshal(item)
 	if marshalErr != nil {

@@ -8,7 +8,6 @@ import (
 	"os"
 	"path"
 	"regexp"
-	"strings"
 )
 
 // RemoveCollectionFromQueue deletes every queue file (in-progress, warning, or
@@ -35,11 +34,12 @@ func RemoveCollectionFromQueue(ctx context.Context, deleteItem models.Collection
 		return deleted, Err
 	}
 
-	// QuoteMeta escapes regex metacharacters in the library title / rating key so
-	// the pattern matches the literal filename AddCollectionToQueue wrote.
+	// Match on the same sanitized segments AddCollectionToQueue wrote, so a
+	// caller passing the raw Collection still targets the right files. QuoteMeta
+	// then escapes any regex metacharacters ("." / "-") left in those segments.
 	pattern := fmt.Sprintf(`^(error_|warning_)?%s_%s_\d+\.json$`,
-		regexp.QuoteMeta(strings.ReplaceAll(deleteItem.CollectionItem.LibraryTitle, " ", `_`)),
-		regexp.QuoteMeta(deleteItem.CollectionItem.RatingKey),
+		regexp.QuoteMeta(sanitizeQueueSegment(deleteItem.CollectionItem.LibraryTitle)),
+		regexp.QuoteMeta(sanitizeQueueSegment(deleteItem.CollectionItem.RatingKey)),
 	)
 	re := regexp.MustCompile(pattern)
 
