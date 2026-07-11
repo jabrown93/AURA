@@ -177,19 +177,26 @@ func ProcessQueueItems() {
 			fileWarnings = append(fileWarnings, fmt.Sprintf("mediux lookup failed: %s", mErr.Message))
 		}
 
-		// The queue file snapshotted this item's rating key when it was enqueued. If the media
-		// server removed and re-added the item since then (e.g. a file move / re-import), that key
-		// is now stale and GetMediaItemDetails would 404 on it. The in-memory library cache is
-		// refreshed from the media server and keyed by the stable TMDB ID, so re-resolve the current
-		// rating key from it first — matching what the auto-download check already does
-		// (download/auto/check.go). If the item is not in the cache it is genuinely gone; keep the
-		// snapshot key and let the normal 404 / Sonarr-Radarr fallback path below handle it.
-		if cached, ok := cache.LibraryStore.GetMediaItemFromSectionByTMDBID(queueItem.MediaItem.LibraryTitle, queueItem.MediaItem.TMDB_ID); ok && cached.RatingKey != "" && cached.RatingKey != queueItem.MediaItem.RatingKey {
-			subAction.AppendResult(fmt.Sprintf("rating_key_refresh_%s", file.Name()), fmt.Sprintf("%s -> %s (stale key re-resolved by TMDB %s)", queueItem.MediaItem.RatingKey, cached.RatingKey, queueItem.MediaItem.TMDB_ID))
-			queueItem.MediaItem.RatingKey = cached.RatingKey
+		found, mediaErr := mediaserver.GetMediaItemDetails(ctx, &queueItem.MediaItem)
+
+		// The queue file snapshotted this item's rating key when it was enqueued. Media-server
+		// rating keys are not stable (Plex reassigns them when an item is removed and re-added,
+		// e.g. a file move / re-import), so a key that was valid at enqueue time can be dead by the
+		// time the queue drains — the fetch above then 404s. Before failing, re-resolve the current
+		// key from the in-memory library cache by the stable TMDB ID and retry the fetch once.
+		//
+		// This runs only after a genuine 404, never for an item whose queued key still resolves, so
+		// a valid entry is never redirected to a different item that merely shares the TMDB ID
+		// (duplicate editions in the same library). If the cache holds no newer key, the queued key
+		// is left as-is and the existing Sonarr/Radarr fallback + error path below handles it.
+		if mediaserver.IsItemNotFound(mediaErr) {
+			if cached, ok := cache.LibraryStore.GetMediaItemFromSectionByTMDBID(queueItem.MediaItem.LibraryTitle, queueItem.MediaItem.TMDB_ID); ok && cached.RatingKey != "" && cached.RatingKey != queueItem.MediaItem.RatingKey {
+				subAction.AppendResult(fmt.Sprintf("rating_key_refresh_%s", file.Name()), fmt.Sprintf("%s -> %s (stale key re-resolved by TMDB %s)", queueItem.MediaItem.RatingKey, cached.RatingKey, queueItem.MediaItem.TMDB_ID))
+				queueItem.MediaItem.RatingKey = cached.RatingKey
+				found, mediaErr = mediaserver.GetMediaItemDetails(ctx, &queueItem.MediaItem)
+			}
 		}
 
-		found, mediaErr := mediaserver.GetMediaItemDetails(ctx, &queueItem.MediaItem)
 		if mediaErr.Message != "" || !found {
 			// The media server can't resolve the item (e.g. Plex returns a 404 for a stale rating
 			// key). If the Sonarr/Radarr → Kometa fallback is enabled and the item exists in
