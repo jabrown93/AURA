@@ -22,17 +22,13 @@ import { useCollectionsPageStore } from "@/lib/stores/page-store-collections";
 import { searchItems } from "@/hooks/search-query";
 
 import type { APIResponse } from "@/types/api/api-response";
-import type { MediaItem } from "@/types/media-and-posters/media-item-and-library";
+import type { CollectionItem } from "@/types/media-and-posters/collection-item";
 
-export interface CollectionItem {
-  rating_key: string;
-  index: string;
-  title: string;
-  summary?: string;
-  child_count: number;
-  media_items: MediaItem[];
-  library_title?: string;
-}
+// Backward-compatible re-export: CollectionItem now lives in
+// @/types/media-and-posters/collection-item. Prefer importing it from there.
+// This re-export keeps any remaining "@/app/collections/page" imports working
+// during migration and can be removed once every consumer has moved over.
+export type { CollectionItem };
 
 export default function CollectionsPage() {
   const isMounted = useRef(false);
