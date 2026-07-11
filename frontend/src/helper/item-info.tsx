@@ -1,5 +1,4 @@
-import type { CollectionItem } from "@/app/collections/page";
-
+import type { CollectionItem } from "@/types/media-and-posters/collection-item";
 import type { MediaItem } from "@/types/media-and-posters/media-item-and-library";
 
 const titleYearSuffixRe = /\s*\((\d{4})\)\s*$/;

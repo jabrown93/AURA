@@ -1,10 +1,10 @@
-import type { CollectionItem } from "@/app/collections/page";
 import apiClient from "@/services/api-client";
 import { ReturnErrorMessage } from "@/services/api-error-return";
 
 import { log } from "@/lib/logger";
 
 import type { APIResponse } from "@/types/api/api-response";
+import type { CollectionItem } from "@/types/media-and-posters/collection-item";
 import type { CollectionItemSetRef } from "@/types/media-and-posters/sets";
 import type { MediuxUserInfo } from "@/types/mediux/mediux-user-follow-hide";
 

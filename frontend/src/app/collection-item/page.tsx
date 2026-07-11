@@ -1,7 +1,6 @@
 "use client";
 
 import CollectionsDownloadModal from "@/app/collection-item/collection-download-modal";
-import type { CollectionItem } from "@/app/collections/page";
 import { formatLastUpdatedDate } from "@/helper/format-date-last-updates";
 import { makePlural } from "@/helper/make_plural";
 import { ReturnErrorMessage } from "@/services/api-error-return";
@@ -41,6 +40,7 @@ import { useCollectionItemPageStore } from "@/lib/stores/page-store-collection-i
 import { useCollectionsPageStore } from "@/lib/stores/page-store-collections";
 
 import type { APIResponse } from "@/types/api/api-response";
+import type { CollectionItem } from "@/types/media-and-posters/collection-item";
 import type { CollectionItemSetRef } from "@/types/media-and-posters/sets";
 import type { MediuxUserInfo } from "@/types/mediux/mediux-user-follow-hide";
 
