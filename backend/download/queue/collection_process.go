@@ -116,25 +116,14 @@ func ProcessCollectionQueueItems() {
 		var queueItem models.CollectionQueueItem
 
 		finalizeAndNotify := func() {
-			// Update the shared queue status independently of notification delivery.
-			// SendNotification returns early (without touching LatestInfo) when
-			// notifications are disabled — the default — so without this the status
-			// banner would stay stuck on "Processing..." after a successful run.
-			status := LAST_STATUS_SUCCESS
-			if len(fileErrors) > 0 {
-				status = LAST_STATUS_ERROR
-			} else if len(fileWarnings) > 0 {
-				status = LAST_STATUS_WARNING
-			}
+			// Record the terminal status before notifying (see setLatestInfoTerminal):
+			// SendNotification skips the LatestInfo update when notifications are
+			// disabled, which would otherwise leave the banner stuck on "Processing...".
 			label := queueItem.CollectionItem.Title
 			if label == "" {
 				label = file.Name()
 			}
-			LatestInfo.Time = time.Now()
-			LatestInfo.Status = status
-			LatestInfo.Message = fmt.Sprintf("Collection: %s", label)
-			LatestInfo.Errors = fileErrors
-			LatestInfo.Warnings = fileWarnings
+			setLatestInfoTerminal(fmt.Sprintf("Collection: %s", label), fileErrors, fileWarnings)
 
 			sendCollectionNotification(FileIssues{Errors: fileErrors, Warnings: fileWarnings}, queueItem)
 			if err := finalizeCollectionQueueFile(filePath, file.Name(), queueItem, fileErrors, fileWarnings); err != nil {

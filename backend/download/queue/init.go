@@ -44,6 +44,29 @@ type FileIssues struct {
 	Warnings []string
 }
 
+// setLatestInfoTerminal records the terminal status of a processed queue entry on
+// the shared LatestInfo, independent of notification delivery. SendNotification
+// only updates LatestInfo when notifications are enabled — which is off by
+// default — so without this the download queue status banner would stay stuck on
+// "Processing..." after a successful run. Notification-enabled paths may still
+// overwrite LatestInfo afterwards with their richer per-set message.
+func setLatestInfoTerminal(message string, fileErrors, fileWarnings []string) {
+	status := LAST_STATUS_SUCCESS
+	if len(fileErrors) > 0 {
+		status = LAST_STATUS_ERROR
+	} else if len(fileWarnings) > 0 {
+		status = LAST_STATUS_WARNING
+	}
+	if message == "" {
+		message = "Unknown"
+	}
+	LatestInfo.Time = time.Now()
+	LatestInfo.Status = status
+	LatestInfo.Message = message
+	LatestInfo.Errors = fileErrors
+	LatestInfo.Warnings = fileWarnings
+}
+
 func init() {
 	ctx, ld := logging.CreateLoggingContext(context.Background(), "Download Queue Init")
 	defer ld.Log()
