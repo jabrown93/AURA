@@ -1,5 +1,17 @@
 # Changelog
 
+# [1.5.0](https://github.com/jabrown93/AURA/compare/v1.4.9...v1.5.0) (2026-07-11)
+
+
+### Bug Fixes
+
+* **download-queue:** re-resolve stale rating keys by TMDB before processing ([#47](https://github.com/jabrown93/AURA/issues/47)) ([6f708c1](https://github.com/jabrown93/AURA/commit/6f708c1292a909f06996491edbe126786390eaab))
+
+
+### Features
+
+* **download:** default popups to queue + add collection queue support ([#45](https://github.com/jabrown93/AURA/issues/45)) ([b1f89f4](https://github.com/jabrown93/AURA/commit/b1f89f46fe5460ef7d92da8388348d8c928c755d))
+
 ## [1.4.9](https://github.com/jabrown93/AURA/compare/v1.4.8...v1.4.9) (2026-07-08)
 
 
