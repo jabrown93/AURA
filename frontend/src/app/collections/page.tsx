@@ -24,12 +24,6 @@ import { searchItems } from "@/hooks/search-query";
 import type { APIResponse } from "@/types/api/api-response";
 import type { CollectionItem } from "@/types/media-and-posters/collection-item";
 
-// Backward-compatible re-export: CollectionItem now lives in
-// @/types/media-and-posters/collection-item. Prefer importing it from there.
-// This re-export keeps any remaining "@/app/collections/page" imports working
-// during migration and can be removed once every consumer has moved over.
-export type { CollectionItem };
-
 export default function CollectionsPage() {
   const isMounted = useRef(false);
 

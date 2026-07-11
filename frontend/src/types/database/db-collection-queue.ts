@@ -1,5 +1,4 @@
-import type { CollectionItem } from "@/app/collections/page";
-
+import type { CollectionItem } from "@/types/media-and-posters/collection-item";
 import type { CollectionItemImageFile } from "@/types/media-and-posters/sets";
 
 // Mirror of the backend models.CollectionQueueItem. A queued request to download
