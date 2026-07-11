@@ -3,6 +3,7 @@
 import { formatExactDateTime } from "@/helper/format-date-last-updates";
 import { makePlural } from "@/helper/make_plural";
 import { ReturnErrorMessage } from "@/services/api-error-return";
+import { GetAllCollectionQueueItems } from "@/services/downloads/collection-queue-get";
 import { GetAllDownloadQueueItems } from "@/services/downloads/queue-get";
 import { RemoveItemFromQueue } from "@/services/downloads/queue-remove";
 import { RetryItemInQueue } from "@/services/downloads/queue-retry";
@@ -13,6 +14,7 @@ import { toast } from "sonner";
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 
+import CollectionQueueEntry from "@/components/shared/collection-queue-entry";
 import { ConfirmDestructiveDialogActionButton } from "@/components/shared/dialog-destructive-action";
 import DownloadQueueEntry from "@/components/shared/download-queue-entry";
 import { ErrorMessage } from "@/components/shared/error-message";
@@ -27,6 +29,7 @@ import { H2, H3 } from "@/components/ui/typography";
 import { cn } from "@/lib/cn";
 
 import type { APIResponse } from "@/types/api/api-response";
+import type { CollectionQueueItem } from "@/types/database/db-collection-queue";
 import type { DBSavedItem } from "@/types/database/db-poster-set";
 
 // Stable key for a queue entry, matching the backend's file identity (LibraryTitle + TMDB ID).
@@ -40,6 +43,11 @@ const DownloadQueuePage: React.FC = () => {
   const [inProgressEntries, setInProgressEntries] = useState<DBSavedItem[]>([]);
   const [errorEntries, setErrorEntries] = useState<DBSavedItem[]>([]);
   const [warningEntries, setWarningEntries] = useState<DBSavedItem[]>([]);
+
+  // States - Collection Queue Entries
+  const [collectionInProgress, setCollectionInProgress] = useState<CollectionQueueItem[]>([]);
+  const [collectionErrors, setCollectionErrors] = useState<CollectionQueueItem[]>([]);
+  const [collectionWarnings, setCollectionWarnings] = useState<CollectionQueueItem[]>([]);
 
   // States - Queue Status
   const [queueStatus, setQueueStatus] = useState<GetDownloadQueueStatus_Response>({
@@ -68,7 +76,10 @@ const DownloadQueuePage: React.FC = () => {
     try {
       setLoading(true);
 
-      const response = await GetAllDownloadQueueItems();
+      const [response, collectionResponse] = await Promise.all([
+        GetAllDownloadQueueItems(),
+        GetAllCollectionQueueItems(),
+      ]);
 
       if (response.status === "error") {
         setError(response);
@@ -78,6 +89,14 @@ const DownloadQueuePage: React.FC = () => {
       setInProgressEntries(response.data?.in_progress_entries || []);
       setErrorEntries(response.data?.error_entries || []);
       setWarningEntries(response.data?.warning_entries || []);
+
+      // The collection queue is a secondary concern: if it fails to load, still
+      // show the media-item queue rather than erroring the whole page.
+      if (collectionResponse.status !== "error") {
+        setCollectionInProgress(collectionResponse.data?.in_progress_entries || []);
+        setCollectionErrors(collectionResponse.data?.error_entries || []);
+        setCollectionWarnings(collectionResponse.data?.warning_entries || []);
+      }
       setError(null);
     } catch (error) {
       setError(ReturnErrorMessage<unknown>(error));
@@ -263,10 +282,16 @@ const DownloadQueuePage: React.FC = () => {
     );
   }
 
+  const hasCollectionEntries =
+    collectionInProgress.length > 0 || collectionErrors.length > 0 || collectionWarnings.length > 0;
+
   const defaultAccordionValues = [
     inProgressEntries.length > 0 ? "in_progress" : null,
     errorEntries.length > 0 ? "error_entries" : null,
     warningEntries.length > 0 ? "warning_entries" : null,
+    collectionInProgress.length > 0 ? "collection_in_progress" : null,
+    collectionErrors.length > 0 ? "collection_error_entries" : null,
+    collectionWarnings.length > 0 ? "collection_warning_entries" : null,
   ].filter(Boolean) as string[];
 
   // Derived bulk-selection state for the Error section.
@@ -333,9 +358,10 @@ const DownloadQueuePage: React.FC = () => {
         )}
       </pre>
 
-      {inProgressEntries.length === 0 && errorEntries.length === 0 && warningEntries.length === 0 && (
-        <p className="text-gray-500">No download queue entries found</p>
-      )}
+      {inProgressEntries.length === 0 &&
+        errorEntries.length === 0 &&
+        warningEntries.length === 0 &&
+        !hasCollectionEntries && <p className="text-gray-500">No download queue entries found</p>}
 
       <div className="w-full">
         <Accordion type="multiple" className="mb-4" defaultValue={defaultAccordionValues}>
@@ -499,6 +525,81 @@ const DownloadQueuePage: React.FC = () => {
                     ))}
                   </ResponsiveGrid>
                 )}
+              </AccordionContent>
+            </AccordionItem>
+          )}
+
+          {collectionInProgress.length > 0 && (
+            <AccordionItem value="collection_in_progress">
+              <AccordionTrigger
+                className={cn(
+                  "cursor-pointer",
+                  "hover:underline-none focus:underline-none underline-none hover:no-underline focus:no-underline justify-center"
+                )}
+              >
+                <H3>Collection Entries - In Progress</H3>
+              </AccordionTrigger>
+              <AccordionContent>
+                <ResponsiveGrid size="regular">
+                  {collectionInProgress.map((entry, index) => (
+                    <CollectionQueueEntry
+                      key={`${entry.collection_item.rating_key}-${index}`}
+                      entry={entry}
+                      fetchEntries={fetchQueueEntries}
+                    />
+                  ))}
+                </ResponsiveGrid>
+              </AccordionContent>
+            </AccordionItem>
+          )}
+
+          {collectionErrors.length > 0 && (
+            <AccordionItem value="collection_error_entries">
+              <AccordionTrigger
+                className={cn(
+                  "cursor-pointer",
+                  "hover:underline-none focus:underline-none underline-none hover:no-underline focus:no-underline justify-center"
+                )}
+              >
+                <H3>Collection Entries - Errors</H3>
+              </AccordionTrigger>
+              <AccordionContent>
+                <ResponsiveGrid size="regular">
+                  {collectionErrors.map((entry, index) => (
+                    <CollectionQueueEntry
+                      key={`${entry.collection_item.rating_key}-${index}`}
+                      entry={entry}
+                      fetchEntries={fetchQueueEntries}
+                      showFailureDetails
+                      showRetry
+                    />
+                  ))}
+                </ResponsiveGrid>
+              </AccordionContent>
+            </AccordionItem>
+          )}
+
+          {collectionWarnings.length > 0 && (
+            <AccordionItem value="collection_warning_entries">
+              <AccordionTrigger
+                className={cn(
+                  "cursor-pointer",
+                  "hover:underline-none focus:underline-none underline-none hover:no-underline focus:no-underline justify-center"
+                )}
+              >
+                <H3>Collection Entries - Warnings</H3>
+              </AccordionTrigger>
+              <AccordionContent>
+                <ResponsiveGrid size="larger">
+                  {collectionWarnings.map((entry, index) => (
+                    <CollectionQueueEntry
+                      key={`${entry.collection_item.rating_key}-${index}`}
+                      entry={entry}
+                      fetchEntries={fetchQueueEntries}
+                      showFailureDetails
+                    />
+                  ))}
+                </ResponsiveGrid>
               </AccordionContent>
             </AccordionItem>
           )}

@@ -30,6 +30,13 @@ var (
 	}{}
 
 	FolderPath string = ""
+
+	// CollectionFolderPath is a subfolder of FolderPath that holds queued
+	// collection-image entries (models.CollectionQueueItem). It is a child
+	// directory of FolderPath, so the media-item queue code — which does a
+	// non-recursive os.ReadDir and skips directories — never picks these files
+	// up, and vice versa.
+	CollectionFolderPath string = ""
 )
 
 type FileIssues struct {
@@ -45,9 +52,16 @@ func init() {
 	defer logAction.Complete()
 
 	FolderPath = path.Join(config.ConfigPath, "download-queue")
+	CollectionFolderPath = path.Join(FolderPath, "collections")
 
 	// Create the download queue folder if it doesn't exist
 	Err := utils.CreateFolderIfNotExists(ctx, FolderPath)
+	if Err.Message != "" {
+		os.Exit(1)
+	}
+
+	// Create the collection sub-folder if it doesn't exist
+	Err = utils.CreateFolderIfNotExists(ctx, CollectionFolderPath)
 	if Err.Message != "" {
 		os.Exit(1)
 	}

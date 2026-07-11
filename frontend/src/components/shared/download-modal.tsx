@@ -286,8 +286,9 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
   // State - Duplicate Media Items
   const [duplicates, setDuplicates] = useState<DuplicateMap>({});
 
-  // State - Add to Queue Only
-  const [addToQueueOnly, setAddToQueueOnly] = useState(false);
+  // State - Add to Queue Only. Defaults to true so the download popups queue by
+  // default instead of downloading synchronously.
+  const [addToQueueOnly, setAddToQueueOnly] = useState(true);
 
   // State - Add New Collection Items
   const [autoAddNewCollectionItems, setAutoAddNewCollectionItems] = useState(false);

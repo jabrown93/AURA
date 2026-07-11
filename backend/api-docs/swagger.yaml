@@ -725,6 +725,30 @@ definitions:
       tmdb_id:
         type: string
     type: object
+  models.CollectionQueueItem:
+    properties:
+      collection_item:
+        $ref: '#/definitions/models.CollectionItem'
+      failed_at:
+        description: FailedAt is when the entry was moved to its terminal error/warning
+          state.
+        type: string
+      images:
+        items:
+          $ref: '#/definitions/models.ImageFile'
+        type: array
+      queue_errors:
+        description: QueueErrors lists the fatal reasons the entry failed to apply.
+        items:
+          type: string
+        type: array
+      queue_warnings:
+        description: QueueWarnings lists non-fatal issues recorded while processing
+          the entry.
+        items:
+          type: string
+        type: array
+    type: object
   models.CreatorSetsResponse:
     properties:
       boxsets:
@@ -1295,6 +1319,16 @@ definitions:
       result:
         type: string
     type: object
+  routes_download.AddCollectionToDownloadQueue_Request:
+    properties:
+      item:
+        $ref: '#/definitions/models.CollectionQueueItem'
+    type: object
+  routes_download.AddCollectionToDownloadQueue_Response:
+    properties:
+      result:
+        type: string
+    type: object
   routes_download.AddItemToDownloadQueue_Request:
     properties:
       item:
@@ -1329,6 +1363,21 @@ definitions:
       result:
         type: string
     type: object
+  routes_download.GetAllCollectionDownloadQueueItems_Response:
+    properties:
+      error_entries:
+        items:
+          $ref: '#/definitions/models.CollectionQueueItem'
+        type: array
+      in_progress_entries:
+        items:
+          $ref: '#/definitions/models.CollectionQueueItem'
+        type: array
+      warning_entries:
+        items:
+          $ref: '#/definitions/models.CollectionQueueItem'
+        type: array
+    type: object
   routes_download.GetAllDownloadQueueItems_Response:
     properties:
       error_entries:
@@ -1361,12 +1410,32 @@ definitions:
           type: string
         type: array
     type: object
+  routes_download.RemoveCollectionFromDownloadQueue_Request:
+    properties:
+      item:
+        $ref: '#/definitions/models.CollectionQueueItem'
+    type: object
+  routes_download.RemoveCollectionFromDownloadQueue_Response:
+    properties:
+      result:
+        type: string
+    type: object
   routes_download.RemoveItemFromDownloadQueue_Request:
     properties:
       item:
         $ref: '#/definitions/models.DBSavedItem'
     type: object
   routes_download.RemoveItemFromDownloadQueue_Response:
+    properties:
+      result:
+        type: string
+    type: object
+  routes_download.RetryCollectionInDownloadQueue_Request:
+    properties:
+      item:
+        $ref: '#/definitions/models.CollectionQueueItem'
+    type: object
+  routes_download.RetryCollectionInDownloadQueue_Response:
     properties:
       result:
         type: string
@@ -2204,6 +2273,151 @@ paths:
       security:
       - BearerAuth: []
       summary: Download Queue - Get Status
+      tags:
+      - Download
+  /api/download/queue/collection:
+    delete:
+      consumes:
+      - application/json
+      description: Remove a specific Collection entry from the download queue. This
+        can be used to cancel pending collection downloads or clean up errored entries.
+      parameters:
+      - description: Queue Remove Collection Item Request
+        in: body
+        name: req
+        required: true
+        schema:
+          $ref: '#/definitions/routes_download.RemoveCollectionFromDownloadQueue_Request'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httpx.JSONResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/routes_download.RemoveCollectionFromDownloadQueue_Response'
+              type: object
+        "401":
+          description: Unauthorized (only when Auth.Enabled=true)
+          schema:
+            $ref: '#/definitions/httpx.UnauthorizedResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpx.JSONResponse'
+      security:
+      - BearerAuth: []
+      summary: Download Queue - Remove Collection Item
+      tags:
+      - Download
+    get:
+      consumes:
+      - application/json
+      description: Retrieve the current items in the collection download queue, categorized
+        by their status (in-progress, warning, error).
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httpx.JSONResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/routes_download.GetAllCollectionDownloadQueueItems_Response'
+              type: object
+        "401":
+          description: Unauthorized (only when Auth.Enabled=true)
+          schema:
+            $ref: '#/definitions/httpx.UnauthorizedResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpx.JSONResponse'
+      security:
+      - BearerAuth: []
+      summary: Download Queue - Get Collection Items
+      tags:
+      - Download
+    post:
+      consumes:
+      - application/json
+      description: Add a Collection and its selected images to the collection download
+        queue. The entry is processed by the download worker and removed from the
+        queue once completed.
+      parameters:
+      - description: Queue Add Collection Item Request
+        in: body
+        name: req
+        required: true
+        schema:
+          $ref: '#/definitions/routes_download.AddCollectionToDownloadQueue_Request'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httpx.JSONResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/routes_download.AddCollectionToDownloadQueue_Response'
+              type: object
+        "401":
+          description: Unauthorized (only when Auth.Enabled=true)
+          schema:
+            $ref: '#/definitions/httpx.UnauthorizedResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpx.JSONResponse'
+      security:
+      - BearerAuth: []
+      summary: Download Queue - Add Collection Item
+      tags:
+      - Download
+  /api/download/queue/collection/retry:
+    post:
+      consumes:
+      - application/json
+      description: Retry a failed (errored) Collection entry in the download queue.
+        The errored entry is atomically re-queued as an in-progress entry so the download
+        worker reprocesses it on its next run.
+      parameters:
+      - description: Queue Retry Collection Item Request
+        in: body
+        name: req
+        required: true
+        schema:
+          $ref: '#/definitions/routes_download.RetryCollectionInDownloadQueue_Request'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httpx.JSONResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/routes_download.RetryCollectionInDownloadQueue_Response'
+              type: object
+        "401":
+          description: Unauthorized (only when Auth.Enabled=true)
+          schema:
+            $ref: '#/definitions/httpx.UnauthorizedResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpx.JSONResponse'
+      security:
+      - BearerAuth: []
+      summary: Download Queue - Retry Collection Item
       tags:
       - Download
   /api/download/queue/item:
