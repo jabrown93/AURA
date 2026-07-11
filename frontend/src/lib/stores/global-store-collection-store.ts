@@ -1,8 +1,9 @@
-import type { CollectionItem } from "@/app/collections/page";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 import { GlobalStore } from "@/lib/stores/stores";
+
+import type { CollectionItem } from "@/types/media-and-posters/collection-item";
 
 interface CollectionStore {
   collectionItem: CollectionItem | null;

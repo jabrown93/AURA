@@ -1,9 +1,9 @@
-import type { CollectionItem } from "@/app/collections/page";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 import { PageStore } from "@/lib/stores/stores";
 
+import type { CollectionItem } from "@/types/media-and-posters/collection-item";
 import type { PaginationStore, SortStore } from "@/types/store-interfaces";
 import type { TYPE_SORT_ORDER_OPTIONS } from "@/types/ui-options";
 

@@ -1,12 +1,12 @@
 "use client";
 
-import type { CollectionItem } from "@/app/collections/page";
-
 import { AssetImage } from "@/components/shared/asset-image";
 import { CollectionMediaItemsCarousel } from "@/components/shared/collection-media-items-carousel";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
 import { H1, Lead } from "@/components/ui/typography";
+
+import type { CollectionItem } from "@/types/media-and-posters/collection-item";
 
 type CollectionItemDetailsProps = {
   collectionItem: CollectionItem;

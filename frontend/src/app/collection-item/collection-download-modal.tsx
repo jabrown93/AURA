@@ -1,6 +1,5 @@
 "use client";
 
-import type { CollectionItem } from "@/app/collections/page";
 import { formatDownloadSize } from "@/helper/format-download-size";
 import { AddCollectionToQueue } from "@/services/downloads/collection-queue-add";
 import { DownloadImageFileForCollectionItem } from "@/services/downloads/download-collection-image";
@@ -39,6 +38,7 @@ import { log } from "@/lib/logger";
 import { useUserPreferencesStore } from "@/lib/stores/global-user-preferences";
 
 import type { CollectionQueueItem } from "@/types/database/db-collection-queue";
+import type { CollectionItem } from "@/types/media-and-posters/collection-item";
 import type { CollectionItemImageFile, CollectionItemSetRef } from "@/types/media-and-posters/sets";
 import {
   DOWNLOAD_COLLECTION_IMAGE_TYPE_OPTIONS,
