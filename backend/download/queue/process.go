@@ -1,6 +1,7 @@
 package downloadqueue
 
 import (
+	"aura/cache"
 	"aura/database"
 	"aura/kometa"
 	"aura/logging"
@@ -174,6 +175,18 @@ func ProcessQueueItems() {
 		mediuxItemInfo, mErr := mediux.GetBaseItemInfoByTMDB_ID(queueItem.MediaItem.TMDB_ID, queueItem.MediaItem.Type)
 		if mErr.Message != "" {
 			fileWarnings = append(fileWarnings, fmt.Sprintf("mediux lookup failed: %s", mErr.Message))
+		}
+
+		// The queue file snapshotted this item's rating key when it was enqueued. If the media
+		// server removed and re-added the item since then (e.g. a file move / re-import), that key
+		// is now stale and GetMediaItemDetails would 404 on it. The in-memory library cache is
+		// refreshed from the media server and keyed by the stable TMDB ID, so re-resolve the current
+		// rating key from it first — matching what the auto-download check already does
+		// (download/auto/check.go). If the item is not in the cache it is genuinely gone; keep the
+		// snapshot key and let the normal 404 / Sonarr-Radarr fallback path below handle it.
+		if cached, ok := cache.LibraryStore.GetMediaItemFromSectionByTMDBID(queueItem.MediaItem.LibraryTitle, queueItem.MediaItem.TMDB_ID); ok && cached.RatingKey != "" && cached.RatingKey != queueItem.MediaItem.RatingKey {
+			subAction.AppendResult(fmt.Sprintf("rating_key_refresh_%s", file.Name()), fmt.Sprintf("%s -> %s (stale key re-resolved by TMDB %s)", queueItem.MediaItem.RatingKey, cached.RatingKey, queueItem.MediaItem.TMDB_ID))
+			queueItem.MediaItem.RatingKey = cached.RatingKey
 		}
 
 		found, mediaErr := mediaserver.GetMediaItemDetails(ctx, &queueItem.MediaItem)
