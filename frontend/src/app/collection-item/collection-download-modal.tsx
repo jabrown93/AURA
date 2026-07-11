@@ -1,10 +1,11 @@
 "use client";
 
-import type { CollectionItem } from "@/app/collections/page";
 import { formatDownloadSize } from "@/helper/format-download-size";
+import { AddCollectionToQueue } from "@/services/downloads/collection-queue-add";
 import { DownloadImageFileForCollectionItem } from "@/services/downloads/download-collection-image";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Check, Download, LoaderIcon, User, X } from "lucide-react";
+import { Check, Download, ListEnd, LoaderIcon, User, X } from "lucide-react";
+import { toast } from "sonner";
 import { z } from "zod";
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -36,6 +37,8 @@ import { cn } from "@/lib/cn";
 import { log } from "@/lib/logger";
 import { useUserPreferencesStore } from "@/lib/stores/global-user-preferences";
 
+import type { CollectionQueueItem } from "@/types/database/db-collection-queue";
+import type { CollectionItem } from "@/types/media-and-posters/collection-item";
 import type { CollectionItemImageFile, CollectionItemSetRef } from "@/types/media-and-posters/sets";
 import {
   DOWNLOAD_COLLECTION_IMAGE_TYPE_OPTIONS,
@@ -70,6 +73,11 @@ const CollectionsDownloadModal: React.FC<CollectionsDownloadModalProps> = ({ ite
     poster_error?: string;
     backdrop_error?: string;
   }>({});
+
+  // State - Add to Queue. Defaults to true to match the media-item download
+  // modal: queueing runs the download in the background instead of blocking the
+  // dialog until every image is applied.
+  const [addToQueueOnly, setAddToQueueOnly] = useState(true);
 
   // User Preferences
   const { downloadDefaults } = useUserPreferencesStore();
@@ -223,6 +231,27 @@ const CollectionsDownloadModal: React.FC<CollectionsDownloadModalProps> = ({ ite
     setIsMounted(true);
 
     try {
+      // Add to Queue: enqueue the selected images and let the background download
+      // worker apply them, instead of downloading synchronously in this dialog.
+      if (addToQueueOnly) {
+        const images: CollectionItemImageFile[] = [];
+        if (data.poster && posterImage) images.push(posterImage);
+        if (data.backdrop && backdropImage) images.push(backdropImage);
+
+        const queueItem: CollectionQueueItem = {
+          collection_item: item,
+          images,
+        };
+
+        const response = await AddCollectionToQueue(queueItem);
+        if (response.status === "error") {
+          toast.error(`Error adding to queue: ${response.error?.message || "Unknown error occurred."}`);
+        } else {
+          toast.success(response.data?.result || "Added to download queue.");
+        }
+        return;
+      }
+
       // Reset errors and progress
       setErrors({});
       setProgress({});
@@ -352,6 +381,17 @@ const CollectionsDownloadModal: React.FC<CollectionsDownloadModalProps> = ({ ite
                 <>
                   <div className="text-sm text-muted-foreground">Number of Images: {numberOfImagesSelected}</div>
                   <div className="text-sm text-muted-foreground">Total Download Size: ~{sizeOfImagesSelected}</div>
+
+                  <FormItem className="flex items-center space-x-2 mt-2">
+                    <FormControl>
+                      <Checkbox
+                        checked={addToQueueOnly}
+                        onCheckedChange={(checked) => setAddToQueueOnly(checked === true)}
+                        className="h-5 w-5 sm:h-4 sm:w-4 cursor-pointer"
+                      />
+                    </FormControl>
+                    <FormLabel className="text-md font-normal cursor-pointer">Add to Queue</FormLabel>
+                  </FormItem>
                 </>
               ) : (
                 <div className="text-sm text-destructive">
@@ -413,7 +453,14 @@ const CollectionsDownloadModal: React.FC<CollectionsDownloadModalProps> = ({ ite
                   </Button>
                 </DialogClose>
                 <Button type="submit" disabled={!form.watch("poster") && !form.watch("backdrop")}>
-                  {downloadButtonText}
+                  {addToQueueOnly && numberOfImagesSelected > 0 ? (
+                    <>
+                      <ListEnd className="mr-1 h-4 w-4" />
+                      Add to Queue
+                    </>
+                  ) : (
+                    downloadButtonText
+                  )}
                 </Button>
               </DialogFooter>
             </form>

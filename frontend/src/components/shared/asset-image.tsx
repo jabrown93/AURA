@@ -1,6 +1,5 @@
 "use client";
 
-import type { CollectionItem } from "@/app/collections/page";
 import { formatExactDateTime } from "@/helper/format-date-last-updates";
 import { formatDownloadSize } from "@/helper/format-download-size";
 import { downloadImageFileForMediaItem } from "@/services/downloads/download-image";
@@ -20,6 +19,7 @@ import { isKometaImageId, kometaImageSrc } from "@/lib/kometa";
 import { log } from "@/lib/logger";
 import { useUserPreferencesStore } from "@/lib/stores/global-user-preferences";
 
+import type { CollectionItem } from "@/types/media-and-posters/collection-item";
 import type { MediaItem } from "@/types/media-and-posters/media-item-and-library";
 import type { CollectionItemImageFile, ImageFile, IncludedItem } from "@/types/media-and-posters/sets";
 

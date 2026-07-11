@@ -1,4 +1,3 @@
-import type { CollectionItem } from "@/app/collections/page";
 import { collectionItemInfo } from "@/helper/item-info";
 import apiClient from "@/services/api-client";
 import { ReturnErrorMessage } from "@/services/api-error-return";
@@ -6,6 +5,7 @@ import { ReturnErrorMessage } from "@/services/api-error-return";
 import { log } from "@/lib/logger";
 
 import type { APIResponse } from "@/types/api/api-response";
+import type { CollectionItem } from "@/types/media-and-posters/collection-item";
 import type { CollectionItemImageFile } from "@/types/media-and-posters/sets";
 import { TYPE_DOWNLOAD_COLLECTION_IMAGE_TYPE_OPTIONS } from "@/types/ui-options";
 

@@ -138,6 +138,10 @@ func ProcessQueueItems() {
 			tmdbBackdrop string,
 		) {
 			issues := FileIssues{Errors: fileErrors, Warnings: fileWarnings}
+			// Record the terminal status before notifying: SendNotification skips
+			// the LatestInfo update when notifications are disabled (the default),
+			// which would otherwise leave the banner stuck on "Processing...".
+			setLatestInfoTerminal(mediaItem.Title, fileErrors, fileWarnings)
 			SendNotification(issues, mediaItem, set, tmdbPoster, tmdbBackdrop)
 
 			if err := finalizeQueueFile(filePath, file.Name(), queueItem, fileErrors, fileWarnings); err != nil {
@@ -369,6 +373,10 @@ func ProcessQueueItems() {
 			)
 			continue
 		}
+
+		// Success path: per-set SendNotification calls only touched LatestInfo when
+		// notifications are enabled, so record the terminal status here too.
+		setLatestInfoTerminal(queueItem.MediaItem.Title, fileErrors, fileWarnings)
 
 		if err := finalizeQueueFile(filePath, file.Name(), queueItem, fileErrors, fileWarnings); err != nil {
 			fileWarnings = append(fileWarnings, fmt.Sprintf("finalize file failed: %v", err))

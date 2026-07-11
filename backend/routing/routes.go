@@ -105,6 +105,12 @@ func AddRoutes(r *chi.Mux) {
 					r.Post("/item", routes_download.AddItemToDownloadQueue)
 					r.Post("/item/retry", routes_download.RetryItemInDownloadQueue)
 					r.Delete("/item", routes_download.RemoveItemFromDownloadQueue)
+
+					// Collection Download Queue Routes
+					r.Get("/collection", routes_download.GetAllCollectionDownloadQueueItems)
+					r.Post("/collection", routes_download.AddCollectionToDownloadQueue)
+					r.Post("/collection/retry", routes_download.RetryCollectionInDownloadQueue)
+					r.Delete("/collection", routes_download.RemoveCollectionFromDownloadQueue)
 				})
 			})
 

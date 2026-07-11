@@ -1,6 +1,5 @@
 "use client";
 
-import type { CollectionItem } from "@/app/collections/page";
 import { Database, EyeClosedIcon, EyeOffIcon } from "lucide-react";
 
 import React from "react";
@@ -15,6 +14,7 @@ import { cn } from "@/lib/cn";
 import { useCollectionStore } from "@/lib/stores/global-store-collection-store";
 import { useMediaStore } from "@/lib/stores/global-store-media-store";
 
+import type { CollectionItem } from "@/types/media-and-posters/collection-item";
 import type { MediaItem } from "@/types/media-and-posters/media-item-and-library";
 
 interface HomeMediaItemCardProps {

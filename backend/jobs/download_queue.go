@@ -29,6 +29,7 @@ func StartDownloadQueueJob() error {
 			}
 		}()
 		downloadqueue.ProcessQueueItems()
+		downloadqueue.ProcessCollectionQueueItems()
 	})
 	if err != nil {
 		return err

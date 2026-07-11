@@ -914,6 +914,243 @@
                 }
             }
         },
+        "/api/download/queue/collection": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Retrieve the current items in the collection download queue, categorized by their status (in-progress, warning, error).",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Download"
+                ],
+                "summary": "Download Queue - Get Collection Items",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/httpx.JSONResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/routes_download.GetAllCollectionDownloadQueueItems_Response"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized (only when Auth.Enabled=true)",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.UnauthorizedResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.JSONResponse"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Add a Collection and its selected images to the collection download queue. The entry is processed by the download worker and removed from the queue once completed.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Download"
+                ],
+                "summary": "Download Queue - Add Collection Item",
+                "parameters": [
+                    {
+                        "description": "Queue Add Collection Item Request",
+                        "name": "req",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/routes_download.AddCollectionToDownloadQueue_Request"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/httpx.JSONResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/routes_download.AddCollectionToDownloadQueue_Response"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized (only when Auth.Enabled=true)",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.UnauthorizedResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.JSONResponse"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Remove a specific Collection entry from the download queue. This can be used to cancel pending collection downloads or clean up errored entries.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Download"
+                ],
+                "summary": "Download Queue - Remove Collection Item",
+                "parameters": [
+                    {
+                        "description": "Queue Remove Collection Item Request",
+                        "name": "req",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/routes_download.RemoveCollectionFromDownloadQueue_Request"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/httpx.JSONResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/routes_download.RemoveCollectionFromDownloadQueue_Response"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized (only when Auth.Enabled=true)",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.UnauthorizedResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.JSONResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/download/queue/collection/retry": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Retry a failed (errored) Collection entry in the download queue. The errored entry is atomically re-queued as an in-progress entry so the download worker reprocesses it on its next run.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Download"
+                ],
+                "summary": "Download Queue - Retry Collection Item",
+                "parameters": [
+                    {
+                        "description": "Queue Retry Collection Item Request",
+                        "name": "req",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/routes_download.RetryCollectionInDownloadQueue_Request"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/httpx.JSONResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/routes_download.RetryCollectionInDownloadQueue_Response"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized (only when Auth.Enabled=true)",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.UnauthorizedResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.JSONResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/download/queue/item": {
             "get": {
                 "security": [
@@ -4249,6 +4486,38 @@
                 }
             }
         },
+        "models.CollectionQueueItem": {
+            "type": "object",
+            "properties": {
+                "collection_item": {
+                    "$ref": "#/definitions/models.CollectionItem"
+                },
+                "failed_at": {
+                    "description": "FailedAt is when the entry was moved to its terminal error/warning state.",
+                    "type": "string"
+                },
+                "images": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.ImageFile"
+                    }
+                },
+                "queue_errors": {
+                    "description": "QueueErrors lists the fatal reasons the entry failed to apply.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "queue_warnings": {
+                    "description": "QueueWarnings lists non-fatal issues recorded while processing the entry.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
         "models.CreatorSetsResponse": {
             "type": "object",
             "properties": {
@@ -5085,6 +5354,22 @@
                 }
             }
         },
+        "routes_download.AddCollectionToDownloadQueue_Request": {
+            "type": "object",
+            "properties": {
+                "item": {
+                    "$ref": "#/definitions/models.CollectionQueueItem"
+                }
+            }
+        },
+        "routes_download.AddCollectionToDownloadQueue_Response": {
+            "type": "object",
+            "properties": {
+                "result": {
+                    "type": "string"
+                }
+            }
+        },
         "routes_download.AddItemToDownloadQueue_Request": {
             "type": "object",
             "properties": {
@@ -5139,6 +5424,29 @@
                 }
             }
         },
+        "routes_download.GetAllCollectionDownloadQueueItems_Response": {
+            "type": "object",
+            "properties": {
+                "error_entries": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.CollectionQueueItem"
+                    }
+                },
+                "in_progress_entries": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.CollectionQueueItem"
+                    }
+                },
+                "warning_entries": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.CollectionQueueItem"
+                    }
+                }
+            }
+        },
         "routes_download.GetAllDownloadQueueItems_Response": {
             "type": "object",
             "properties": {
@@ -5188,6 +5496,22 @@
                 }
             }
         },
+        "routes_download.RemoveCollectionFromDownloadQueue_Request": {
+            "type": "object",
+            "properties": {
+                "item": {
+                    "$ref": "#/definitions/models.CollectionQueueItem"
+                }
+            }
+        },
+        "routes_download.RemoveCollectionFromDownloadQueue_Response": {
+            "type": "object",
+            "properties": {
+                "result": {
+                    "type": "string"
+                }
+            }
+        },
         "routes_download.RemoveItemFromDownloadQueue_Request": {
             "type": "object",
             "properties": {
@@ -5197,6 +5521,22 @@
             }
         },
         "routes_download.RemoveItemFromDownloadQueue_Response": {
+            "type": "object",
+            "properties": {
+                "result": {
+                    "type": "string"
+                }
+            }
+        },
+        "routes_download.RetryCollectionInDownloadQueue_Request": {
+            "type": "object",
+            "properties": {
+                "item": {
+                    "$ref": "#/definitions/models.CollectionQueueItem"
+                }
+            }
+        },
+        "routes_download.RetryCollectionInDownloadQueue_Response": {
             "type": "object",
             "properties": {
                 "result": {
