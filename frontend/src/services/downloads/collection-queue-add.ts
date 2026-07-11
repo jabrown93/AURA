@@ -20,7 +20,9 @@ export const AddCollectionToQueue = async (
     "INFO",
     "API - Download Queue",
     "Add Collection to Queue",
-    `Adding collection '${item.collection_item.title}' [${item.collection_item.rating_key}] to the download queue`
+    `Adding collection '${item.collection_item?.title ?? "(unknown)"}' [${
+      item.collection_item?.rating_key ?? "(unknown)"
+    }] to the download queue`
   );
   try {
     const req: AddCollectionToQueue_Request = { item };
@@ -44,7 +46,7 @@ export const AddCollectionToQueue = async (
       "ERROR",
       "API - Download Queue",
       "Add Collection to Queue",
-      `Failed to add collection '${item.collection_item.title}' to the download queue: ${
+      `Failed to add collection '${item.collection_item?.title ?? "(unknown)"}' to the download queue: ${
         error instanceof Error ? error.message : "Unknown error"
       }`,
       error
