@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -244,6 +245,14 @@ func processPlexRefreshMessage(messageInfo PlexRefreshMessage) {
 
 	refreshedItem, ok := resolveUpdatedItemFromCache(messageInfo)
 	if !ok || refreshedItem.MediaItem.RatingKey == "" {
+		// The item isn't in the library cache yet. For a movie event this is the signature
+		// of a newly added movie (the cache refreshes only periodically). Check whether it
+		// belongs to any saved collection set with auto-add enabled and apply immediately,
+		// instead of waiting for the next auto-download poll.
+		if messageInfo.ItemType == "movie" && messageInfo.ItemRatingKey != "" {
+			go handlePotentialNewMovie(messageInfo)
+			return
+		}
 		logging.LOGGER.Warn().Timestamp().
 			Str("subtitle", messageInfo.Subtitle).
 			Int("section_id", messageInfo.SectionID).
@@ -301,6 +310,48 @@ func processPlexRefreshMessage(messageInfo PlexRefreshMessage) {
 		Msgf("Plex Event Listener: Detected metadata refresh for item %s", utils.MediaItemInfo(refreshedItem.MediaItem))
 
 	go reApplySavedImages(refreshedItem)
+}
+
+// handlePotentialNewMovie resolves a movie that fired a Plex metadata event but wasn't in
+// the library cache (typically a brand-new movie), then applies any saved collection sets
+// that should auto-add it. Resolving the item via GetMediaItemDetails also seeds the cache
+// so the collection lookup can match the movie.
+func handlePotentialNewMovie(messageInfo PlexRefreshMessage) {
+	// This runs in its own goroutine; recover so an unexpected panic can't take down
+	// the whole process (mirrors handleMovie / handleShow).
+	defer func() {
+		if r := recover(); r != nil {
+			logging.LOGGER.Error().
+				Timestamp().
+				Str("item_rating_key", messageInfo.ItemRatingKey).
+				Interface("recover", r).
+				Str("stack", string(debug.Stack())).
+				Msg("PANIC: in handlePotentialNewMovie for Plex Event Listener")
+		}
+	}()
+
+	section, ok := getSectionByID(messageInfo.SectionID)
+	if !ok || section == nil {
+		return
+	}
+
+	ctx, ld := logging.CreateLoggingContext(context.Background(), "Plex Event Listener")
+	logAction := ld.AddAction("Apply Collection Sets for Newly Added Movie", logging.LevelInfo)
+	ctx = logging.WithCurrentAction(ctx, logAction)
+	defer ld.Log()
+
+	newMovie := models.MediaItem{
+		RatingKey:    messageInfo.ItemRatingKey,
+		LibraryTitle: section.Title,
+		Type:         "movie",
+	}
+
+	if _, Err := mediaserver.GetMediaItemDetails(ctx, &newMovie); Err.Message != "" {
+		logAction.AppendWarning("resolve_new_movie_error", Err.Message)
+		return
+	}
+
+	ApplyCollectionSetsForNewMovie(ctx, &newMovie)
 }
 
 func getCachedRefreshedMediaItem(ratingKey string) (models.MediaItem, bool) {

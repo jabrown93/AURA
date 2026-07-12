@@ -3031,6 +3031,38 @@
                 }
             }
         },
+        "/api/radarr/webhook": {
+            "post": {
+                "description": "Apply saved collection sets to a movie newly imported by Radarr.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sonarr-Radarr"
+                ],
+                "summary": "Radarr Webhook",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Library title the movie belongs to",
+                        "name": "library",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
         "/api/search": {
             "get": {
                 "description": "Perform a search across media items, collection items, Mediux users, and saved sets based on the provided query and filters. The search supports filtering by year, library section, and unique identifiers (TMDB ID or RatingKey) using specific query syntax. The response includes matching media items, collection items, Mediux users, and saved sets, along with metadata about the last full update for each category to help clients determine if they need to refresh their cached data.",
