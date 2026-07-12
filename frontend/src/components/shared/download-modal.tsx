@@ -1521,8 +1521,9 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
                 (sp) => sp.type === "season_poster" && sp.season_number === 0
               );
 
+              const exists = latestMediaItem.series?.seasons.some((season) => season.season_number === 0) ?? false;
+
               for (const sp of specialSeasonPosters) {
-                const exists = latestMediaItem.series?.seasons.some((season) => season.season_number === 0);
                 const taskId = newId();
                 const payload: DownloadTaskPayload = {
                   kind: "download",
