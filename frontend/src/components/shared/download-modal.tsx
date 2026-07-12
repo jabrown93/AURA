@@ -1521,6 +1521,8 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
                 (sp) => sp.type === "season_poster" && sp.season_number === 0
               );
 
+              const exists = latestMediaItem.series?.seasons.some((season) => season.season_number === 0) ?? false;
+
               for (const sp of specialSeasonPosters) {
                 const taskId = newId();
                 const payload: DownloadTaskPayload = {
@@ -1539,6 +1541,12 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
                   attempts: 0,
                   payload,
                 });
+
+                if (!exists) {
+                  updateTask(taskId, (t) => ({ ...t, status: "skipped" }));
+                  continue;
+                }
+
                 downloadJobs.push({ taskId, payload });
               }
               break;

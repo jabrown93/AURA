@@ -28,7 +28,8 @@ func (p *Plex) DownloadApplyImageToMediaItem(ctx context.Context, item *models.M
 	// Determine the Item Rating Key from Plex
 	itemRatingKey := getItemRatingKeyFromImageFile(*item, imageFile)
 	if itemRatingKey == "" {
-		logAction.SetError("Failed to determine Rating Key for Media Item", "Ensure the Media Item and Image File data are correct", nil)
+		message, help := utils.RatingKeyNotFoundMessage(imageFile)
+		logAction.SetError(message, help, nil)
 		return *logAction.Error
 	}
 	logAction.AppendResult("image_rating_key", itemRatingKey)
