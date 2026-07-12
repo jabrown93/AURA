@@ -1,5 +1,17 @@
 # Changelog
 
+# [1.6.0](https://github.com/jabrown93/AURA/compare/v1.5.0...v1.6.0) (2026-07-12)
+
+
+### Bug Fixes
+
+* **download:** skip specials poster when season 0 is missing from the media server ([#49](https://github.com/jabrown93/AURA/issues/49)) ([404ce61](https://github.com/jabrown93/AURA/commit/404ce61aec80180eadd9a260ff1eb621cc9ee0ac))
+
+
+### Features
+
+* **autodownload:** apply collection set posters immediately when a movie is added ([#50](https://github.com/jabrown93/AURA/issues/50)) ([e8ef3bf](https://github.com/jabrown93/AURA/commit/e8ef3bf9ca51fdab57bc7a8c0e182b98f58b2edb))
+
 # [1.5.0](https://github.com/jabrown93/AURA/compare/v1.4.9...v1.5.0) (2026-07-11)
 
 
