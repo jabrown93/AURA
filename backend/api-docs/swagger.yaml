@@ -3637,6 +3637,27 @@ paths:
       summary: Check Plex Pin for Authentication
       tags:
       - Plex
+  /api/radarr/webhook:
+    post:
+      consumes:
+      - application/json
+      description: Apply saved collection sets to a movie newly imported by Radarr.
+      parameters:
+      - description: Library title the movie belongs to
+        in: query
+        name: library
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: string
+      summary: Radarr Webhook
+      tags:
+      - Sonarr-Radarr
   /api/search:
     get:
       consumes:

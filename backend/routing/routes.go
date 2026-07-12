@@ -64,6 +64,7 @@ func AddRoutes(r *chi.Mux) {
 
 		// Sonarr Webhook Routes - Public since Sonarr/Radarr need to access it without authentication
 		r.Post("/sonarr/webhook", routes_sonarr_radarr.SonarrWebhookHandler)
+		r.Post("/radarr/webhook", routes_sonarr_radarr.RadarrWebhookHandler)
 
 		/////////////////////
 		// Protected Routes
