@@ -6,7 +6,6 @@ import (
 	"aura/logging"
 	"aura/mediaserver"
 	"aura/models"
-	"aura/utils/httpx"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -47,11 +46,14 @@ func RadarrWebhookHandler(w http.ResponseWriter, r *http.Request) {
 	logAction := ld.AddAction("Handle Radarr Webhook", logging.LevelInfo)
 	ctx = logging.WithCurrentAction(ctx, logAction)
 
-	// Get the Library from the URL params
+	// Get the Library from the URL params. A missing parameter is a client
+	// (mis)configuration, so respond 400 rather than 500.
 	libraryTitle := r.URL.Query().Get("library")
 	if libraryTitle == "" {
-		logAction.SetError("Missing library parameter", "The 'library' URL parameter is required", nil)
-		httpx.SendResponse(w, ld, nil)
+		logAction.AppendResult("bad_request", "missing 'library' URL parameter")
+		logAction.Complete()
+		ld.Log()
+		http.Error(w, "The 'library' URL parameter is required", http.StatusBadRequest)
 		return
 	}
 
@@ -80,8 +82,9 @@ func RadarrWebhookHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Cheap pre-check: only do background work if this library actually has a saved
-	// collection set with auto-add enabled.
+	// Gate: only spin up the retrying background resolve if this library actually has a
+	// saved collection set with auto-add enabled (see HasEligibleCollectionSets — not free,
+	// but far cheaper than the resolve loop it guards).
 	if !autodownload.HasEligibleCollectionSets(ctx, libraryTitle) {
 		logAction.AppendResult("skipped", "no eligible collection sets in library")
 		w.WriteHeader(http.StatusOK)
@@ -128,8 +131,15 @@ func processRadarrDownloadEvent(ctx context.Context, tmdbID, libraryTitle string
 		}
 
 		// Not in the cache yet — refresh just this section (the periodic full refresh may
-		// be up to 90 minutes away) and re-check.
-		mediaserver.RefreshSectionItems(ctx, libraryTitle)
+		// be up to 90 minutes away) and re-check. A refresh failure is likely transient,
+		// so log it and let the retry loop try again rather than bailing out.
+		if ok := mediaserver.RefreshSectionItems(ctx, libraryTitle); !ok {
+			logging.LOGGER.Warn().Timestamp().
+				Str("tmdb_id", tmdbID).
+				Str("library_title", libraryTitle).
+				Int("attempt", attempt).
+				Msg("Radarr Webhook: failed to refresh library section while waiting for the new movie")
+		}
 		if item, found := cache.LibraryStore.GetMediaItemFromSectionByTMDBID(libraryTitle, tmdbID); found {
 			mediaItem = item
 			break

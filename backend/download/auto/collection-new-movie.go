@@ -114,9 +114,12 @@ func collectionCandidateSetsForLibrary(ctx context.Context, libraryTitle string)
 }
 
 // HasEligibleCollectionSets reports whether the given library has at least one saved
-// collection set with Auto Download and Auto-add new collection items enabled. It is a
-// cheap pre-check used by the Radarr webhook to avoid any background work when nothing
-// could be applied.
+// collection set with Auto Download and Auto-add new collection items enabled. The Radarr
+// webhook calls it as a gate to avoid the (multi-second, retrying) background resolve when
+// nothing could ever be applied. Note it is not free: it loads and unmarshals every saved
+// set in the library (GetAllSavedSets with ItemsPerPage=-1), so on large libraries it is
+// itself one of the more expensive steps of the webhook — acceptable because it runs at
+// most once per import and short-circuits the far costlier resolve loop.
 func HasEligibleCollectionSets(ctx context.Context, libraryTitle string) bool {
 	return len(collectionCandidateSetsForLibrary(ctx, libraryTitle)) > 0
 }

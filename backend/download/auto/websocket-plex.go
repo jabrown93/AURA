@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -316,6 +317,19 @@ func processPlexRefreshMessage(messageInfo PlexRefreshMessage) {
 // that should auto-add it. Resolving the item via GetMediaItemDetails also seeds the cache
 // so the collection lookup can match the movie.
 func handlePotentialNewMovie(messageInfo PlexRefreshMessage) {
+	// This runs in its own goroutine; recover so an unexpected panic can't take down
+	// the whole process (mirrors handleMovie / handleShow).
+	defer func() {
+		if r := recover(); r != nil {
+			logging.LOGGER.Error().
+				Timestamp().
+				Str("item_rating_key", messageInfo.ItemRatingKey).
+				Interface("recover", r).
+				Str("stack", string(debug.Stack())).
+				Msg("PANIC: in handlePotentialNewMovie for Plex Event Listener")
+		}
+	}()
+
 	section, ok := getSectionByID(messageInfo.SectionID)
 	if !ok || section == nil {
 		return
