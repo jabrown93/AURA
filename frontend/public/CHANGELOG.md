@@ -1,5 +1,7 @@
 # Changelog
 
+## [1.6.3](https://github.com/jabrown93/AURA/compare/v1.6.2...v1.6.3) (2026-07-13)
+
 ## [1.6.2](https://github.com/jabrown93/AURA/compare/v1.6.1...v1.6.2) (2026-07-13)
 
 
