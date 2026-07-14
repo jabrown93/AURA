@@ -49,8 +49,17 @@ func PreloadAnidbMappings(ctx context.Context) {
 	logging.LOGGER.Info().Timestamp().Int("mappings", cache.AnidbMappings.Count()).Msg("Loaded AniDB mappings into cache")
 }
 
+// fribbFetchTimeoutSeconds bounds the whole request (connect + ~7.5MB body
+// read). The preload runs synchronously on the warmup critical path, so this is
+// deliberately far below a default so an unreachable/blocked host (e.g. GitHub
+// down, or egress routed through a misconfigured VPN) can't stall Plex startup;
+// on timeout PreloadAnidbMappings degrades gracefully and the weekly cron / next
+// warmup retries. It stays generous enough to download the dataset over a slow
+// link (~250 KB/s completes well within the window).
+const fribbFetchTimeoutSeconds = 30
+
 func fetchAnidbMappings(ctx context.Context) ([]models.AnidbMapping, logging.LogErrorInfo) {
-	_, body, Err := httpx.MakeHTTPRequest(ctx, fribbAnimeListURL, "GET", nil, 120, nil, "Fribb AniDB Mappings")
+	_, body, Err := httpx.MakeHTTPRequest(ctx, fribbAnimeListURL, "GET", nil, fribbFetchTimeoutSeconds, nil, "Fribb AniDB Mappings")
 	if Err.Message != "" {
 		return nil, Err
 	}

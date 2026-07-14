@@ -138,9 +138,14 @@ func runWarmup() (success bool) {
 
 	// Cache: Load AniDB -> TMDB mappings (Fribb anime-lists) so anime items that
 	// Plex matched with the HAMA agent (AniDB IDs only) resolve to TMDB instead
-	// of being dropped. Must run before the media-server preload below.
-	config.AppLoadingStep = "Preloading AniDB Mappings into Cache"
-	anidb.PreloadAnidbMappings(ctx)
+	// of being dropped. Plex-only: the mapping is consumed solely by the Plex
+	// library path (Emby/Jellyfin resolve via ProviderIds), so gating it here
+	// keeps non-Plex startups from blocking on the Fribb fetch. Must run before
+	// the media-server preload below.
+	if config.Current.MediaServer.Type == "Plex" {
+		config.AppLoadingStep = "Preloading AniDB Mappings into Cache"
+		anidb.PreloadAnidbMappings(ctx)
+	}
 
 	// Database: Initialize
 	config.AppLoadingStep = "Initializing Database"
@@ -216,10 +221,12 @@ func runWarmup() (success bool) {
 		logging.LOGGER.Error().Timestamp().Err(err).Msg("Failed to schedule Check MediUX Site Link Availability cron job")
 	}
 
-	// Cronjob: Refresh AniDB Mappings
-	err = jobs.StartRefreshAnidbMappingsJob()
-	if err != nil {
-		logging.LOGGER.Error().Timestamp().Err(err).Msg("Failed to schedule Refresh AniDB Mappings cron job")
+	// Cronjob: Refresh AniDB Mappings (Plex-only; see the preload above)
+	if config.Current.MediaServer.Type == "Plex" {
+		err = jobs.StartRefreshAnidbMappingsJob()
+		if err != nil {
+			logging.LOGGER.Error().Timestamp().Err(err).Msg("Failed to schedule Refresh AniDB Mappings cron job")
+		}
 	}
 
 	// Cronjob: Start Check for Media Item Changes Job

@@ -5,7 +5,6 @@ import (
 	"aura/config"
 	"aura/database"
 	"aura/logging"
-	"aura/mediux"
 	"aura/models"
 	"aura/utils/httpx"
 	"context"
@@ -110,82 +109,17 @@ func (p *Plex) GetLibrarySectionItems(ctx context.Context, section models.Librar
 			if len(parts) != 2 {
 				continue
 			}
-			provider := normalizeProvider(parts[0])
-			id := parts[1]
 			item.Guids = append(item.Guids, models.MediaItemGuid{
-				Provider: provider,
-				ID:       id,
+				Provider: normalizeProvider(parts[0]),
+				ID:       parts[1],
 			})
-			if provider == "tmdb" {
-				item.TMDB_ID = id
-			}
 		}
 
-		// Legacy Plex agents (e.g. HAMA for anime) only populate the single
-		// primary `guid` string and never the multi-GUID array above, so
-		// includeGuids=1 yields nothing for them. Fall back to parsing that
-		// legacy string so those items still resolve instead of being dropped.
-		if len(item.Guids) == 0 {
-			if provider, id, ok := parseLegacyGuid(metadata.Guid); ok {
-				item.Guids = append(item.Guids, models.MediaItemGuid{
-					Provider: provider,
-					ID:       id,
-				})
-				if provider == "tmdb" {
-					item.TMDB_ID = id
-				}
-			}
-		}
-
-		// If no TMDB ID found, get the value from MediUX using the GUID[tvdb]
-		if item.TMDB_ID == "" {
-			for _, guid := range item.Guids {
-				if guid.Provider == "tvdb" {
-					tmdbID, found, Err := mediux.SearchTMDBIDByTVDBID(ctx, guid.ID, item.Type)
-					if Err.Message != "" {
-						logAction.AppendWarning("search_tmdb_id_error", "Failed to search TMDB ID from MediUX")
-					}
-					if found {
-						item.TMDB_ID = tmdbID
-						break
-					}
-				}
-			}
-		}
-
-		// If still no TMDB ID and the item carries an AniDB ID (Plex's HAMA
-		// agent for anime yields these), resolve it via the Fribb mapping
-		// cache: prefer a direct TMDB id, otherwise fall back to its TVDB id
-		// through MediUX.
-		if item.TMDB_ID == "" {
-			for _, guid := range item.Guids {
-				if guid.Provider != "anidb" {
-					continue
-				}
-				mapping, ok := cache.AnidbMappings.GetByAnidbID(guid.ID)
-				if !ok {
-					continue
-				}
-				if item.Type == "movie" && mapping.TMDBMovieID != "" {
-					item.TMDB_ID = mapping.TMDBMovieID
-					break
-				}
-				if item.Type != "movie" && mapping.TMDBTvID != "" {
-					item.TMDB_ID = mapping.TMDBTvID
-					break
-				}
-				if mapping.TVDBID != "" {
-					tmdbID, found, Err := mediux.SearchTMDBIDByTVDBID(ctx, mapping.TVDBID, item.Type)
-					if Err.Message != "" {
-						logAction.AppendWarning("search_tmdb_id_error", "Failed to search TMDB ID from MediUX via AniDB TVDB fallback")
-					}
-					if found {
-						item.TMDB_ID = tmdbID
-						break
-					}
-				}
-			}
-		}
+		// Resolve the TMDB ID from the GUIDs, falling back to Plex's legacy
+		// single-guid string (HAMA/classic agents, which never populate the
+		// multi-GUID array) and the Fribb AniDB mapping so anime and
+		// classic-agent items resolve instead of being dropped.
+		resolveTMDBID(ctx, &item, metadata.Guid, logAction)
 
 		if item.TMDB_ID == "" {
 			logging.LOGGER.Warn().Timestamp().Str("item_title", item.Title).Str("library_section", section.Title).Msgf("Skipping item in '%s' as no TMDB ID could be found", section.Title)
