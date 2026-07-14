@@ -50,6 +50,11 @@ jobs:
         run: go vet ./...
 
       - name: Test
+        env:
+          # config.init() creates CONFIG_PATH (default /config, not writable in
+          # CI) at package init, so any test that transitively imports config
+          # panics. Point it at a writable dir, as documented for local/test runs.
+          CONFIG_PATH: ${{ runner.temp }}/aura-config
         run: go test ./...
 
   frontend:
