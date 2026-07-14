@@ -1,6 +1,7 @@
 package main
 
 import (
+	"aura/anidb"
 	"aura/cache"
 	"aura/config"
 	"aura/database"
@@ -135,6 +136,12 @@ func runWarmup() (success bool) {
 	config.AppLoadingStep = "Preloading MediUX Items with Sets into Cache"
 	mediux.PreLoadMediuxItemsWithSets(ctx)
 
+	// Cache: Load AniDB -> TMDB mappings (Fribb anime-lists) so anime items that
+	// Plex matched with the HAMA agent (AniDB IDs only) resolve to TMDB instead
+	// of being dropped. Must run before the media-server preload below.
+	config.AppLoadingStep = "Preloading AniDB Mappings into Cache"
+	anidb.PreloadAnidbMappings(ctx)
+
 	// Database: Initialize
 	config.AppLoadingStep = "Initializing Database"
 	newDB, dbInitErr := database.Init(ctx)
@@ -207,6 +214,12 @@ func runWarmup() (success bool) {
 	err = jobs.StartCheckMediuxSiteLinkJob()
 	if err != nil {
 		logging.LOGGER.Error().Timestamp().Err(err).Msg("Failed to schedule Check MediUX Site Link Availability cron job")
+	}
+
+	// Cronjob: Refresh AniDB Mappings
+	err = jobs.StartRefreshAnidbMappingsJob()
+	if err != nil {
+		logging.LOGGER.Error().Timestamp().Err(err).Msg("Failed to schedule Refresh AniDB Mappings cron job")
 	}
 
 	// Cronjob: Start Check for Media Item Changes Job

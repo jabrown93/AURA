@@ -98,23 +98,41 @@ func (p *Plex) GetLibrarySectionItems(ctx context.Context, section models.Librar
 			}
 		}
 
-		if len(metadata.Guid) > 0 {
-			for _, guid := range metadata.Guids {
-				if guid.ID != "" {
-					// Sample guid.id : tmdb://######
-					// Split into provider and id
-					parts := strings.Split(guid.ID, "://")
-					if len(parts) == 2 {
-						provider := parts[0]
-						id := parts[1]
-						item.Guids = append(item.Guids, models.MediaItemGuid{
-							Provider: provider,
-							ID:       id,
-						})
-						if provider == "tmdb" {
-							item.TMDB_ID = id
-						}
-					}
+		// Parse the modern multi-GUID array (populated by the new Plex agents
+		// when includeGuids=1 is requested).
+		for _, guid := range metadata.Guids {
+			if guid.ID == "" {
+				continue
+			}
+			// Sample guid.id : tmdb://######
+			// Split into provider and id
+			parts := strings.SplitN(guid.ID, "://", 2)
+			if len(parts) != 2 {
+				continue
+			}
+			provider := normalizeProvider(parts[0])
+			id := parts[1]
+			item.Guids = append(item.Guids, models.MediaItemGuid{
+				Provider: provider,
+				ID:       id,
+			})
+			if provider == "tmdb" {
+				item.TMDB_ID = id
+			}
+		}
+
+		// Legacy Plex agents (e.g. HAMA for anime) only populate the single
+		// primary `guid` string and never the multi-GUID array above, so
+		// includeGuids=1 yields nothing for them. Fall back to parsing that
+		// legacy string so those items still resolve instead of being dropped.
+		if len(item.Guids) == 0 {
+			if provider, id, ok := parseLegacyGuid(metadata.Guid); ok {
+				item.Guids = append(item.Guids, models.MediaItemGuid{
+					Provider: provider,
+					ID:       id,
+				})
+				if provider == "tmdb" {
+					item.TMDB_ID = id
 				}
 			}
 		}
@@ -134,6 +152,41 @@ func (p *Plex) GetLibrarySectionItems(ctx context.Context, section models.Librar
 				}
 			}
 		}
+
+		// If still no TMDB ID and the item carries an AniDB ID (Plex's HAMA
+		// agent for anime yields these), resolve it via the Fribb mapping
+		// cache: prefer a direct TMDB id, otherwise fall back to its TVDB id
+		// through MediUX.
+		if item.TMDB_ID == "" {
+			for _, guid := range item.Guids {
+				if guid.Provider != "anidb" {
+					continue
+				}
+				mapping, ok := cache.AnidbMappings.GetByAnidbID(guid.ID)
+				if !ok {
+					continue
+				}
+				if item.Type == "movie" && mapping.TMDBMovieID != "" {
+					item.TMDB_ID = mapping.TMDBMovieID
+					break
+				}
+				if item.Type != "movie" && mapping.TMDBTvID != "" {
+					item.TMDB_ID = mapping.TMDBTvID
+					break
+				}
+				if mapping.TVDBID != "" {
+					tmdbID, found, Err := mediux.SearchTMDBIDByTVDBID(ctx, mapping.TVDBID, item.Type)
+					if Err.Message != "" {
+						logAction.AppendWarning("search_tmdb_id_error", "Failed to search TMDB ID from MediUX via AniDB TVDB fallback")
+					}
+					if found {
+						item.TMDB_ID = tmdbID
+						break
+					}
+				}
+			}
+		}
+
 		if item.TMDB_ID == "" {
 			logging.LOGGER.Warn().Timestamp().Str("item_title", item.Title).Str("library_section", section.Title).Msgf("Skipping item in '%s' as no TMDB ID could be found", section.Title)
 			totalSize-- // Decrement total size as this item will be skipped
