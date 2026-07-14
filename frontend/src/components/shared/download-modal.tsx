@@ -78,6 +78,7 @@ interface AssetTypeFormValues {
   types: TYPE_DOWNLOAD_IMAGE_TYPE_OPTIONS[];
   autodownload?: boolean;
   addToDBOnly?: boolean;
+  forcePreloadMissing?: boolean;
   source?: SourceType;
 }
 
@@ -194,6 +195,7 @@ const formSchema = z
         autodownload: z.boolean().optional(),
         source: z.enum(["movie", "collection"]).optional(),
         addToDBOnly: z.boolean().optional(),
+        forcePreloadMissing: z.boolean().optional(),
       })
     ),
   })
@@ -378,6 +380,7 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
             types: computeAssetTypes(item).filter((type) => downloadDefaults.includes(type)),
             autodownload: autoDownloadDefault,
             addToDBOnly: false,
+            forcePreloadMissing: false,
             source: item.Set.type === "movie" || item.Set.type === "collection" ? item.Set.type : undefined,
           };
           return acc;
@@ -401,6 +404,7 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
             types: computeAssetTypes(item).filter((type) => downloadDefaults.includes(type)),
             autodownload: autoDownloadDefault,
             addToDBOnly: false,
+            forcePreloadMissing: false,
             source: item.Set.type === "movie" || item.Set.type === "collection" ? item.Set.type : undefined,
           };
           return acc;
@@ -884,6 +888,7 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
                 types: newTypes,
                 autodownload: newTypes.length === 0 ? false : field.value?.autodownload,
                 addToDBOnly: newTypes.length === 0 ? false : field.value?.addToDBOnly,
+                forcePreloadMissing: newTypes.length === 0 ? false : field.value?.forcePreloadMissing,
                 source: item.Set.type === "movie" || item.Set.type === "collection" ? item.Set.type : undefined,
               });
             }}
@@ -1132,6 +1137,29 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
                 <FormLabel className="text-md font-normal cursor-pointer">Auto Download</FormLabel>
                 <DownloadModalPopover type="autodownload" />
               </FormItem>
+              {item.MediaItem.type === "show" && (
+                <FormItem className="flex items-center space-x-2">
+                  <FormControl>
+                    <Checkbox
+                      checked={
+                        isDisabled || field.value?.types?.length === 0
+                          ? false
+                          : field.value?.forcePreloadMissing || false
+                      }
+                      disabled={isDisabled || field.value?.types?.length === 0}
+                      onCheckedChange={(checked) => {
+                        field.onChange({
+                          ...(field.value ?? {}),
+                          forcePreloadMissing: checked,
+                        });
+                      }}
+                      className="h-5 w-5 sm:h-4 sm:w-4 cursor-pointer"
+                    />
+                  </FormControl>
+                  <FormLabel className="text-md font-normal cursor-pointer">Force Preload Missing</FormLabel>
+                  <DownloadModalPopover type="force-preload-missing" />
+                </FormItem>
+              )}
             </div>
           </div>
         )}
@@ -1169,6 +1197,7 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
             },
             auto_download: options.autodownload || false,
             auto_add_new_collection_items: autoAddNewCollectionItems,
+            force_preload_missing: options.forcePreloadMissing || false,
             last_downloaded: "",
             to_delete: false,
           },

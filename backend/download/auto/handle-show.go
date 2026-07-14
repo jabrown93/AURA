@@ -1,6 +1,7 @@
 package autodownload
 
 import (
+	"aura/config"
 	"aura/kometa"
 	"aura/logging"
 	"aura/mediaserver"
@@ -236,6 +237,14 @@ func handleShow(ctx context.Context, mediaItem models.MediaItem, dbItem models.D
 			changedEpisodeSet[episodeKey(ep.SeasonNumber, ep.EpisodeNumber)] = struct{}{}
 		}
 
+		// When the set is flagged to force-preload missing seasons/episodes, Kometa asset mode
+		// is enabled, and the show exists with at least one episode, season-poster/titlecard
+		// images whose season/episode is missing on the server are pre-staged as Kometa assets
+		// (via checkImageDates below and the apply branch) instead of being skipped.
+		preloadEligible := dbSet.ForcePreloadMissing &&
+			config.Current.Images.Kometa.Enabled &&
+			len(allEpisodesInMediaItem) > 0
+
 		// Create a map of the old images for easy lookup when checking if we need to redownload an image
 		oldImageByKey := make(map[string]models.ImageFile, len(dbSet.Images))
 		for _, oldImage := range dbSet.Images {
@@ -282,8 +291,9 @@ func handleShow(ctx context.Context, mediaItem models.MediaItem, dbItem models.D
 			}
 
 			// Skip any season posters if the season they are for does not exist in the Media Item
+			// (unless force-preload is eligible, in which case we pre-stage it as a Kometa asset)
 			if image.Type == "season_poster" {
-				if _, seasonExists := allSeasonsInMediaItem[*image.SeasonNumber]; !seasonExists {
+				if _, seasonExists := allSeasonsInMediaItem[*image.SeasonNumber]; !seasonExists && !preloadEligible {
 					check.Reason = fmt.Sprintf("Season %d does not exist in the Media Item, skipping", *image.SeasonNumber)
 					actionImageChecks.AppendResult(imageName, check)
 					continue
@@ -292,15 +302,16 @@ func handleShow(ctx context.Context, mediaItem models.MediaItem, dbItem models.D
 			}
 
 			// Skip any titlecards if the season/episode they are for does not exist in the Media Item
+			// (unless force-preload is eligible, in which case we pre-stage it as a Kometa asset)
 			if image.Type == "titlecard" {
 				sn := *image.SeasonNumber
 				en := *image.EpisodeNumber
-				if _, seasonExists := allSeasonsInMediaItem[sn]; !seasonExists {
+				if _, seasonExists := allSeasonsInMediaItem[sn]; !seasonExists && !preloadEligible {
 					check.Reason = fmt.Sprintf("Titlecard for Season %d Episode %d but Season %d does not exist in the Media Item, skipping", sn, en, sn)
 					actionImageChecks.AppendResult(imageName, check)
 					continue
 				}
-				if _, episodeExists := allEpisodesInMediaItem[episodeKey(sn, en)]; !episodeExists {
+				if _, episodeExists := allEpisodesInMediaItem[episodeKey(sn, en)]; !episodeExists && !preloadEligible {
 					check.Reason = fmt.Sprintf("Titlecard for Season %d Episode %d but Episode %d does not exist in the Media Item, skipping", sn, en, en)
 					actionImageChecks.AppendResult(imageName, check)
 					continue
@@ -416,7 +427,34 @@ func handleShow(ctx context.Context, mediaItem models.MediaItem, dbItem models.D
 			imageRedownloadResult["image_type"] = image.Type
 			imageRedownloadResult["redownload_reason"] = image.Reason
 			Err.Message = ""
-			Err := mediaserver.DownloadApplyImageToMediaItem(ctx, &mediaItem, image.ImageFile)
+
+			// If the target season/episode is missing on the server, pre-stage the image as a
+			// Kometa asset only (no server apply). preloadEligible already gated whether these
+			// missing-target images were collected at all.
+			preloadOnly := false
+			if preloadEligible {
+				switch image.Type {
+				case "season_poster":
+					if image.SeasonNumber != nil {
+						if _, ok := allSeasonsInMediaItem[*image.SeasonNumber]; !ok {
+							preloadOnly = true
+						}
+					}
+				case "titlecard":
+					if image.SeasonNumber != nil && image.EpisodeNumber != nil {
+						if _, ok := allEpisodesInMediaItem[episodeKey(*image.SeasonNumber, *image.EpisodeNumber)]; !ok {
+							preloadOnly = true
+						}
+					}
+				}
+			}
+
+			var Err logging.LogErrorInfo
+			if preloadOnly {
+				Err = mediaserver.SaveImageAsKometaAssetOnly(ctx, &mediaItem, image.ImageFile)
+			} else {
+				Err = mediaserver.DownloadApplyImageToMediaItem(ctx, &mediaItem, image.ImageFile)
+			}
 			if Err.Message != "" {
 				imageRedownloadResult["redownload_result"] = "error"
 				imageRedownloadResult["redownload_error"] = Err.Message

@@ -6,7 +6,8 @@ export interface DownloadModalPopoverProps {
     | "add-to-db-only"
     | "add-to-queue-only"
     | "auto-add-new-collection-items"
-    | "possible-future-types";
+    | "possible-future-types"
+    | "force-preload-missing";
 }
 
 const downloadModalPopoverHelpText = {
@@ -20,6 +21,8 @@ const downloadModalPopoverHelpText = {
     "Auto Add New Collection Items will check periodically for new items added to this collection and automatically download the images for them",
   "possible-future-types":
     "These image types are not currently available in this set. Selecting them saves the type in your database for this set, so future auto-download checks can download them when they are added.",
+  "force-preload-missing":
+    "Force Preload Missing pre-stages season poster and title card images for seasons/episodes that are not yet on your server, as long as the show exists with at least one episode. Images are written to the Kometa asset directory only (they are not applied to the server), so Kometa picks them up automatically once the episodes are added. Requires Kometa asset mode enabled (Plex only); it has no effect otherwise.",
 };
 
 const DownloadModalPopover: React.FC<DownloadModalPopoverProps> = ({ type }) => {

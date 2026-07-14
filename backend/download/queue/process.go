@@ -2,6 +2,7 @@ package downloadqueue
 
 import (
 	"aura/cache"
+	"aura/config"
 	"aura/database"
 	"aura/kometa"
 	"aura/logging"
@@ -17,6 +18,21 @@ import (
 	"path"
 	"time"
 )
+
+// showHasAnyEpisode reports whether the series has at least one episode across all of
+// its seasons on the media server. Force-preload only pre-stages assets for shows that
+// exist with at least one episode.
+func showHasAnyEpisode(series *models.MediaItemSeries) bool {
+	if series == nil {
+		return false
+	}
+	for _, season := range series.Seasons {
+		if len(season.Episodes) > 0 {
+			return true
+		}
+	}
+	return false
+}
 
 // finalizeQueueFile moves a processed queue entry to its terminal state. On a
 // clean success the file is removed. When there are errors/warnings the entry is
@@ -274,7 +290,17 @@ func ProcessQueueItems() {
 
 			LatestInfo.Message = fmt.Sprintf("%s (Set: %s)", queueItem.MediaItem.Title, posterSet.ID)
 
+			// When the set is flagged to force-preload missing seasons/episodes, Kometa asset
+			// mode is enabled, and the show exists on the server with at least one episode, we
+			// pre-stage the assets for seasons/episodes not yet on the server instead of skipping.
+			preloadEligible := posterSet.ForcePreloadMissing &&
+				config.Current.Images.Kometa.Enabled &&
+				showHasAnyEpisode(queueItem.MediaItem.Series)
+
 			for idx, image := range posterSet.Images {
+				// preloadThisImage routes an image to a Kometa-asset-only write (no server apply)
+				// because its target season/episode is missing from the media server.
+				preloadThisImage := false
 				switch image.Type {
 				case "poster":
 					if !posterSet.SelectedTypes.Poster {
@@ -288,7 +314,17 @@ func ProcessQueueItems() {
 					if image.SeasonNumber == nil {
 						continue
 					}
-					// Check if the Media Item contains the season number for this image, if not skip it
+					// Gate on the selected image type first so it applies to both present and preloaded seasons
+					if *image.SeasonNumber == 0 {
+						if !posterSet.SelectedTypes.SpecialSeasonPoster {
+							continue
+						}
+					} else {
+						if !posterSet.SelectedTypes.SeasonPoster {
+							continue
+						}
+					}
+					// Check if the Media Item contains the season number for this image
 					mediaItemHasSeason := false
 					if queueItem.MediaItem.Series != nil {
 						for _, season := range queueItem.MediaItem.Series.Seasons {
@@ -299,19 +335,17 @@ func ProcessQueueItems() {
 						}
 					}
 					if !mediaItemHasSeason {
-						continue
-					}
-					if *image.SeasonNumber == 0 {
-						if !posterSet.SelectedTypes.SpecialSeasonPoster {
+						// Season missing on the server: preload it as a Kometa asset if eligible, else skip
+						if !preloadEligible {
 							continue
 						}
-					} else {
-						if !posterSet.SelectedTypes.SeasonPoster {
-							continue
-						}
+						preloadThisImage = true
 					}
 				case "titlecard":
-					// Check if the Media Item contains the Season and Episode numbers for this image, if not skip it
+					if !posterSet.SelectedTypes.Titlecard {
+						continue
+					}
+					// Check if the Media Item contains the Season and Episode numbers for this image
 					mediaItemHasEpisode := false
 					if queueItem.MediaItem.Series != nil {
 						for _, season := range queueItem.MediaItem.Series.Seasons {
@@ -331,10 +365,12 @@ func ProcessQueueItems() {
 						}
 					}
 					if !mediaItemHasEpisode {
-						continue
-					}
-					if !posterSet.SelectedTypes.Titlecard {
-						continue
+						// Episode missing on the server: preload it as a Kometa asset if eligible, else skip.
+						// A titlecard needs both season and episode numbers to build the Kometa file name.
+						if !preloadEligible || image.SeasonNumber == nil || image.EpisodeNumber == nil {
+							continue
+						}
+						preloadThisImage = true
 					}
 				default:
 					subAction.AppendWarning(fmt.Sprintf("file_%s_image_%d", file.Name(), idx), fmt.Sprintf("Image has unrecognized type '%s'", image.Type))
@@ -343,7 +379,12 @@ func ProcessQueueItems() {
 				}
 
 				downloadFileName := utils.GetFileDownloadName(queueItem.MediaItem.Title, image)
-				Err := mediaserver.DownloadApplyImageToMediaItem(ctx, &queueItem.MediaItem, image)
+				var Err logging.LogErrorInfo
+				if preloadThisImage {
+					Err = mediaserver.SaveImageAsKometaAssetOnly(ctx, &queueItem.MediaItem, image)
+				} else {
+					Err = mediaserver.DownloadApplyImageToMediaItem(ctx, &queueItem.MediaItem, image)
+				}
 				if Err.Message != "" {
 					setErrors = append(setErrors, fmt.Sprintf("%s: %s", downloadFileName, Err.Message))
 				}

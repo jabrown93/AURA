@@ -29,7 +29,13 @@ type DBPosterSetDetail struct {
 	SelectedTypes             SelectedTypes `json:"selected_types"`
 	AutoDownload              bool          `json:"auto_download"`
 	AutoAddNewCollectionItems bool          `json:"auto_add_new_collection_items"`
-	ToDelete                  bool          `json:"to_delete"` // Flag to indicate if the poster set should be deleted (Not used in DB)
+	// ForcePreloadMissing, when true, pre-stages season-poster/titlecard images for
+	// seasons/episodes that are not yet present on the media server by writing them to
+	// the Kometa asset directory (naming-convention only, no server apply). Requires
+	// Kometa asset mode enabled and the show to exist on the server with at least one
+	// episode. Has no effect otherwise.
+	ForcePreloadMissing bool `json:"force_preload_missing"`
+	ToDelete            bool `json:"to_delete"` // Flag to indicate if the poster set should be deleted (Not used in DB)
 }
 
 type PosterSet struct {

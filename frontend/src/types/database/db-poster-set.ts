@@ -21,6 +21,9 @@ export interface DBPosterSetDetail extends PosterSet {
   selected_types: SelectedTypes;
   auto_download: boolean;
   auto_add_new_collection_items: boolean;
+  // Pre-stage season-poster/titlecard images for seasons/episodes missing from the media
+  // server by writing them to the Kometa asset directory. Requires Kometa asset mode.
+  force_preload_missing: boolean;
   to_delete: boolean; // Flag to indicate if the poster set should be deleted (Not used in DB)
 }
 

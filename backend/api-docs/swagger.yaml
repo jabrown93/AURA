@@ -789,6 +789,14 @@ definitions:
       date_updated:
         description: Last updated date
         type: string
+      force_preload_missing:
+        description: |-
+          ForcePreloadMissing, when true, pre-stages season-poster/titlecard images for
+          seasons/episodes that are not yet present on the media server by writing them to
+          the Kometa asset directory (naming-convention only, no server apply). Requires
+          Kometa asset mode enabled and the show to exist on the server with at least one
+          episode. Has no effect otherwise.
+        type: boolean
       id:
         description: Set ID
         type: string

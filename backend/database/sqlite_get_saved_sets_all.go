@@ -216,6 +216,7 @@ SELECT
 
           'auto_download', CASE WHEN si.autodownload = 1 THEN json('true') ELSE json('false') END,
 		  'auto_add_new_collection_items', CASE WHEN si.auto_add_new_collection_items = 1 THEN json('true') ELSE json('false') END,
+		  'force_preload_missing', CASE WHEN si.force_preload_missing = 1 THEN json('true') ELSE json('false') END,
 
           'images', COALESCE(
             (
