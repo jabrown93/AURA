@@ -1141,16 +1141,19 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
                 <FormItem className="flex items-center space-x-2">
                   <FormControl>
                     <Checkbox
+                      // Preloading missing seasons/episodes only happens in the queued flow
+                      // (and the auto-download job); the synchronous download path skips missing
+                      // targets, so disable the option unless the item is being added to the queue.
                       checked={
-                        isDisabled || field.value?.types?.length === 0
+                        isDisabled || field.value?.types?.length === 0 || !addToQueueOnly
                           ? false
                           : field.value?.forcePreloadMissing || false
                       }
-                      disabled={isDisabled || field.value?.types?.length === 0}
+                      disabled={isDisabled || field.value?.types?.length === 0 || !addToQueueOnly}
                       onCheckedChange={(checked) => {
                         field.onChange({
                           ...(field.value ?? {}),
-                          forcePreloadMissing: checked,
+                          forcePreloadMissing: checked === true,
                         });
                       }}
                       className="h-5 w-5 sm:h-4 sm:w-4 cursor-pointer"
@@ -1197,7 +1200,8 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
             },
             auto_download: options.autodownload || false,
             auto_add_new_collection_items: autoAddNewCollectionItems,
-            force_preload_missing: options.forcePreloadMissing || false,
+            // Only meaningful in the queued flow; never persist it from a synchronous download.
+            force_preload_missing: (addToQueueOnly && options.forcePreloadMissing) || false,
             last_downloaded: "",
             to_delete: false,
           },

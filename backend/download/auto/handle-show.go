@@ -426,7 +426,6 @@ func handleShow(ctx context.Context, mediaItem models.MediaItem, dbItem models.D
 			imageRedownloadResult["image"] = utils.GetFileDownloadName(mediaItem.Title, image.ImageFile)
 			imageRedownloadResult["image_type"] = image.Type
 			imageRedownloadResult["redownload_reason"] = image.Reason
-			Err.Message = ""
 
 			// If the target season/episode is missing on the server, pre-stage the image as a
 			// Kometa asset only (no server apply). preloadEligible already gated whether these
@@ -449,7 +448,8 @@ func handleShow(ctx context.Context, mediaItem models.MediaItem, dbItem models.D
 				}
 			}
 
-			var Err logging.LogErrorInfo
+			// Reuse the set-scoped Err from above; reset it fully before each apply.
+			Err = logging.LogErrorInfo{}
 			if preloadOnly {
 				Err = mediaserver.SaveImageAsKometaAssetOnly(ctx, &mediaItem, image.ImageFile)
 			} else {

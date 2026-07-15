@@ -345,6 +345,12 @@ func ProcessQueueItems() {
 					if !posterSet.SelectedTypes.Titlecard {
 						continue
 					}
+					// A titlecard needs both a season and an episode number to identify its target
+					// (and to build the Kometa file name). Skip malformed images so they can't match
+					// an arbitrary episode.
+					if image.SeasonNumber == nil || image.EpisodeNumber == nil {
+						continue
+					}
 					// Check if the Media Item contains the Season and Episode numbers for this image
 					mediaItemHasEpisode := false
 					if queueItem.MediaItem.Series != nil {
@@ -366,8 +372,7 @@ func ProcessQueueItems() {
 					}
 					if !mediaItemHasEpisode {
 						// Episode missing on the server: preload it as a Kometa asset if eligible, else skip.
-						// A titlecard needs both season and episode numbers to build the Kometa file name.
-						if !preloadEligible || image.SeasonNumber == nil || image.EpisodeNumber == nil {
+						if !preloadEligible {
 							continue
 						}
 						preloadThisImage = true
