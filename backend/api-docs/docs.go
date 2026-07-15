@@ -4615,6 +4615,10 @@ const docTemplate = `{
                     "description": "Last updated date",
                     "type": "string"
                 },
+                "force_preload_missing": {
+                    "description": "ForcePreloadMissing, when true, pre-stages season-poster/titlecard images for\nseasons/episodes that are not yet present on the media server by writing them to\nthe Kometa asset directory (naming-convention only, no server apply). Requires\nKometa asset mode enabled and the show to exist on the server with at least one\nepisode. Has no effect otherwise.",
+                    "type": "boolean"
+                },
                 "id": {
                     "description": "Set ID",
                     "type": "string"

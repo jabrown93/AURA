@@ -5,7 +5,6 @@ import (
 	"aura/config"
 	"aura/database"
 	"aura/logging"
-	"aura/mediux"
 	"aura/models"
 	"aura/utils/httpx"
 	"context"
@@ -98,42 +97,30 @@ func (p *Plex) GetLibrarySectionItems(ctx context.Context, section models.Librar
 			}
 		}
 
-		if len(metadata.Guid) > 0 {
-			for _, guid := range metadata.Guids {
-				if guid.ID != "" {
-					// Sample guid.id : tmdb://######
-					// Split into provider and id
-					parts := strings.Split(guid.ID, "://")
-					if len(parts) == 2 {
-						provider := parts[0]
-						id := parts[1]
-						item.Guids = append(item.Guids, models.MediaItemGuid{
-							Provider: provider,
-							ID:       id,
-						})
-						if provider == "tmdb" {
-							item.TMDB_ID = id
-						}
-					}
-				}
+		// Parse the modern multi-GUID array (populated by the new Plex agents
+		// when includeGuids=1 is requested).
+		for _, guid := range metadata.Guids {
+			if guid.ID == "" {
+				continue
 			}
+			// Sample guid.id : tmdb://######
+			// Split into provider and id
+			parts := strings.SplitN(guid.ID, "://", 2)
+			if len(parts) != 2 {
+				continue
+			}
+			item.Guids = append(item.Guids, models.MediaItemGuid{
+				Provider: normalizeProvider(parts[0]),
+				ID:       parts[1],
+			})
 		}
 
-		// If no TMDB ID found, get the value from MediUX using the GUID[tvdb]
-		if item.TMDB_ID == "" {
-			for _, guid := range item.Guids {
-				if guid.Provider == "tvdb" {
-					tmdbID, found, Err := mediux.SearchTMDBIDByTVDBID(ctx, guid.ID, item.Type)
-					if Err.Message != "" {
-						logAction.AppendWarning("search_tmdb_id_error", "Failed to search TMDB ID from MediUX")
-					}
-					if found {
-						item.TMDB_ID = tmdbID
-						break
-					}
-				}
-			}
-		}
+		// Resolve the TMDB ID from the GUIDs, falling back to Plex's legacy
+		// single-guid string (HAMA/classic agents, which never populate the
+		// multi-GUID array) and the Fribb AniDB mapping so anime and
+		// classic-agent items resolve instead of being dropped.
+		resolveTMDBID(ctx, &item, metadata.Guid, logAction)
+
 		if item.TMDB_ID == "" {
 			logging.LOGGER.Warn().Timestamp().Str("item_title", item.Title).Str("library_section", section.Title).Msgf("Skipping item in '%s' as no TMDB ID could be found", section.Title)
 			totalSize-- // Decrement total size as this item will be skipped

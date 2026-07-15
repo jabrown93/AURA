@@ -77,6 +77,12 @@ type MediaServerInterface interface {
 	// Download an image for a specific Media Item
 	DownloadApplyImageToMediaItem(ctx context.Context, item *models.MediaItem, imageFile models.ImageFile) (Err logging.LogErrorInfo)
 
+	// Download an image and write it to the Kometa asset directory only, without applying
+	// it to the media server. Used to pre-stage assets for seasons/episodes that are not
+	// yet present on the server (naming-convention only). Servers without Kometa asset
+	// support, or when Kometa mode is disabled, treat this as a no-op skip.
+	SaveImageAsKometaAssetOnly(ctx context.Context, item *models.MediaItem, imageFile models.ImageFile) (Err logging.LogErrorInfo)
+
 	// Apply a collection image to a specific Collection Item
 	ApplyCollectionImage(ctx context.Context, collectionItem *models.CollectionItem, imageFile models.ImageFile) (Err logging.LogErrorInfo)
 }
@@ -231,6 +237,14 @@ func DownloadApplyImageToMediaItem(ctx context.Context, item *models.MediaItem, 
 		return Err
 	}
 	return msClient.DownloadApplyImageToMediaItem(ctx, item, imageFile)
+}
+
+func SaveImageAsKometaAssetOnly(ctx context.Context, item *models.MediaItem, imageFile models.ImageFile) (Err logging.LogErrorInfo) {
+	msClient, Err := NewMediaServerClient(&config.Current.MediaServer)
+	if Err.Message != "" {
+		return Err
+	}
+	return msClient.SaveImageAsKometaAssetOnly(ctx, item, imageFile)
 }
 
 func ApplyCollectionImage(ctx context.Context, collectionItem *models.CollectionItem, imageFile models.ImageFile) (Err logging.LogErrorInfo) {
