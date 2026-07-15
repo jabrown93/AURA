@@ -4,9 +4,12 @@
 //   * push to `main` -> stable release (feat -> minor, fix/perf -> patch, ! -> major)
 //   * push to `beta` -> prerelease (vX.Y.Z-beta.N)
 //
-// Dependency bumps (chore(deps)/build(deps)) intentionally do NOT cut a release
-// on ordinary pushes. The weekly scheduled workflow run sets RELEASE_DEPS=true,
-// which promotes accumulated dependency commits to a single patch release.
+// Dependency bumps intentionally do NOT cut a release on ordinary pushes. Renovate
+// labels them fix(deps) (runtime deps), chore(deps) (dev deps / lock maintenance),
+// or build(deps) — fix would otherwise trigger a patch via the default rules, so it
+// is explicitly suppressed here. The weekly scheduled workflow run sets
+// RELEASE_DEPS=true, which promotes all accumulated dependency commits to a single
+// patch release.
 //
 // This file is CommonJS (there is no root package.json); semantic-release loads
 // it via cosmiconfig. `${...}` placeholders are expanded by semantic-release, not
@@ -14,12 +17,17 @@
 
 const releaseDeps = process.env.RELEASE_DEPS === "true";
 
+// Custom rules are evaluated before commit-analyzer's defaults, and the first
+// match wins — so `release: false` on fix(deps) suppresses the default fix->patch.
+// chore/build already don't release by default; they only need promotion when
+// RELEASE_DEPS is set.
 const depReleaseRules = releaseDeps
   ? [
+      { type: "fix", scope: "deps", release: "patch" },
       { type: "chore", scope: "deps", release: "patch" },
       { type: "build", scope: "deps", release: "patch" },
     ]
-  : [];
+  : [{ type: "fix", scope: "deps", release: false }];
 
 // GitHub rejects a Release body over 125,000 characters (HTTP 422). Normal
 // automated releases are far below that, but a first release with no prior tag
