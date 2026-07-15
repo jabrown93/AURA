@@ -5,7 +5,6 @@ import (
 	"aura/config"
 	"aura/database"
 	"aura/logging"
-	"aura/mediux"
 	"aura/models"
 	"aura/utils"
 	"aura/utils/httpx"
@@ -169,29 +168,12 @@ func extractMediaItemFromResponse(ctx context.Context, metadata PlexLibraryItems
 		fmt.Sprintf("%.1f", metadata.AudienceRating))
 	item.Guids = guids
 
-	// Check to see if the item has a valid TMDB ID
-	for _, guid := range item.Guids {
-		if guid.Provider == "tmdb" && guid.ID != "" {
-			item.TMDB_ID = guid.ID
-			break
-		}
-	}
-
-	// If no TMDB ID found, get the value from MediUX using the GUID[tvdb]
-	if item.TMDB_ID == "" {
-		for _, guid := range item.Guids {
-			if guid.Provider == "tvdb" {
-				tmdbID, found, Err := mediux.SearchTMDBIDByTVDBID(ctx, guid.ID, item.Type)
-				if Err.Message != "" {
-					logAction.AppendWarning("search_tmdb_id_error", "Failed to search TMDB ID from MediUX")
-				}
-				if found {
-					item.TMDB_ID = tmdbID
-					break
-				}
-			}
-		}
-	}
+	// Resolve the TMDB ID from the GUIDs, falling back to Plex's legacy
+	// single-guid string (HAMA/classic agents) and the Fribb AniDB mapping.
+	// This mirrors the library-list path so HAMA/anime items that only carry a
+	// legacy guid resolve here too, instead of failing the details endpoint
+	// with "No TMDB ID found".
+	resolveTMDBID(ctx, item, metadata.Guid, logAction)
 
 	// If the item has a user rating from Plex, set the community rating
 	if metadata.UserRating > 0 {

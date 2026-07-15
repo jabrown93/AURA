@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.6.4](https://github.com/jabrown93/AURA/compare/v1.6.3...v1.6.4) (2026-07-14)
+
+
+### Bug Fixes
+
+* **plex:** resolve HAMA/anime items via legacy GUIDs + AniDB mapping ([#53](https://github.com/jabrown93/AURA/issues/53)) ([009ad85](https://github.com/jabrown93/AURA/commit/009ad85f231d8d22b49ce799053dd148645422ba))
+
+## [1.6.3](https://github.com/jabrown93/AURA/compare/v1.6.2...v1.6.3) (2026-07-13)
+
+## [1.6.2](https://github.com/jabrown93/AURA/compare/v1.6.1...v1.6.2) (2026-07-13)
+
+
+### Bug Fixes
+
+* **deps:** update module github.com/mattn/go-sqlite3 to v1.14.48 ([070041b](https://github.com/jabrown93/AURA/commit/070041b47b8d9446acc5f4c3970c4d674fd11b0d))
+
 ## [1.6.1](https://github.com/jabrown93/AURA/compare/v1.6.0...v1.6.1) (2026-07-12)
 
 
