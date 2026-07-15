@@ -305,6 +305,7 @@ export const savedSetsConfirmEdit = async ({
       selected_types: editSet.selected_types,
       auto_download: editSet.auto_download,
       auto_add_new_collection_items: editSet.auto_add_new_collection_items,
+      force_preload_missing: editSet.force_preload_missing,
       to_delete: editSet.to_delete,
     })),
   };
@@ -568,6 +569,29 @@ export const SavedSetEditModal: React.FC<SavedSetEditModalProps> = ({
                 >
                   {editSet.auto_download ? "Autodownload" : "No Autodownload"}
                 </Badge>
+                {editSet.type === "show" && (
+                  <Badge
+                    className={`cursor-pointer transition duration-200 ${
+                      editSet.force_preload_missing
+                        ? "bg-primary text-primary-foreground hover:bg-red-500"
+                        : "bg-secondary text-secondary-foreground"
+                    }`}
+                    onClick={() => {
+                      setEditSets((prev) =>
+                        prev.map((item, i) =>
+                          i === index
+                            ? {
+                                ...item,
+                                force_preload_missing: !item.force_preload_missing,
+                              }
+                            : item
+                        )
+                      );
+                    }}
+                  >
+                    {editSet.force_preload_missing ? "Preload Missing" : "No Preload Missing"}
+                  </Badge>
+                )}
               </div>
               <div className="flex items-center justify-between">
                 <div>

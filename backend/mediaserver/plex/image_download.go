@@ -112,6 +112,32 @@ func (p *Plex) DownloadApplyImageToMediaItem(ctx context.Context, item *models.M
 	// return Err
 }
 
+// SaveImageAsKometaAssetOnly downloads the image and writes it to the Kometa asset
+// directory using Kometa naming conventions, without resolving a rating key or applying
+// the image to Plex. It is used to pre-stage assets for seasons/episodes that are not yet
+// present on the server. If Kometa asset mode is disabled there is nothing to preload, so
+// it logs a skip and returns without error.
+func (p *Plex) SaveImageAsKometaAssetOnly(ctx context.Context, item *models.MediaItem, imageFile models.ImageFile) (Err logging.LogErrorInfo) {
+	ctx, logAction := logging.AddSubActionToContext(ctx, fmt.Sprintf(
+		"Plex: Preloading Kometa Asset %s for %s", utils.GetFileDownloadName(item.Title, imageFile), utils.MediaItemInfo(*item)),
+		logging.LevelDebug)
+	defer logAction.Complete()
+
+	if !config.Current.Images.Kometa.Enabled {
+		logAction.AppendResult("skipped", "Kometa asset mode is disabled; nothing to preload")
+		return logging.LogErrorInfo{}
+	}
+
+	// Get the Image from MediUX (checks temp folder / cache per config)
+	formatDate := imageFile.Modified.Format("20060102150405")
+	imageData, _, Err := mediux.GetImage(ctx, imageFile.ID, formatDate, mediux.ImageQualityOriginal)
+	if Err.Message != "" {
+		return Err
+	}
+
+	return saveImageKometa(ctx, p, item, imageFile, imageData)
+}
+
 func saveImageLocally(ctx context.Context, p *Plex, item *models.MediaItem, imageFile models.ImageFile, imageData []byte) (isCustomLocalPath bool, Err logging.LogErrorInfo) {
 	ctx, logAction := logging.AddSubActionToContext(ctx, fmt.Sprintf(
 		"Plex: Saving %s Image for %s",

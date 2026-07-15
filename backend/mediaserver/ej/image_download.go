@@ -34,3 +34,18 @@ func (e *EJ) DownloadApplyImageToMediaItem(ctx context.Context, item *models.Med
 	Err = logging.LogErrorInfo{}
 	return Err
 }
+
+// SaveImageAsKometaAssetOnly is a no-op on Emby/Jellyfin: AURA only writes Kometa assets
+// for Plex, so there is no disk-write target to pre-stage a missing season/episode image
+// to here. It logs a skip and returns without error to keep the force-preload flow silent
+// on these servers.
+func (e *EJ) SaveImageAsKometaAssetOnly(ctx context.Context, item *models.MediaItem, imageFile models.ImageFile) (Err logging.LogErrorInfo) {
+	_, logAction := logging.AddSubActionToContext(ctx, fmt.Sprintf(
+		"%s: Skipping Kometa asset preload for %s (not supported on %s)",
+		config.Current.MediaServer.Type, utils.GetFileDownloadName(item.Title, imageFile), config.Current.MediaServer.Type,
+	), logging.LevelDebug)
+	defer logAction.Complete()
+
+	logAction.AppendResult("skipped", "Kometa asset preloading is only supported on Plex")
+	return logging.LogErrorInfo{}
+}

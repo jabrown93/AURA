@@ -9,7 +9,7 @@ import (
 	"fmt"
 )
 
-const LATEST_DB_VERSION = 5
+const LATEST_DB_VERSION = 6
 
 var Client DB
 
