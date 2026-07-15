@@ -1,5 +1,12 @@
 # Changelog
 
+# [1.7.0](https://github.com/jabrown93/AURA/compare/v1.6.4...v1.7.0) (2026-07-15)
+
+
+### Features
+
+* **download:** force-preload missing episodes as Kometa assets ([#55](https://github.com/jabrown93/AURA/issues/55)) ([a5f4a8e](https://github.com/jabrown93/AURA/commit/a5f4a8e6ee96bd755493f18609db4e150eea0bb1))
+
 ## [1.6.4](https://github.com/jabrown93/AURA/compare/v1.6.3...v1.6.4) (2026-07-14)
 
 
