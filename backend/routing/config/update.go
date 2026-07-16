@@ -1081,12 +1081,19 @@ func checkConfigDifferences_SonarrRadarr(ctx context.Context, oldSR config.Confi
 	// Restore ApiTokens
 	for i, app := range newSR.Applications {
 		if strings.HasPrefix(app.ApiToken, "***") {
-			// Find matching old app by Library and Type
+			// Find matching old app by Library, Type and URL. The URL must match too: otherwise
+			// the restored real token would be sent to a caller-supplied URL by TestConnection below.
+			matched := false
 			for _, oldApp := range oldSR.Applications {
-				if app.Library == oldApp.Library && app.Type == oldApp.Type {
+				if app.Library == oldApp.Library && app.Type == oldApp.Type && app.URL == oldApp.URL {
 					newSR.Applications[i].ApiToken = oldApp.ApiToken
+					matched = true
 					break
 				}
+			}
+			if !matched {
+				logAction.SetError("SonarrRadarr.Application.ApiToken is masked but no matching Library/Type/URL was found", "A new API token must be provided when adding an application or changing its URL", nil)
+				return changed, false
 			}
 		}
 	}
