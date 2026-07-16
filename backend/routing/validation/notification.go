@@ -255,6 +255,13 @@ func SendTestNotification(w http.ResponseWriter, r *http.Request) {
 			url = getUnmaskedGotifyField("URL", url)
 		}
 		if config.IsMaskedField(apiToken) {
+			// A masked token can only be restored for the URL it was issued for. Otherwise the
+			// real, live token would be sent to a caller-supplied URL by SendGotifyMessage below.
+			if url != storedGotifyURL() {
+				logAction.SetError("Unable to unmask Gotify credentials", "A new API token must be provided when changing the Gotify URL", nil)
+				httpx.SendResponse(w, ld, response)
+				return
+			}
 			apiToken = getUnmaskedGotifyField("Token", apiToken)
 		}
 		if url == "" || apiToken == "" {
@@ -323,6 +330,15 @@ func getUnmaskedDiscordWebhook(currentValue string) string {
 					}
 				}
 			}
+		}
+	}
+	return ""
+}
+
+func storedGotifyURL() string {
+	for _, existingProvider := range config.Current.Notifications.Providers {
+		if existingProvider.Provider == "Gotify" && existingProvider.Gotify != nil {
+			return existingProvider.Gotify.URL
 		}
 	}
 	return ""

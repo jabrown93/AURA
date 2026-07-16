@@ -248,6 +248,11 @@ func checkConfigDifferences_MediaServer(ctx context.Context, oldMediaServer conf
 					Str("new_api_token", fmt.Sprintf("%s", newMediaServer.ApiToken)).
 					Msg("MediaServer.ApiToken changed")
 				changed = true
+			} else if newMediaServer.URL != oldMediaServer.URL {
+				// A masked token can only be restored for the URL it was issued for. Otherwise the
+				// real, live token would be sent to a caller-supplied URL by the TestConnection call below.
+				logAction.SetError("MediaServer.ApiToken is masked but MediaServer.URL changed", "A new API token must be provided when changing the media server URL", nil)
+				return changed, false, serverName
 			} else {
 				newMediaServer.ApiToken = oldMediaServer.ApiToken
 			}
