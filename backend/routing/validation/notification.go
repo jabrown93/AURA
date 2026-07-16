@@ -251,18 +251,25 @@ func SendTestNotification(w http.ResponseWriter, r *http.Request) {
 	case "Gotify":
 		url := nProvider.Gotify.URL
 		apiToken := nProvider.Gotify.ApiToken
-		if config.IsMaskedField(url) {
-			url = getUnmaskedGotifyField("URL", url)
-		}
-		if config.IsMaskedField(apiToken) {
-			// A masked token can only be restored for the URL it was issued for. Otherwise the
-			// real, live token would be sent to a caller-supplied URL by SendGotifyMessage below.
-			if url != storedGotifyURL() {
-				logAction.SetError("Unable to unmask Gotify credentials", "A new API token must be provided when changing the Gotify URL", nil)
+		urlMasked := config.IsMaskedField(url)
+		tokenMasked := config.IsMaskedField(apiToken)
+		if urlMasked || tokenMasked {
+			// Masked URL/token must be restored together from the same stored provider.
+			// Matching each field independently against any stored Gotify provider would let a
+			// real token from one provider be paired with another provider's URL and sent there
+			// by SendGotifyMessage below.
+			matched := matchGotifyProvider(url, urlMasked, apiToken, tokenMasked)
+			if matched == nil {
+				logAction.SetError("Unable to unmask Gotify credentials", "Please provide the full Gotify URL and ApiToken", nil)
 				httpx.SendResponse(w, ld, response)
 				return
 			}
-			apiToken = getUnmaskedGotifyField("Token", apiToken)
+			if urlMasked {
+				url = matched.URL
+			}
+			if tokenMasked {
+				apiToken = matched.ApiToken
+			}
 		}
 		if url == "" || apiToken == "" {
 			logAction.SetError("Unable to unmask Gotify credentials", "Please provide the full Gotify URL and ApiToken", nil)
@@ -335,39 +342,35 @@ func getUnmaskedDiscordWebhook(currentValue string) string {
 	return ""
 }
 
-func storedGotifyURL() string {
-	for _, existingProvider := range config.Current.Notifications.Providers {
-		if existingProvider.Provider == "Gotify" && existingProvider.Gotify != nil {
-			return existingProvider.Gotify.URL
-		}
+// maskedFieldMatches reports whether maskedValue is a masked representation of realValue, i.e.
+// their last few characters agree, mirroring the masking scheme in config.IsMaskedField.
+func maskedFieldMatches(maskedValue, realValue string) bool {
+	if len(maskedValue) <= 3 || len(realValue) < 3 {
+		return false
 	}
-	return ""
+	return maskedValue[len(maskedValue)-3:] == realValue[len(realValue)-3:]
 }
 
-func getUnmaskedGotifyField(field, currentValue string) string {
+// matchGotifyProvider finds the single stored Gotify provider whose URL and ApiToken both match
+// the given (possibly masked) values, so a masked field can only be restored alongside the other
+// field it was originally paired with, never mixed with a different stored provider.
+func matchGotifyProvider(url string, urlMasked bool, apiToken string, apiTokenMasked bool) *config.Config_Notification_Gotify {
 	for _, existingProvider := range config.Current.Notifications.Providers {
-		if existingProvider.Provider == "Gotify" && existingProvider.Gotify != nil {
-			switch field {
-			case "URL":
-				if existingProvider.Gotify.URL != "" {
-					// Make sure that the last few characters match the masked value
-					if len(currentValue) > 3 && len(existingProvider.Gotify.URL) >= 3 {
-						if currentValue[len(currentValue)-3:] == existingProvider.Gotify.URL[len(existingProvider.Gotify.URL)-3:] {
-							return existingProvider.Gotify.URL
-						}
-					}
-				}
-			case "Token":
-				if existingProvider.Gotify.ApiToken != "" {
-					// Make sure that the last few characters match the masked value
-					if len(currentValue) > 3 && len(existingProvider.Gotify.ApiToken) >= 3 {
-						if currentValue[len(currentValue)-3:] == existingProvider.Gotify.ApiToken[len(existingProvider.Gotify.ApiToken)-3:] {
-							return existingProvider.Gotify.ApiToken
-						}
-					}
-				}
-			}
+		if existingProvider.Provider != "Gotify" || existingProvider.Gotify == nil {
+			continue
 		}
+		stored := existingProvider.Gotify
+		if urlMasked {
+			if !maskedFieldMatches(url, stored.URL) {
+				continue
+			}
+		} else if url != stored.URL {
+			continue
+		}
+		if apiTokenMasked && !maskedFieldMatches(apiToken, stored.ApiToken) {
+			continue
+		}
+		return stored
 	}
-	return ""
+	return nil
 }
