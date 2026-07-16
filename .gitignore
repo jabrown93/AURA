@@ -65,3 +65,6 @@ legacy-frontend
 docker_local_build.sh.old
 
 .buildx-cache*/**
+
+# Claude Code local settings
+.claude/settings.local.json
