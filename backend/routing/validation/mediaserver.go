@@ -48,6 +48,13 @@ func ValidateMediaServerInfo(w http.ResponseWriter, r *http.Request) {
 
 	// If the Media Server Token is masked, retrieve the actual token from the config
 	if config.IsMaskedField(mediaServerInfo.ApiToken) {
+		// A masked token can only be restored for the URL it was issued for. Otherwise the
+		// real, live token would be sent to a caller-supplied URL by TestConnection below.
+		if mediaServerInfo.URL != config.Current.MediaServer.URL {
+			logAction.SetError("Unable to unmask media server credentials", "A new API token must be provided when changing the media server URL", nil)
+			httpx.SendResponse(w, ld, response)
+			return
+		}
 		mediaServerInfo.ApiToken = config.Current.MediaServer.ApiToken
 	}
 
