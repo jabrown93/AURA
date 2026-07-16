@@ -248,6 +248,11 @@ func checkConfigDifferences_MediaServer(ctx context.Context, oldMediaServer conf
 					Str("new_api_token", fmt.Sprintf("%s", newMediaServer.ApiToken)).
 					Msg("MediaServer.ApiToken changed")
 				changed = true
+			} else if newMediaServer.URL != oldMediaServer.URL {
+				// A masked token can only be restored for the URL it was issued for. Otherwise the
+				// real, live token would be sent to a caller-supplied URL by the TestConnection call below.
+				logAction.SetError("MediaServer.ApiToken is masked but MediaServer.URL changed", "A new API token must be provided when changing the media server URL", nil)
+				return changed, false, serverName
 			} else {
 				newMediaServer.ApiToken = oldMediaServer.ApiToken
 			}
@@ -1076,12 +1081,19 @@ func checkConfigDifferences_SonarrRadarr(ctx context.Context, oldSR config.Confi
 	// Restore ApiTokens
 	for i, app := range newSR.Applications {
 		if strings.HasPrefix(app.ApiToken, "***") {
-			// Find matching old app by Library and Type
+			// Find matching old app by Library, Type and URL. The URL must match too: otherwise
+			// the restored real token would be sent to a caller-supplied URL by TestConnection below.
+			matched := false
 			for _, oldApp := range oldSR.Applications {
-				if app.Library == oldApp.Library && app.Type == oldApp.Type {
+				if app.Library == oldApp.Library && app.Type == oldApp.Type && app.URL == oldApp.URL {
 					newSR.Applications[i].ApiToken = oldApp.ApiToken
+					matched = true
 					break
 				}
+			}
+			if !matched {
+				logAction.SetError("SonarrRadarr.Application.ApiToken is masked but no matching Library/Type/URL was found", "A new API token must be provided when adding an application or changing its URL", nil)
+				return changed, false
 			}
 		}
 	}
