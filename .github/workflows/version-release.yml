@@ -102,7 +102,12 @@ jobs:
           # created by the app that the branch rulesets allow to bypass.
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
           # The weekly scheduled run promotes dependency bumps to a patch release.
-          RELEASE_DEPS: ${{ github.event_name == 'schedule' }}
+          # workflow_dispatch counts too: schedule only ever fires on the default
+          # branch, so a manual run is the only way to sweep beta's suppressed
+          # fix(deps) commits, and dispatching this workflow by hand is itself the
+          # deliberate "release what's ready now" signal. Matches the expression in
+          # jabrown93/.github's npm-release.yml / docker-release.yml.
+          RELEASE_DEPS: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
         run: npx semantic-release
 
       # A squash merge of main -> beta does NOT make main's commits (or their tags)
