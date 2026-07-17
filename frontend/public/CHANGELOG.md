@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.7.1](https://github.com/jabrown93/AURA/compare/v1.7.0...v1.7.1) (2026-07-17)
+
+
+### Bug Fixes
+
+* **security:** bind masked-token restoration to destination URL ([#58](https://github.com/jabrown93/AURA/issues/58)) ([1cca33d](https://github.com/jabrown93/AURA/commit/1cca33dde97f6aeead33bc57eb7376365ad2f79a))
+
 # [1.7.0](https://github.com/jabrown93/AURA/compare/v1.6.4...v1.7.0) (2026-07-15)
 
 
