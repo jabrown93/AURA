@@ -47,6 +47,13 @@ func GetLibrarySectionOptions(w http.ResponseWriter, r *http.Request) {
 	msConfig := req.MediaServer
 
 	if strings.HasPrefix(msConfig.ApiToken, "***") {
+		// A masked token can only be restored for the URL it was issued for. Otherwise the
+		// real, live token would be sent to a caller-supplied URL by GetLibrarySections below.
+		if msConfig.URL != config.Current.MediaServer.URL {
+			logAction.SetError("Unable to unmask media server credentials", "A new API token must be provided when changing the media server URL", nil)
+			httpx.SendResponse(w, ld, response)
+			return
+		}
 		msConfig.ApiToken = config.Current.MediaServer.ApiToken
 	}
 
