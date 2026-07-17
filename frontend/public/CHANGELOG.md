@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.7.2](https://github.com/jabrown93/AURA/compare/v1.7.1...v1.7.2) (2026-07-17)
+
+
+### Bug Fixes
+
+* **workflows:** use client-id instead of deprecated app-id ([#59](https://github.com/jabrown93/AURA/issues/59)) ([31e2438](https://github.com/jabrown93/AURA/commit/31e2438d29b53a84697135907449c7a892bccf65))
+
 ## [1.7.1](https://github.com/jabrown93/AURA/compare/v1.7.0...v1.7.1) (2026-07-17)
 
 
