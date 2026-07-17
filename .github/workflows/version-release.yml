@@ -1,0 +1,121 @@
+name: Version release
+
+# Computes the next version from Conventional Commits and tags it. Building the
+# image is deliberately NOT this workflow's job — pushing the tag is what triggers
+# release.yml. Decoupling them means an image-build failure can be retried (re-run
+# the tag-push run, or dispatch release.yml) without semantic-release re-evaluating
+# whether there is anything new to release.
+#
+#   push to main            -> stable release (feat -> minor, fix/perf -> patch, ! -> major)
+#   push to beta            -> prerelease (vX.Y.Z-beta.N)
+#   schedule (weekly, Mon)  -> roll accumulated dependency bumps into one patch release
+#   workflow_dispatch       -> manual run (releases only if there are releasable commits)
+
+on:
+  push:
+    branches: [main, beta]
+  schedule:
+    - cron: "0 9 * * 1" # Mondays 09:00 UTC — weekly dependency roll-up release
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+# One version-release attempt per branch at a time, so two quick merges can't race
+# semantic-release into computing the same version twice.
+concurrency:
+  group: version-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  version-release:
+    name: semantic-release
+    runs-on: ubuntu-latest
+    # GitHub already skips push runs whose head commit says [skip ci] (which our own
+    # release commit does), so this is belt-and-braces for that case. head_commit is
+    # null on schedule/dispatch, hence the event guard.
+    if: >-
+      github.event_name != 'push' ||
+      !contains(github.event.head_commit.message, '[skip ci]')
+    permissions:
+      contents: write # push the version-bump commit, create the tag + GitHub Release
+    steps:
+      # Mint a token for the release GitHub App. semantic-release pushes the
+      # version-bump commit + tag AS this app, and the branch rulesets grant that
+      # app (and only it) bypass — so the unsigned bump commit clears required
+      # signatures / status checks while ordinary contributors stay gated.
+      - name: Generate app token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          # Full history + tags so semantic-release can determine the last release.
+          fetch-depth: 0
+          # Persist the app token as the origin credential so @semantic-release/git
+          # pushes the bump commit + tag as the app (the ruleset bypass actor), and
+          # so the beta resync below can reuse it without re-authenticating.
+          persist-credentials: true
+          token: ${{ steps.app-token.outputs.token }}
+
+      # Captured as early as possible, before the slow steps below (npm ci,
+      # semantic-release's own GitHub API calls) run, so the later --force-with-lease
+      # reflects beta's tip as of "job start", not "right before we push" — the whole
+      # job takes long enough for a concurrent beta merge to land and be missed by a
+      # lease captured any later. Empty when beta does not exist yet; git then treats
+      # the lease as "this ref must not exist", which is exactly the guard we want for
+      # the run that first creates it.
+      - name: Capture beta tip before release
+        if: github.ref_name == 'main'
+        id: beta_before
+        run: echo "sha=$(git ls-remote origin refs/heads/beta | cut -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+          # Pin the cache key to the root (CI-tooling) lockfile. Left unset, setup-node
+          # would also hash frontend/package-lock.json and needlessly bust this cache on
+          # every frontend dependency change.
+          cache-dependency-path: package-lock.json
+
+      # semantic-release and its plugins are pinned in the root package.json and
+      # installed from the lockfile, rather than pulled in by a third-party action —
+      # so Renovate updates them like any other dependency and the exact tree is
+      # reproducible.
+      - name: Install release tooling
+        run: npm ci
+
+      # Publishes (tags, bumps VERSION.txt/version.json, updates CHANGELOG.md, creates
+      # the GitHub Release) only when a feat/fix/breaking commit warrants it. On success
+      # the @semantic-release/exec successCmd (see .releaserc.js) emits published/version
+      # as step outputs; when nothing is released they are simply absent.
+      - name: Run semantic-release
+        id: release
+        env:
+          # App token (not the default GITHUB_TOKEN) so the tag + GitHub Release are
+          # created by the app that the branch rulesets allow to bypass.
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          # The weekly scheduled run promotes dependency bumps to a patch release.
+          RELEASE_DEPS: ${{ github.event_name == 'schedule' }}
+        run: npx semantic-release
+
+      # A squash merge of main -> beta does NOT make main's commits (or their tags)
+      # ancestors of beta, so semantic-release can't see a stable release as beta's
+      # baseline via a squash-merged resync PR — it would keep computing beta's next
+      # prerelease from the old, now-superseded prerelease baseline. Resetting beta to
+      # main's exact tip is the only ancestry-correct fix. --force-with-lease is pinned
+      # to the SHA captured at the start of this job — not re-fetched here — so a beta
+      # merge landing anywhere during this run (checkout, npm ci, semantic-release
+      # itself) aborts the push instead of being silently discarded.
+      - name: Resync beta to main after a stable release
+        if: steps.release.outputs.published == 'true' && github.ref_name == 'main'
+        run: |
+          echo "Resyncing beta to main @ v${{ steps.release.outputs.version }}"
+          git push origin "HEAD:refs/heads/beta" \
+            --force-with-lease="refs/heads/beta:${{ steps.beta_before.outputs.sha }}"

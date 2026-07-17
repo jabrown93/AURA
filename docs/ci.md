@@ -12,7 +12,9 @@ in-cluster jobs.
 |---|---|---|---|
 | `ci.yml` | PR → `main`, push → `main`/`renovate/**` | Backend `go build`/`vet`/`test` + gofmt gate; frontend `npm ci`/`lint`/`build`. | No |
 | `codeql.yml` | push/PR → `main`/`beta`, weekly | CodeQL for `go` and `javascript-typescript` (build-mode `none`) via the reusable `jabrown93/.github` workflow. | No |
-| `release.yml` | push → `main`/`beta`, weekly (Mon 09:00 UTC), manual | semantic-release computes the next version, updates `VERSION.txt`/`version.json`/`frontend/public/CHANGELOG.md`, tags + creates a GitHub Release, then builds the multi-arch image **once** and pushes `:latest`+`:v<version>` (main) or `:beta`+`:v<version>-beta.N` (beta), plus a rolling `:edge` on every `main` push. SBOM + provenance, cosign keyless sign. | No |
+| `version-release.yml` | push → `main`/`beta`, weekly (Mon 09:00 UTC), manual | semantic-release computes the next version, updates `VERSION.txt`/`version.json`/`frontend/public/CHANGELOG.md`, tags + creates a GitHub Release. Builds nothing — the tag it pushes triggers `release.yml`. Also resyncs `beta` to `main` after a stable release. | No |
+| `release.yml` | GitHub Release published, manual (`publish_tag`) | Builds the multi-arch image for that release's tag and pushes `:v<version>`+`:latest` (stable) or `:v<version>-beta.N`+`:beta` (prerelease). SBOM + provenance, cosign keyless sign. | No |
+| `edge.yml` | push → `main` | Builds the rolling `:edge`+`:edge-<sha>` image from main's tip, independent of releases. SBOM + provenance, cosign keyless sign. | No |
 | `dt-sbom.yml` | push → `main`, manual | syft SBOM (Go + npm) → upload to Dependency-Track (`isLatest`). | **Yes** |
 | `pr-license-check.yml` | PR → `main` (same-repo) | Untrusted producer: build SBOM, upload as artifact. No secrets. | No |
 | `pr-license-comment.yml` | `workflow_run` of the check | Trusted consumer: upload PR SBOM to DT, post advisory license comment. | **Yes** |
@@ -21,7 +23,10 @@ in-cluster jobs.
 ## Versioning
 
 Versions are automated with [semantic-release](https://semantic-release.gitbook.io/)
-(config in `.releaserc.js`) from [Conventional Commits](https://www.conventionalcommits.org/):
+(config in `.releaserc.js`) from [Conventional Commits](https://www.conventionalcommits.org/).
+semantic-release and its plugins are pinned in the **root `package.json`** — CI-only
+tooling, no runtime JS lives at the repo root — and run via `npm ci && npx
+semantic-release`, so Renovate updates them like any other dependency:
 
 - **`main`** — `feat` → minor, `fix`/`perf` → patch, `!`/`BREAKING CHANGE` → major.
   Each release bumps `VERSION.txt`/`version.json`, prepends `frontend/public/CHANGELOG.md`
@@ -31,6 +36,39 @@ Versions are automated with [semantic-release](https://semantic-release.gitbook.
   weekly Monday run sets `RELEASE_DEPS=true` and rolls them into one patch release.
 - **`:edge`** — every push to `main` publishes a rolling `ghcr.io/<owner>/aura:edge`
   (and `:edge-<sha>`), independent of releases.
+
+### Versioning and image building are separate workflows
+
+`version-release.yml` only computes and tags; the **GitHub Release** it publishes is
+what triggers `release.yml` to build the image. The split means an image-build failure
+can be retried — re-run it, or dispatch `release.yml` with `publish_tag` for a tag whose
+run has aged out of GitHub's 30-day re-run window — without semantic-release
+re-evaluating whether there is anything new to release.
+
+`release.yml` deliberately triggers on `release: published` rather than the more obvious
+`push: tags`, and this must not be "simplified" back. semantic-release tags its own
+`chore(release): … [skip ci]` bump commit, and GitHub's skip-ci handling applies to
+*any* push event — [tag pushes included][skip-ci-tags] — so a `push: tags` trigger would
+be silently skipped on every release and no image would ever be built. Release events
+are not filtered by commit message. (Relatedly, the Release must be created with the App
+token: events from the default `GITHUB_TOKEN` never trigger workflows.) A tag pushed by
+hand, with no GitHub Release, therefore builds nothing — use `publish_tag` for that.
+
+[skip-ci-tags]: https://github.com/orgs/community/discussions/179637
+
+Two further consequences worth knowing:
+
+- **`:edge` trails `:latest` by one commit after a release.** semantic-release's
+  version-bump commit carries `[skip ci]`, which GitHub honours natively, so `edge.yml`
+  does not fire for it. That commit only touches `VERSION.txt`/`version.json`/`CHANGELOG.md`.
+  The next real push to `main` brings `:edge` forward.
+- **`beta` is resynced by force-push, not merge.** A squash merge of `main` → `beta`
+  would not make main's release tags ancestors of `beta`, so semantic-release would keep
+  computing beta's next prerelease from a superseded baseline. After each stable release
+  `version-release.yml` force-pushes `beta` to main's exact tip, guarded by a
+  `--force-with-lease` captured at job start (so a concurrent `beta` merge aborts the push
+  rather than being silently discarded). If `beta` does not exist, the release that runs
+  next creates it.
 
 This is the fork's own version line (first release `v1.0.0`); the in-app update check
 and version badge point at `jabrown93/AURA`, not upstream.

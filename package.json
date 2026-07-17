@@ -1,0 +1,14 @@
+{
+  "name": "aura-release-tooling",
+  "private": true,
+  "description": "CI-only tooling for conventional-commit versioning; the app's JS lives in frontend/, not here",
+  "devDependencies": {
+    "@semantic-release/changelog": "6.0.3",
+    "@semantic-release/commit-analyzer": "13.0.1",
+    "@semantic-release/exec": "7.1.0",
+    "@semantic-release/git": "10.0.1",
+    "@semantic-release/github": "12.0.9",
+    "@semantic-release/release-notes-generator": "14.1.1",
+    "semantic-release": "25.0.7"
+  }
+}

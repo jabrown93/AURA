@@ -1,3 +1,6 @@
+# Release tooling (root package.json is CI-only; no runtime JS at the repo root)
+/node_modules/
+
 # Frontend build
 **frontend/node_modules
 **frontend/dist
