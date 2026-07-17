@@ -11,9 +11,11 @@
 // RELEASE_DEPS=true, which promotes all accumulated dependency commits to a single
 // patch release.
 //
-// This file is CommonJS (there is no root package.json); semantic-release loads
-// it via cosmiconfig. `${...}` placeholders are expanded by semantic-release, not
-// by JS — keep them inside double-quoted strings so JS does not interpolate them.
+// This file is CommonJS: the root package.json (CI-only tooling that pins
+// semantic-release + its plugins) deliberately does NOT set `"type": "module"`,
+// so cosmiconfig loads this as CJS. `${...}` placeholders are expanded by
+// semantic-release, not by JS — keep them inside double-quoted strings so JS does
+// not interpolate them.
 
 const releaseDeps = process.env.RELEASE_DEPS === "true";
 
@@ -74,6 +76,13 @@ module.exports = {
         // printf (no trailing newline) matches the existing VERSION.txt format.
         prepareCmd:
           "printf 'v%s' \"${nextRelease.version}\" > VERSION.txt && jq --arg m \"v${nextRelease.version}\" '.message=$m' version.json > version.json.tmp && mv version.json.tmp version.json",
+        // Report the outcome to version-release.yml. semantic-release runs
+        // successCmd ONLY when a release was actually published, so the absence
+        // of `published` is what tells the workflow nothing shipped — that is the
+        // signal the beta-resync step gates on. The `if` guard keeps a local
+        // `npx semantic-release --dry-run` (no $GITHUB_OUTPUT) from failing here.
+        successCmd:
+          "if [ -n \"$GITHUB_OUTPUT\" ]; then { echo 'published=true'; echo \"version=${nextRelease.version}\"; } >> \"$GITHUB_OUTPUT\"; fi",
       },
     ],
     [
