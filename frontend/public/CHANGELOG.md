@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.7.4](https://github.com/jabrown93/AURA/compare/v1.7.3...v1.7.4) (2026-07-25)
+
+
+### Bug Fixes
+
+* **deps:** update dependency next to v16.2.11 [security] ([366fc4b](https://github.com/jabrown93/AURA/commit/366fc4b3bc0c442989434aa66f9e24cec26520c3))
+* **deps:** update dependency react to v19.2.8 ([1e872ce](https://github.com/jabrown93/AURA/commit/1e872ce458da271dca8fc0e0db1c872d66362c37))
+* **deps:** update dependency react-dom to v19.2.8 ([#66](https://github.com/jabrown93/AURA/issues/66)) ([f8a3a09](https://github.com/jabrown93/AURA/commit/f8a3a098794abb59aaf541e2bdca0f24f274e592))
+* **deps:** update dependency react-hook-form to v7.82.0 ([7610477](https://github.com/jabrown93/AURA/commit/76104779c9e679547b0075c495b0dd6941c3a017))
+* **deps:** update radix-ui-primitives monorepo ([ee4314e](https://github.com/jabrown93/AURA/commit/ee4314e4594d033f395921d7e9c568d7209405c3))
+* **security:** update dependency js-yaml to v5.2.2 [security] ([#67](https://github.com/jabrown93/AURA/issues/67)) ([bedd29e](https://github.com/jabrown93/AURA/commit/bedd29e17b1f7709cc1e9ce4bddc95fa1e70f536))
+
 ## [1.7.3](https://github.com/jabrown93/AURA/compare/v1.7.2...v1.7.3) (2026-07-20)
 
 
