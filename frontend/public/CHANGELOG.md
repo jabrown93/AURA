@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.7.5](https://github.com/jabrown93/AURA/compare/v1.7.4...v1.7.5) (2026-07-27)
+
+
+### Bug Fixes
+
+* **deps:** update dependency lucide-react to v1.26.0 ([d0b2c40](https://github.com/jabrown93/AURA/commit/d0b2c402beb2662b21444b0a2faeddf77548b286))
+* **deps:** update radix-ui-primitives monorepo ([02a77c0](https://github.com/jabrown93/AURA/commit/02a77c08141d0f0798279f38edd3302c05531729))
+
 ## [1.7.4](https://github.com/jabrown93/AURA/compare/v1.7.3...v1.7.4) (2026-07-25)
 
 
