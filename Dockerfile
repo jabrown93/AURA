@@ -90,6 +90,11 @@ COPY --from=frontend-builder /frontend/public /app/public
 # (the image's runtime) does the job instead.
 COPY docker/launcher.mjs /app/launcher.mjs
 
+# MIT requires the copyright and permission notice to ship with "all copies or
+# substantial portions of the Software" -- the published image is such a copy,
+# and the builder stages leave only compiled output behind.
+COPY LICENSE /app/LICENSE
+
 # Set environment variables
 ENV NODE_ENV=production
 ENV HOME=/tmp
