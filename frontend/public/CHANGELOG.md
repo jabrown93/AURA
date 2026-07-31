@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.7.6](https://github.com/jabrown93/AURA/compare/v1.7.5...v1.7.6) (2026-07-31)
+
+
+### Bug Fixes
+
+* **deps:** update dependency @hookform/resolvers to v5.4.1 ([#69](https://github.com/jabrown93/AURA/issues/69)) ([07b9e3a](https://github.com/jabrown93/AURA/commit/07b9e3a9f860d6546e89509b7988439e36b084e0))
+* **deps:** update dependency lucide-react to v1.27.0 ([d52225a](https://github.com/jabrown93/AURA/commit/d52225adb4051f374ca4ac4b10e5b93f2fed96c1))
+* **deps:** update dependency motion to v12.43.0 ([24a1914](https://github.com/jabrown93/AURA/commit/24a1914ad1655f2c1f5f61565f35a670adaa0e74))
+* **deps:** update dependency next to v16.2.12 ([4189e51](https://github.com/jabrown93/AURA/commit/4189e518fabcf517b8f8905ad2404996a8595968))
+* **deps:** update dependency react-hook-form to v7.83.0 ([18284cc](https://github.com/jabrown93/AURA/commit/18284cc3211953deab66ad3c36d91e0af3651261))
+* **deps:** update radix-ui-primitives monorepo ([618ed22](https://github.com/jabrown93/AURA/commit/618ed222eedb2a36b784ba8939849cb76fd58cbe))
+* **deps:** update radix-ui-primitives monorepo ([d324be5](https://github.com/jabrown93/AURA/commit/d324be5b25734654ccb572ec7cf874bf62dc9616))
+* **license:** ship the MIT notice in the published image ([#70](https://github.com/jabrown93/AURA/issues/70)) ([a04f0a1](https://github.com/jabrown93/AURA/commit/a04f0a1f4e4bc7f3b096a3ac40e5b4ec549d56b1))
+
 ## [1.7.5](https://github.com/jabrown93/AURA/compare/v1.7.4...v1.7.5) (2026-07-27)
 
 
