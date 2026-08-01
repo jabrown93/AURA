@@ -53,7 +53,9 @@ func endSessionURL(ctx context.Context) string {
 	}
 
 	parsed, err := url.Parse(client.endSessionURL)
-	if err != nil {
+	// The UI navigates to this value, so anything that is not a plain http(s) URL - a
+	// javascript: scheme from a malformed discovery document, say - must not leave here.
+	if err != nil || (parsed.Scheme != "https" && parsed.Scheme != "http") || parsed.Host == "" {
 		return ""
 	}
 

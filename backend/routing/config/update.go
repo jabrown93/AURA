@@ -177,9 +177,14 @@ func checkConfigDifferences_Auth(ctx context.Context, oldAuth config.Config_Auth
 		// Secret values are only reported as changed - never logged. They previously
 		// landed in the log file in full.
 		if oldAuth.Password != newAuth.Password {
-			logAction.AppendResult("Auth.Password changed", "password updated")
-			logging.LOGGER.Info().Timestamp().Msg("Auth.Password changed")
-			changed = true
+			// The UI is served a masked hash; echoing it back means "unchanged".
+			if config.IsMaskedField(newAuth.Password) {
+				newAuth.Password = oldAuth.Password
+			} else {
+				logAction.AppendResult("Auth.Password changed", "password updated")
+				logging.LOGGER.Info().Timestamp().Msg("Auth.Password changed")
+				changed = true
+			}
 		}
 
 		if checkConfigDifferences_OIDC(ctx, oldAuth.OIDC, &newAuth.OIDC) {

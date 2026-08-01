@@ -17,7 +17,9 @@ func (config *Config) SanitizeConfig(ctx context.Context) *Config {
 	c := *config
 
 	// Mask top-level sensitive fields (ensure these are value fields, not shared pointers).
-	//c.Auth.Password = MaskToken(c.Auth.Password)
+	// The password hash is logged on startup through print.go and returned by /api/config;
+	// update.go restores the stored value when the mask is sent back unchanged.
+	c.Auth.Password = MaskToken(c.Auth.Password)
 	c.Auth.OIDC.ClientSecret = MaskToken(c.Auth.OIDC.ClientSecret)
 	c.Mediux.ApiToken = MaskToken(c.Mediux.ApiToken)
 	c.TMDB.ApiToken = MaskToken(c.TMDB.ApiToken)

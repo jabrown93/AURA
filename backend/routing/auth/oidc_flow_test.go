@@ -347,3 +347,29 @@ func TestEndSessionURLEmptyWhenSingleLogoutIsOff(t *testing.T) {
 		t.Fatalf("endSessionURL() = %q, want empty when RP-initiated logout is off", got)
 	}
 }
+
+func TestEndSessionURLRejectsNonHTTPSchemes(t *testing.T) {
+	withTestTokenAuth(t)
+
+	provider := newFakeProvider(t, "aura")
+	useOIDCConfig(t, config.Config_OIDC{
+		Enabled:           true,
+		IssuerURL:         provider.issuer(),
+		ClientID:          "aura",
+		ClientSecret:      "client-secret",
+		RedirectURL:       "https://aura.example.com/api/auth/oidc/callback",
+		RPInitiatedLogout: true,
+	})
+
+	// Populate the cache, then poison the endpoint as a malformed discovery document would.
+	if _, err := getOIDCClient(t.Context()); err != nil {
+		t.Fatalf("getOIDCClient() error = %v", err)
+	}
+	oidcMu.Lock()
+	oidcCached.endSessionURL = "javascript:alert(1)"
+	oidcMu.Unlock()
+
+	if got := endSessionURL(t.Context()); got != "" {
+		t.Fatalf("endSessionURL() = %q, want empty for a non-http scheme", got)
+	}
+}
