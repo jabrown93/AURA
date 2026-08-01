@@ -65,7 +65,7 @@ func AddRoutes(r *chi.Mux) {
 		r.Post("/login", routes_auth.AttemptLogin)
 
 		// Logout - Clear the session cookie
-		r.With(middleware.CSRFProtect).Post("/logout", routes_auth.Logout)
+		r.With(middleware.CSRFProtectStateless).Post("/logout", routes_auth.Logout)
 
 		// Auth discovery - the login page needs these before it holds a session
 		r.Get("/auth/methods", routes_auth.GetAuthMethods)

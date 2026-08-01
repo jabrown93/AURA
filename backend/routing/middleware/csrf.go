@@ -18,6 +18,21 @@ import (
 // SameSite=Lax on the session cookie already blocks cross-site form posts; this is the
 // second line of defence, and it also covers browsers that do not honour SameSite.
 func CSRFProtect(next http.Handler) http.Handler {
+	return csrfProtect(next, true)
+}
+
+// CSRFProtectStateless is for endpoints that act on the session without reading it.
+// Logout is the case: SameSite=Lax withholds the cookie from a cross-site POST, but the
+// response still clears it, so gating on the cookie's presence would leave a cross-site
+// page able to log the user out.
+func CSRFProtectStateless(next http.Handler) http.Handler {
+	return csrfProtect(next, false)
+}
+
+// csrfProtect checks the origin of state-changing requests. When cookieOnly is set, only
+// cookie-authenticated requests are checked, leaving bearer clients - which browsers never
+// authenticate automatically - untouched.
+func csrfProtect(next http.Handler, cookieOnly bool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !config.Current.Auth.Enabled {
 			next.ServeHTTP(w, r)
@@ -30,7 +45,14 @@ func CSRFProtect(next http.Handler) http.Handler {
 			return
 		}
 
-		if routes_auth.TokenFromSessionCookie(r) == "" {
+		if cookieOnly && routes_auth.TokenFromSessionCookie(r) == "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// A request carrying neither header did not come from a browser. That is a real
+		// client for a stateless endpoint, but has no business holding a session cookie.
+		if !cookieOnly && r.Header.Get("Origin") == "" && r.Header.Get("Referer") == "" {
 			next.ServeHTTP(w, r)
 			return
 		}

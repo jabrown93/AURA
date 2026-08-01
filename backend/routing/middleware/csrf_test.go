@@ -8,6 +8,13 @@ import (
 	"testing"
 )
 
+func withAuthEnabled(t *testing.T, enabled bool) {
+	t.Helper()
+	previous := config.Current.Auth.Enabled
+	config.Current.Auth.Enabled = enabled
+	t.Cleanup(func() { config.Current.Auth.Enabled = previous })
+}
+
 func TestCSRFProtect(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -115,9 +122,7 @@ func TestCSRFProtect(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			previous := config.Current.Auth.Enabled
-			config.Current.Auth.Enabled = tt.authEnabled
-			t.Cleanup(func() { config.Current.Auth.Enabled = previous })
+			withAuthEnabled(t, tt.authEnabled)
 
 			called := false
 			handler := CSRFProtect(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
@@ -141,6 +146,65 @@ func TestCSRFProtect(t *testing.T) {
 			}
 			if !tt.wantAllowed && rec.Code != http.StatusUnauthorized {
 				t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
+			}
+		})
+	}
+}
+
+func TestCSRFProtectStateless(t *testing.T) {
+	tests := []struct {
+		name        string
+		headers     map[string]string
+		withCookie  bool
+		wantAllowed bool
+	}{
+		{
+			name:        "no browser headers is a real client",
+			wantAllowed: true,
+		},
+		{
+			name:        "same origin",
+			headers:     map[string]string{"Origin": "https://aura.example.com"},
+			wantAllowed: true,
+		},
+		{
+			// SameSite=Lax withholds the cookie here, so gating on it would let a
+			// cross-site page log the user out.
+			name:        "cross origin without a cookie is still rejected",
+			headers:     map[string]string{"Origin": "https://evil.example.net"},
+			wantAllowed: false,
+		},
+		{
+			name:        "cross origin with a cookie",
+			headers:     map[string]string{"Origin": "https://evil.example.net"},
+			withCookie:  true,
+			wantAllowed: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			withAuthEnabled(t, true)
+
+			called := false
+			handler := CSRFProtectStateless(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+				called = true
+			}))
+
+			req := httptest.NewRequest(http.MethodPost, "http://aura.example.com/api/logout", nil)
+			req.Host = "aura.example.com"
+			for k, v := range tt.headers {
+				req.Header.Set(k, v)
+			}
+			if tt.withCookie {
+				req.AddCookie(&http.Cookie{Name: routes_auth.SessionCookieName, Value: "token"})
+			}
+
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+
+			if called != tt.wantAllowed {
+				t.Fatalf("handler called = %v, want %v", called, tt.wantAllowed)
 			}
 		})
 	}

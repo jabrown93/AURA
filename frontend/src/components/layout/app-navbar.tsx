@@ -197,12 +197,16 @@ export function Navbar({ version = "dev" }: AppNavbarProps) {
 
   // Handle Logout
   const handleLogout = async () => {
-    await Logout();
-    // Cached library/media data belongs to the session that just ended.
-    await ClearAllStores();
-    setIsAuthed(false);
-    // Redirect to login page
-    router.replace("/login");
+    // Whatever fails, the user still ends up signed out on the login page: a half-finished
+    // logout that leaves them looking at a stale page is the worse outcome.
+    try {
+      await Logout();
+      // Cached library/media data belongs to the session that just ended.
+      await ClearAllStores();
+    } finally {
+      setIsAuthed(false);
+      router.replace("/login");
+    }
   };
 
   return (
