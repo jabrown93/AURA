@@ -3,6 +3,8 @@ import axios, { AxiosRequestHeaders } from "axios";
 const apiClient = axios.create({
   baseURL: "/api",
   timeout: 3000000,
+  // Sessions are carried by an HttpOnly cookie the browser must be told to send.
+  withCredentials: true,
   headers: {
     "Content-Type": "application/json",
   },
@@ -10,6 +12,8 @@ const apiClient = axios.create({
 
 apiClient.interceptors.request.use((config) => {
   if (typeof window !== "undefined") {
+    // Legacy bearer token: kept only so sessions created before cookie auth keep working
+    // until they expire. Nothing writes this key any more.
     const token = localStorage.getItem("aura-auth-token");
     if (token) {
       config.headers = config.headers || {};

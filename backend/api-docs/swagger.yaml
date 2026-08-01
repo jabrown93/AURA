@@ -1171,6 +1171,15 @@ definitions:
       owned:
         type: boolean
     type: object
+  routes_auth.authMethodsResponse:
+    properties:
+      auth_enabled:
+        description: Whether authentication is enforced at all
+        type: boolean
+      password_enabled:
+        description: Whether the password form should be shown
+        type: boolean
+    type: object
   routes_auth.loginRequest:
     properties:
       password:
@@ -1179,6 +1188,20 @@ definitions:
   routes_auth.loginResponse:
     properties:
       token:
+        type: string
+    type: object
+  routes_auth.logoutResponse:
+    properties:
+      logged_out:
+        type: boolean
+    type: object
+  routes_auth.sessionResponse:
+    properties:
+      authenticated:
+        description: Whether the caller holds a usable session
+        type: boolean
+      subject:
+        description: '"sub" claim of the active token'
         type: string
     type: object
   routes_base.healthCheckResponse:
@@ -1737,6 +1760,44 @@ paths:
       summary: Health Check
       tags:
       - Health
+  /api/auth/methods:
+    get:
+      description: Report which sign-in methods are available. Public so the login
+        page can render before the user is authenticated.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httpx.JSONResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/routes_auth.authMethodsResponse'
+              type: object
+      summary: Get Auth Methods
+      tags:
+      - Auth
+  /api/auth/session:
+    get:
+      description: Report whether the caller has a valid session. Always returns 200
+        so the UI can probe without tripping the global 401 redirect.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httpx.JSONResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/routes_auth.sessionResponse'
+              type: object
+      summary: Get Session
+      tags:
+      - Auth
   /api/config:
     get:
       description: Get the current status of the app configuration and onboarding
@@ -2968,6 +3029,24 @@ paths:
           schema:
             $ref: '#/definitions/httpx.JSONResponse'
       summary: Auth Login
+      tags:
+      - Auth
+  /api/logout:
+    post:
+      description: Clear the session cookie
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httpx.JSONResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/routes_auth.logoutResponse'
+              type: object
+      summary: Auth Logout
       tags:
       - Auth
   /api/logs:

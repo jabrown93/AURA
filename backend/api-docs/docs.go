@@ -35,6 +35,70 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/auth/methods": {
+            "get": {
+                "description": "Report which sign-in methods are available. Public so the login page can render before the user is authenticated.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Auth"
+                ],
+                "summary": "Get Auth Methods",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/httpx.JSONResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/routes_auth.authMethodsResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/api/auth/session": {
+            "get": {
+                "description": "Report whether the caller has a valid session. Always returns 200 so the UI can probe without tripping the global 401 redirect.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Auth"
+                ],
+                "summary": "Get Session",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/httpx.JSONResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/routes_auth.sessionResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
         "/api/config": {
             "get": {
                 "security": [
@@ -2004,6 +2068,38 @@ const docTemplate = `{
                         "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/httpx.JSONResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/logout": {
+            "post": {
+                "description": "Clear the session cookie",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Auth"
+                ],
+                "summary": "Auth Logout",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/httpx.JSONResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/routes_auth.logoutResponse"
+                                        }
+                                    }
+                                }
+                            ]
                         }
                     }
                 }
@@ -5165,6 +5261,19 @@ const docTemplate = `{
                 }
             }
         },
+        "routes_auth.authMethodsResponse": {
+            "type": "object",
+            "properties": {
+                "auth_enabled": {
+                    "description": "Whether authentication is enforced at all",
+                    "type": "boolean"
+                },
+                "password_enabled": {
+                    "description": "Whether the password form should be shown",
+                    "type": "boolean"
+                }
+            }
+        },
         "routes_auth.loginRequest": {
             "type": "object",
             "properties": {
@@ -5177,6 +5286,27 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "token": {
+                    "type": "string"
+                }
+            }
+        },
+        "routes_auth.logoutResponse": {
+            "type": "object",
+            "properties": {
+                "logged_out": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "routes_auth.sessionResponse": {
+            "type": "object",
+            "properties": {
+                "authenticated": {
+                    "description": "Whether the caller holds a usable session",
+                    "type": "boolean"
+                },
+                "subject": {
+                    "description": "\"sub\" claim of the active token",
                     "type": "string"
                 }
             }

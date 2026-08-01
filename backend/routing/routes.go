@@ -34,6 +34,11 @@ import (
 // @in header
 // @name Authorization
 // @description JWT Token Authentication using the Bearer scheme. Example: "Authorization: Bearer {token}"
+
+// @securityDefinitions.apikey CookieAuth
+// @in cookie
+// @name aura_session
+// @description JWT Token Authentication using the HttpOnly session cookie set by /api/login. Used by the web UI.
 func AddRoutes(r *chi.Mux) {
 	// If the config is not valid, only allow access to the /onboarding routes
 	if !(config.Loaded && config.Valid) {
@@ -59,6 +64,13 @@ func AddRoutes(r *chi.Mux) {
 		// Login - Obtain JWT Token
 		r.Post("/login", routes_auth.AttemptLogin)
 
+		// Logout - Clear the session cookie
+		r.With(middleware.CSRFProtect).Post("/logout", routes_auth.Logout)
+
+		// Auth discovery - the login page needs these before it holds a session
+		r.Get("/auth/methods", routes_auth.GetAuthMethods)
+		r.Get("/auth/session", routes_auth.GetSession)
+
 		// Search - Public Search Endpoint (Media Items, Saved Sets and MediUX Users)
 		r.Get("/search", routes_search.HandleSearch)
 
@@ -70,8 +82,10 @@ func AddRoutes(r *chi.Mux) {
 		// Protected Routes
 		///////////////////
 		r.Group(func(r chi.Router) {
-			// Use JWT Auth Middleware
-			r.Use(jwtauth.Verifier(routes_auth.TokenAuth))
+			// Use JWT Auth Middleware. The token may arrive as a bearer header (API
+			// clients, Swagger) or as the HttpOnly session cookie (browser UI).
+			r.Use(jwtauth.Verify(routes_auth.TokenAuth, jwtauth.TokenFromHeader, routes_auth.TokenFromSessionCookie))
+			r.Use(middleware.CSRFProtect)
 			r.Use(middleware.Authenticator)
 
 			// Config Routes
@@ -192,6 +206,10 @@ func addOnboardingRoutes(r *chi.Mux) {
 		///////////////////
 		// Public Routes
 		//////////////////
+
+		// Auth discovery - keeps the login page working while onboarding is incomplete
+		r.Get("/auth/methods", routes_auth.GetAuthMethods)
+		r.Get("/auth/session", routes_auth.GetSession)
 
 		// Config Routes
 		r.Route("/config", func(r chi.Router) {

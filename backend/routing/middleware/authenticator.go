@@ -12,7 +12,8 @@ import (
 	"github.com/go-chi/jwtauth/v5"
 )
 
-// Authenticator is a middleware that checks for a valid JWT token in the Authorization header.
+// Authenticator is a middleware that checks for a valid JWT token, supplied either in the
+// Authorization header or in the session cookie.
 // If the token is valid, it calls the next handler; otherwise, it responds with a 401 Unauthorized error.
 //
 // It skips authentication for the following routes:
@@ -61,14 +62,6 @@ func Authenticator(next http.Handler) http.Handler {
 		if sub, _ := claims["sub"].(string); sub == "" {
 			sendNotAuthenticatedResponse(w, "Invalid token")
 			logAction.SetError("Invalid token", "Token missing 'sub' claim", nil)
-			return
-		}
-
-		// Ensure header shape
-		authz := r.Header.Get("Authorization")
-		if authz == "" || !strings.HasPrefix(authz, "Bearer ") {
-			sendNotAuthenticatedResponse(w, "Invalid Authorization header")
-			logAction.SetError("Invalid Authorization header", "Authorization header missing or malformed", nil)
 			return
 		}
 
