@@ -5,7 +5,7 @@ go 1.26.0
 require (
 	github.com/coreos/go-oidc/v3 v3.20.0
 	github.com/go-chi/chi/v5 v5.3.1
-	github.com/lestrrat-go/jwx/v3 v3.0.2
+	github.com/lestrrat-go/jwx/v3 v3.2.0
 	github.com/lestrrat-go/jwx/v4 v4.2.0
 	github.com/rs/zerolog v1.35.1
 	github.com/swaggo/http-swagger/v2 v2.0.2
