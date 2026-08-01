@@ -59,6 +59,50 @@
                 }
             }
         },
+        "/api/auth/oidc/callback": {
+            "get": {
+                "description": "Complete the OpenID Connect code exchange and start a session",
+                "tags": [
+                    "Auth"
+                ],
+                "summary": "OIDC Callback",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Authorization code",
+                        "name": "code",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Opaque state issued when sign-in started",
+                        "name": "state",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "302": {
+                        "description": "Redirect to the app on success, or to /login with an error code"
+                    }
+                }
+            }
+        },
+        "/api/auth/oidc/login": {
+            "get": {
+                "description": "Redirect the browser to the configured OpenID Connect provider",
+                "tags": [
+                    "Auth"
+                ],
+                "summary": "Start OIDC Login",
+                "responses": {
+                    "302": {
+                        "description": "Redirect to the identity provider"
+                    }
+                }
+            }
+        },
         "/api/auth/session": {
             "get": {
                 "description": "Report whether the caller has a valid session. Always returns 200 so the UI can probe without tripping the global 401 redirect.",
@@ -2067,7 +2111,7 @@
         },
         "/api/logout": {
             "post": {
-                "description": "Clear the session cookie",
+                "description": "Clear the session cookie, and report where to end the provider session when OIDC single logout is enabled",
                 "produces": [
                     "application/json"
                 ],
@@ -3690,6 +3734,14 @@
                     "description": "Whether to enable authentication.",
                     "type": "boolean"
                 },
+                "oidc": {
+                    "description": "Single sign-on via an OpenID Connect provider.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/config.Config_OIDC"
+                        }
+                    ]
+                },
                 "password": {
                     "description": "Password for authentication.",
                     "type": "string"
@@ -4114,6 +4166,71 @@
                             "$ref": "#/definitions/config.Config_NotificationTemplate"
                         }
                     ]
+                }
+            }
+        },
+        "config.Config_OIDC": {
+            "type": "object",
+            "properties": {
+                "allowed_emails": {
+                    "description": "Email addresses permitted to sign in.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "allowed_groups": {
+                    "description": "Groups permitted to sign in.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "allowed_subjects": {
+                    "description": "Subject identifiers permitted to sign in.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "button_label": {
+                    "description": "Label for the sign-in button. Defaults to \"Sign in with SSO\".",
+                    "type": "string"
+                },
+                "client_id": {
+                    "description": "Client ID registered with the provider.",
+                    "type": "string"
+                },
+                "client_secret": {
+                    "description": "Client secret registered with the provider.",
+                    "type": "string"
+                },
+                "enabled": {
+                    "description": "Whether to offer OIDC sign-in.",
+                    "type": "boolean"
+                },
+                "groups_claim": {
+                    "description": "Authorization. When every list is empty, any user the provider authenticates is\nallowed in and access is governed by the provider's own application policy.\nWhen any list is set, the user must match at least one entry.",
+                    "type": "string"
+                },
+                "issuer_url": {
+                    "description": "Provider issuer, used for discovery (e.g. https://auth.example.com/application/o/aura/).",
+                    "type": "string"
+                },
+                "redirect_url": {
+                    "description": "Callback URL registered with the provider. Must be absolute: it is never derived from\nthe request, since the Host header is attacker controlled.",
+                    "type": "string"
+                },
+                "rp_initiated_logout": {
+                    "description": "Whether logout should also end the session at the provider.",
+                    "type": "boolean"
+                },
+                "scopes": {
+                    "description": "Scopes to request. \"openid\" is always included.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 }
             }
         },
@@ -5260,6 +5377,14 @@
                     "description": "Whether authentication is enforced at all",
                     "type": "boolean"
                 },
+                "oidc_button_label": {
+                    "description": "Label for the SSO button",
+                    "type": "string"
+                },
+                "oidc_enabled": {
+                    "description": "Whether the SSO button should be shown",
+                    "type": "boolean"
+                },
                 "password_enabled": {
                     "description": "Whether the password form should be shown",
                     "type": "boolean"
@@ -5285,6 +5410,10 @@
         "routes_auth.logoutResponse": {
             "type": "object",
             "properties": {
+                "end_session_url": {
+                    "description": "EndSessionURL is set when the provider should also be told to end its session.\nThe UI navigates there after logging out locally.",
+                    "type": "string"
+                },
                 "logged_out": {
                     "type": "boolean"
                 }

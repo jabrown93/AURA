@@ -71,6 +71,10 @@ func AddRoutes(r *chi.Mux) {
 		r.Get("/auth/methods", routes_auth.GetAuthMethods)
 		r.Get("/auth/session", routes_auth.GetSession)
 
+		// OIDC sign-in - both are browser redirects, so they cannot be authenticated
+		r.Get("/auth/oidc/login", routes_auth.StartOIDCLogin)
+		r.Get("/auth/oidc/callback", routes_auth.HandleOIDCCallback)
+
 		// Search - Public Search Endpoint (Media Items, Saved Sets and MediUX Users)
 		r.Get("/search", routes_search.HandleSearch)
 

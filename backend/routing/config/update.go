@@ -174,19 +174,76 @@ func checkConfigDifferences_Auth(ctx context.Context, oldAuth config.Config_Auth
 			changed = true
 		}
 
+		// Secret values are only reported as changed - never logged. They previously
+		// landed in the log file in full.
 		if oldAuth.Password != newAuth.Password {
-			logAction.AppendResult("Auth.Password changed", fmt.Sprintf("from '%s' to '%s'", oldAuth.Password, newAuth.Password))
-			logging.LOGGER.Info().
-				Timestamp().
-				Str("old_password", fmt.Sprintf("%s", oldAuth.Password)).
-				Str("new_password", fmt.Sprintf("%s", newAuth.Password)).
-				Msg("Auth.Password changed")
+			logAction.AppendResult("Auth.Password changed", "password updated")
+			logging.LOGGER.Info().Timestamp().Msg("Auth.Password changed")
+			changed = true
+		}
+
+		if checkConfigDifferences_OIDC(ctx, oldAuth.OIDC, &newAuth.OIDC) {
 			changed = true
 		}
 	}
 
 	newValid = config.ValidateAuth(ctx, newAuth)
 	return changed, newValid
+}
+
+// checkConfigDifferences_OIDC compares old and new OIDC configurations.
+func checkConfigDifferences_OIDC(ctx context.Context, oldOIDC config.Config_OIDC, newOIDC *config.Config_OIDC) (changed bool) {
+	_, logAction := logging.AddSubActionToContext(ctx, "Check Config Differences: OIDC", logging.LevelTrace)
+	defer logAction.Complete()
+
+	if reflect.DeepEqual(oldOIDC, *newOIDC) {
+		return false
+	}
+
+	// The UI is served a masked secret; echoing it back means "unchanged", not "set the
+	// secret to ***abcd".
+	if oldOIDC.ClientSecret != newOIDC.ClientSecret {
+		if config.IsMaskedField(newOIDC.ClientSecret) {
+			newOIDC.ClientSecret = oldOIDC.ClientSecret
+		} else {
+			logAction.AppendResult("Auth.OIDC.ClientSecret changed", "client secret updated")
+			logging.LOGGER.Info().Timestamp().Msg("Auth.OIDC.ClientSecret changed")
+			changed = true
+		}
+	}
+
+	nonSecret := []struct {
+		name string
+		old  any
+		new  any
+	}{
+		{"Auth.OIDC.Enabled", oldOIDC.Enabled, newOIDC.Enabled},
+		{"Auth.OIDC.IssuerURL", oldOIDC.IssuerURL, newOIDC.IssuerURL},
+		{"Auth.OIDC.ClientID", oldOIDC.ClientID, newOIDC.ClientID},
+		{"Auth.OIDC.RedirectURL", oldOIDC.RedirectURL, newOIDC.RedirectURL},
+		{"Auth.OIDC.Scopes", oldOIDC.Scopes, newOIDC.Scopes},
+		{"Auth.OIDC.GroupsClaim", oldOIDC.GroupsClaim, newOIDC.GroupsClaim},
+		{"Auth.OIDC.AllowedGroups", oldOIDC.AllowedGroups, newOIDC.AllowedGroups},
+		{"Auth.OIDC.AllowedEmails", oldOIDC.AllowedEmails, newOIDC.AllowedEmails},
+		{"Auth.OIDC.AllowedSubjects", oldOIDC.AllowedSubjects, newOIDC.AllowedSubjects},
+		{"Auth.OIDC.ButtonLabel", oldOIDC.ButtonLabel, newOIDC.ButtonLabel},
+		{"Auth.OIDC.RPInitiatedLogout", oldOIDC.RPInitiatedLogout, newOIDC.RPInitiatedLogout},
+	}
+	for _, field := range nonSecret {
+		if reflect.DeepEqual(field.old, field.new) {
+			continue
+		}
+		logAction.AppendResult(fmt.Sprintf("%s changed", field.name), fmt.Sprintf("from '%v' to '%v'", field.old, field.new))
+		logging.LOGGER.Info().
+			Timestamp().
+			Str("field", field.name).
+			Str("old_value", fmt.Sprintf("%v", field.old)).
+			Str("new_value", fmt.Sprintf("%v", field.new)).
+			Msg("OIDC config changed")
+		changed = true
+	}
+
+	return changed
 }
 
 // checkConfigDifferences_Logging compares old and new Logging configurations.

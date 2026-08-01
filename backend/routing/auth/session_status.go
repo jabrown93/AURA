@@ -48,5 +48,10 @@ func resolveSession(r *http.Request) sessionResponse {
 		return sessionResponse{}
 	}
 
+	var typ string
+	if err := token.Get("typ", &typ); err == nil && !IsSessionTokenType(typ) {
+		return sessionResponse{}
+	}
+
 	return sessionResponse{Authenticated: true, Subject: subject}
 }

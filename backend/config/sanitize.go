@@ -18,6 +18,7 @@ func (config *Config) SanitizeConfig(ctx context.Context) *Config {
 
 	// Mask top-level sensitive fields (ensure these are value fields, not shared pointers).
 	//c.Auth.Password = MaskToken(c.Auth.Password)
+	c.Auth.OIDC.ClientSecret = MaskToken(c.Auth.OIDC.ClientSecret)
 	c.Mediux.ApiToken = MaskToken(c.Mediux.ApiToken)
 	c.TMDB.ApiToken = MaskToken(c.TMDB.ApiToken)
 	c.MediaServer.ApiToken = MaskToken(c.MediaServer.ApiToken)

@@ -8,8 +8,10 @@ import (
 )
 
 type authMethodsResponse struct {
-	AuthEnabled     bool `json:"auth_enabled"`     // Whether authentication is enforced at all
-	PasswordEnabled bool `json:"password_enabled"` // Whether the password form should be shown
+	AuthEnabled     bool   `json:"auth_enabled"`                // Whether authentication is enforced at all
+	PasswordEnabled bool   `json:"password_enabled"`            // Whether the password form should be shown
+	OIDCEnabled     bool   `json:"oidc_enabled"`                // Whether the SSO button should be shown
+	OIDCButtonLabel string `json:"oidc_button_label,omitempty"` // Label for the SSO button
 }
 
 // GetAuthMethods godoc
@@ -28,8 +30,15 @@ func GetAuthMethods(w http.ResponseWriter, r *http.Request) {
 }
 
 func buildAuthMethodsResponse() authMethodsResponse {
-	return authMethodsResponse{
-		AuthEnabled:     config.Current.Auth.Enabled,
-		PasswordEnabled: config.Current.Auth.Enabled && config.Current.Auth.Password != "",
+	auth := config.Current.Auth
+
+	response := authMethodsResponse{
+		AuthEnabled:     auth.Enabled,
+		PasswordEnabled: auth.Enabled && auth.Password != "",
+		OIDCEnabled:     auth.Enabled && auth.OIDC.Enabled,
 	}
+	if response.OIDCEnabled {
+		response.OIDCButtonLabel = auth.OIDC.ButtonLabelOrDefault()
+	}
+	return response
 }
