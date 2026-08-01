@@ -47,8 +47,32 @@ type Config_Dev struct {
 	LocalPath string `json:"local_path" yaml:"LocalPath,omitempty"` // Local path for development mode.
 }
 type Config_Auth struct {
-	Enabled  bool   `json:"enabled" yaml:"Enabled"`             // Whether to enable authentication.
-	Password string `json:"password" yaml:"Password,omitempty"` // Password for authentication.
+	Enabled  bool        `json:"enabled" yaml:"Enabled"`             // Whether to enable authentication.
+	Password string      `json:"password" yaml:"Password,omitempty"` // Password for authentication.
+	OIDC     Config_OIDC `json:"oidc" yaml:"OIDC,omitempty"`         // Single sign-on via an OpenID Connect provider.
+}
+
+type Config_OIDC struct {
+	Enabled bool `json:"enabled" yaml:"Enabled"` // Whether to offer OIDC sign-in.
+
+	IssuerURL    string `json:"issuer_url" yaml:"IssuerURL,omitempty"`       // Provider issuer, used for discovery (e.g. https://auth.example.com/application/o/aura/).
+	ClientID     string `json:"client_id" yaml:"ClientID,omitempty"`         // Client ID registered with the provider.
+	ClientSecret string `json:"client_secret" yaml:"ClientSecret,omitempty"` // Client secret registered with the provider.
+	// Callback URL registered with the provider. Must be absolute: it is never derived from
+	// the request, since the Host header is attacker controlled.
+	RedirectURL string   `json:"redirect_url" yaml:"RedirectURL,omitempty"`
+	Scopes      []string `json:"scopes,omitempty" yaml:"Scopes,omitempty"` // Scopes to request. "openid" is always included.
+
+	// Authorization. When every list is empty, any user the provider authenticates is
+	// allowed in and access is governed by the provider's own application policy.
+	// When any list is set, the user must match at least one entry.
+	GroupsClaim     string   `json:"groups_claim,omitempty" yaml:"GroupsClaim,omitempty"`         // ID token claim holding group membership. Defaults to "groups".
+	AllowedGroups   []string `json:"allowed_groups,omitempty" yaml:"AllowedGroups,omitempty"`     // Groups permitted to sign in.
+	AllowedEmails   []string `json:"allowed_emails,omitempty" yaml:"AllowedEmails,omitempty"`     // Email addresses permitted to sign in.
+	AllowedSubjects []string `json:"allowed_subjects,omitempty" yaml:"AllowedSubjects,omitempty"` // Subject identifiers permitted to sign in.
+
+	ButtonLabel       string `json:"button_label,omitempty" yaml:"ButtonLabel,omitempty"`    // Label for the sign-in button. Defaults to "Sign in with SSO".
+	RPInitiatedLogout bool   `json:"rp_initiated_logout" yaml:"RPInitiatedLogout,omitempty"` // Whether logout should also end the session at the provider.
 }
 
 type Config_Logging struct {

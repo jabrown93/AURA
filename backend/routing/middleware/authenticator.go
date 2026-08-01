@@ -65,6 +65,12 @@ func Authenticator(next http.Handler) http.Handler {
 			return
 		}
 
+		if typ, _ := claims["typ"].(string); !routes_auth.IsSessionTokenType(typ) {
+			sendNotAuthenticatedResponse(w, "Invalid token")
+			logAction.SetError("Invalid token", "Token is not a session token", nil)
+			return
+		}
+
 		// Token is valid, proceed to next handler
 		next.ServeHTTP(w, r)
 	})
