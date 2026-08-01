@@ -1,6 +1,6 @@
 "use client";
 
-import { AttemptLogin } from "@/services/auth/login";
+import { AttemptLogin, GetAuthMethods, GetSession } from "@/services/auth/login";
 import { Eye, EyeOff, Loader2, Lock } from "lucide-react";
 
 import { useEffect, useState } from "react";
@@ -13,8 +13,6 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-import { useOnboardingStore } from "@/lib/stores/global-store-onboarding";
-
 export default function LoginPage() {
   const router = useRouter();
   const [password, setPassword] = useState("");
@@ -22,19 +20,29 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Get Onboarding Status
-  const status = useOnboardingStore((state) => state.status);
-  const hasHydrated = useOnboardingStore((state) => state.hasHydrated);
-
+  // The session cookie is HttpOnly, so auth state has to come from the backend.
   useEffect(() => {
-    const token = localStorage.getItem("aura-auth-token");
-    if (token && token.length > 0 && token !== "null" && token !== "undefined") {
-      router.replace("/");
-    } else if (hasHydrated && status && status.current_setup.auth.enabled === false) {
-      // If onboarding is complete and auth is disabled, redirect to /
-      router.replace("/");
-    }
-  }, [hasHydrated, router, status]);
+    let cancelled = false;
+
+    const redirectIfSignedIn = async () => {
+      const methods = await GetAuthMethods();
+      if (cancelled) return;
+      if (methods.data && !methods.data.auth_enabled) {
+        router.replace("/");
+        return;
+      }
+
+      const session = await GetSession();
+      if (!cancelled && session.data?.authenticated) {
+        router.replace("/");
+      }
+    };
+
+    void redirectIfSignedIn();
+    return () => {
+      cancelled = true;
+    };
+  }, [router]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -46,9 +54,8 @@ export default function LoginPage() {
     try {
       setLoading(true);
       const resp = await AttemptLogin(password);
-      const token = (resp as { data?: { token?: string } })?.data?.token || (resp as { token?: string })?.token;
-      if (!token) {
-        throw new Error(typeof resp?.data === "string" ? resp.data : "Invalid Password");
+      if (resp.status === "error" || !resp.data?.token) {
+        throw new Error(resp.error?.message || "Invalid Password");
       }
       router.replace("/");
     } catch (err: unknown) {

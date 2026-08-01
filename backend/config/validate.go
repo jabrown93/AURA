@@ -4,6 +4,7 @@ import (
 	"aura/logging"
 	"context"
 	"fmt"
+	"net/url"
 	"os"
 	"slices"
 	"strings"
@@ -69,16 +70,64 @@ func ValidateAuth(ctx context.Context, Auth *Config_Auth) bool {
 	isValid := true
 
 	if Auth.Enabled {
-		if Auth.Password == "" {
-			logAction.SetError("Auth.Password is not set", "Password must be set when auth is enabled", nil)
-			isValid = false
-		} else {
-			_, _, _, err := argon2id.DecodeHash(Auth.Password)
-			if err != nil {
+		if Auth.Password != "" {
+			if _, _, _, err := argon2id.DecodeHash(Auth.Password); err != nil {
 				logAction.SetError("Auth.Password is not a valid Argon2id hash", err.Error(), nil)
-
 				isValid = false
 			}
+		} else if !Auth.OIDC.Enabled {
+			// Locking every sign-in method out while requiring auth would make the app
+			// unreachable, so treat it as a config error rather than a runtime surprise.
+			logAction.SetError("No authentication method is configured", "Set Auth.Password or enable Auth.OIDC when auth is enabled", nil)
+			isValid = false
+		}
+
+		if !ValidateOIDC(ctx, &Auth.OIDC) {
+			isValid = false
+		}
+	}
+
+	return isValid
+}
+
+func ValidateOIDC(ctx context.Context, OIDC *Config_OIDC) bool {
+	_, logAction := logging.AddSubActionToContext(ctx, "Validating OIDC Config", logging.LevelTrace)
+	defer logAction.Complete()
+
+	if !OIDC.Enabled {
+		return true
+	}
+
+	isValid := true
+
+	required := []struct {
+		field string
+		value string
+	}{
+		{"Auth.OIDC.IssuerURL", OIDC.IssuerURL},
+		{"Auth.OIDC.ClientID", OIDC.ClientID},
+		{"Auth.OIDC.ClientSecret", OIDC.ClientSecret},
+		{"Auth.OIDC.RedirectURL", OIDC.RedirectURL},
+	}
+	for _, r := range required {
+		if strings.TrimSpace(r.value) == "" {
+			logAction.SetError(fmt.Sprintf("%s is not set", r.field), "This field is required when OIDC is enabled", nil)
+			isValid = false
+		}
+	}
+
+	if OIDC.IssuerURL != "" && !strings.HasPrefix(OIDC.IssuerURL, "https://") && !strings.HasPrefix(OIDC.IssuerURL, "http://") {
+		logAction.SetError("Auth.OIDC.IssuerURL is not a valid URL", "The issuer must start with http:// or https://", nil)
+		isValid = false
+	}
+
+	if OIDC.RedirectURL != "" {
+		parsed, err := url.Parse(OIDC.RedirectURL)
+		// The redirect must be absolute because the provider sends the browser there
+		// directly; a relative value would be registered as-is and never resolve.
+		if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+			logAction.SetError("Auth.OIDC.RedirectURL is not an absolute URL", "Use the full callback URL, e.g. https://aura.example.com/api/auth/oidc/callback", nil)
+			isValid = false
 		}
 	}
 

@@ -78,6 +78,10 @@ definitions:
       enabled:
         description: Whether to enable authentication.
         type: boolean
+      oidc:
+        allOf:
+        - $ref: '#/definitions/config.Config_OIDC'
+        description: Single sign-on via an OpenID Connect provider.
       password:
         description: Password for authentication.
         type: string
@@ -370,6 +374,58 @@ definitions:
         allOf:
         - $ref: '#/definitions/config.Config_NotificationTemplate'
         description: Custom notification templates for different events
+    type: object
+  config.Config_OIDC:
+    properties:
+      allowed_emails:
+        description: Email addresses permitted to sign in.
+        items:
+          type: string
+        type: array
+      allowed_groups:
+        description: Groups permitted to sign in.
+        items:
+          type: string
+        type: array
+      allowed_subjects:
+        description: Subject identifiers permitted to sign in.
+        items:
+          type: string
+        type: array
+      button_label:
+        description: Label for the sign-in button. Defaults to "Sign in with SSO".
+        type: string
+      client_id:
+        description: Client ID registered with the provider.
+        type: string
+      client_secret:
+        description: Client secret registered with the provider.
+        type: string
+      enabled:
+        description: Whether to offer OIDC sign-in.
+        type: boolean
+      groups_claim:
+        description: |-
+          Authorization. When every list is empty, any user the provider authenticates is
+          allowed in and access is governed by the provider's own application policy.
+          When any list is set, the user must match at least one entry.
+        type: string
+      issuer_url:
+        description: Provider issuer, used for discovery (e.g. https://auth.example.com/application/o/aura/).
+        type: string
+      redirect_url:
+        description: |-
+          Callback URL registered with the provider. Must be absolute: it is never derived from
+          the request, since the Host header is attacker controlled.
+        type: string
+      rp_initiated_logout:
+        description: Whether logout should also end the session at the provider.
+        type: boolean
+      scopes:
+        description: Scopes to request. "openid" is always included.
+        items:
+          type: string
+        type: array
     type: object
   config.Config_SaveImagesLocally:
     properties:
@@ -1171,6 +1227,21 @@ definitions:
       owned:
         type: boolean
     type: object
+  routes_auth.authMethodsResponse:
+    properties:
+      auth_enabled:
+        description: Whether authentication is enforced at all
+        type: boolean
+      oidc_button_label:
+        description: Label for the SSO button
+        type: string
+      oidc_enabled:
+        description: Whether the SSO button should be shown
+        type: boolean
+      password_enabled:
+        description: Whether the password form should be shown
+        type: boolean
+    type: object
   routes_auth.loginRequest:
     properties:
       password:
@@ -1179,6 +1250,25 @@ definitions:
   routes_auth.loginResponse:
     properties:
       token:
+        type: string
+    type: object
+  routes_auth.logoutResponse:
+    properties:
+      end_session_url:
+        description: |-
+          EndSessionURL is set when the provider should also be told to end its session.
+          The UI navigates there after logging out locally.
+        type: string
+      logged_out:
+        type: boolean
+    type: object
+  routes_auth.sessionResponse:
+    properties:
+      authenticated:
+        description: Whether the caller holds a usable session
+        type: boolean
+      subject:
+        description: '"sub" claim of the active token'
         type: string
     type: object
   routes_base.healthCheckResponse:
@@ -1737,6 +1827,74 @@ paths:
       summary: Health Check
       tags:
       - Health
+  /api/auth/methods:
+    get:
+      description: Report which sign-in methods are available. Public so the login
+        page can render before the user is authenticated.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httpx.JSONResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/routes_auth.authMethodsResponse'
+              type: object
+      summary: Get Auth Methods
+      tags:
+      - Auth
+  /api/auth/oidc/callback:
+    get:
+      description: Complete the OpenID Connect code exchange and start a session
+      parameters:
+      - description: Authorization code
+        in: query
+        name: code
+        required: true
+        type: string
+      - description: Opaque state issued when sign-in started
+        in: query
+        name: state
+        required: true
+        type: string
+      responses:
+        "302":
+          description: Redirect to the app on success, or to /login with an error
+            code
+      summary: OIDC Callback
+      tags:
+      - Auth
+  /api/auth/oidc/login:
+    get:
+      description: Redirect the browser to the configured OpenID Connect provider
+      responses:
+        "302":
+          description: Redirect to the identity provider
+      summary: Start OIDC Login
+      tags:
+      - Auth
+  /api/auth/session:
+    get:
+      description: Report whether the caller has a valid session. Always returns 200
+        so the UI can probe without tripping the global 401 redirect.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httpx.JSONResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/routes_auth.sessionResponse'
+              type: object
+      summary: Get Session
+      tags:
+      - Auth
   /api/config:
     get:
       description: Get the current status of the app configuration and onboarding
@@ -2968,6 +3126,25 @@ paths:
           schema:
             $ref: '#/definitions/httpx.JSONResponse'
       summary: Auth Login
+      tags:
+      - Auth
+  /api/logout:
+    post:
+      description: Clear the session cookie, and report where to end the provider
+        session when OIDC single logout is enabled
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httpx.JSONResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/routes_auth.logoutResponse'
+              type: object
+      summary: Auth Logout
       tags:
       - Auth
   /api/logs:

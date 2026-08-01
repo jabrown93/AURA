@@ -5,7 +5,6 @@ import (
 	"aura/logging"
 	"aura/utils/httpx"
 	"net/http"
-	"time"
 
 	"github.com/alexedwards/argon2id"
 )
@@ -63,15 +62,7 @@ func AttemptLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Build claims
-	claims := map[string]any{
-		"sub": "aura",
-		"iat": time.Now().Unix(),
-		"exp": time.Now().Add(24 * time.Hour).Unix(),
-	}
-
-	// Use jwtauth to create token (consistent with verifier)
-	_, signedToken, err := TokenAuth.Encode(claims)
+	signedToken, err := IssueSessionToken("aura", nil)
 	if err != nil {
 		logAction.SetError("Failed to generate token", "An error occurred while generating the JWT token", map[string]any{
 			"error": err,
@@ -82,6 +73,10 @@ func AttemptLogin(w http.ResponseWriter, r *http.Request) {
 
 	logAction.AppendResult("token_generated", true)
 
+	SetSessionCookie(w, r, signedToken)
+
+	// The token is still returned in the body for API clients that authenticate with a
+	// bearer header; the browser UI relies on the cookie set above.
 	response.Token = signedToken
 	httpx.SendResponse(w, ld, response)
 }

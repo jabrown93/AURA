@@ -1,6 +1,6 @@
 "use client";
 
-import { getAuthToken } from "@/services/auth/login";
+import { GetSession, Logout } from "@/services/auth/login";
 import {
   ArrowLeftCircle,
   ArrowRightCircle,
@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 import { cn } from "@/lib/cn";
+import { ClearAllStores } from "@/lib/stores/clear-all-stores";
 import { useCollectionStore } from "@/lib/stores/global-store-collection-store";
 import { useMediaStore } from "@/lib/stores/global-store-media-store";
 import { useOnboardingStore } from "@/lib/stores/global-store-onboarding";
@@ -157,16 +158,23 @@ export function Navbar({ version = "dev" }: AppNavbarProps) {
     document.title = status?.media_server_name ? `aura | ${status.media_server_name}` : "aura";
   }, [status?.media_server_name]);
 
-  // On mount, check auth status
+  // On mount, check auth status. The session cookie is HttpOnly, so the backend has to
+  // answer this rather than reading anything client-side.
   useEffect(() => {
     if (status?.current_setup?.auth?.enabled === false) {
       setIsAuthed(true);
       return;
     }
 
-    // If auth is enabled, check for token
-    const token = getAuthToken();
-    setIsAuthed(!!token && token !== "null" && token !== "undefined");
+    let cancelled = false;
+    void GetSession().then((session) => {
+      if (!cancelled) {
+        setIsAuthed(!!session.data?.authenticated);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [pathName, status?.current_setup?.auth?.enabled]);
 
   // When clicking on the logo, navigate to home
@@ -188,11 +196,17 @@ export function Navbar({ version = "dev" }: AppNavbarProps) {
   };
 
   // Handle Logout
-  const handleLogout = () => {
-    localStorage.removeItem("aura-auth-token");
-    setIsAuthed(false);
-    // Redirect to login page
-    router.replace("/login");
+  const handleLogout = async () => {
+    // Whatever fails, the user still ends up signed out on the login page: a half-finished
+    // logout that leaves them looking at a stale page is the worse outcome.
+    try {
+      await Logout();
+      // Cached library/media data belongs to the session that just ended.
+      await ClearAllStores();
+    } finally {
+      setIsAuthed(false);
+      router.replace("/login");
+    }
   };
 
   return (
@@ -338,7 +352,7 @@ export function Navbar({ version = "dev" }: AppNavbarProps) {
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   className="cursor-pointer flex items-center active:scale-95 hover:brightness-120 text-red-600 focus:text-red-700"
-                  onClick={handleLogout}
+                  onClick={() => void handleLogout()}
                 >
                   <LogOutIcon className="w-6 h-6 mr-2" />
                   Logout
