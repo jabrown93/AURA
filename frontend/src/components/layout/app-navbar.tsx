@@ -45,6 +45,21 @@ type AppNavbarProps = {
   version?: string;
 };
 
+/**
+ * Guards a full-page navigation to a URL the app did not compose itself. The provider's
+ * logout endpoint comes from its discovery document, so a malformed one must not be able
+ * to hand us a javascript: or data: URL.
+ */
+const externalNavigationURL = (raw?: string): string | undefined => {
+  if (!raw) return undefined;
+  try {
+    const parsed = new URL(raw);
+    return parsed.protocol === "https:" || parsed.protocol === "http:" ? parsed.toString() : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
 export function Navbar({ version = "dev" }: AppNavbarProps) {
   // Router
   const router = useRouter();
@@ -197,15 +212,24 @@ export function Navbar({ version = "dev" }: AppNavbarProps) {
 
   // Handle Logout
   const handleLogout = async () => {
-    // Whatever fails, the user still ends up signed out on the login page: a half-finished
-    // logout that leaves them looking at a stale page is the worse outcome.
+    // With OIDC single logout the provider has to end its session too, and that is a full
+    // navigation off this origin rather than a client-side route change.
+    let endSessionURL: string | undefined;
+
+    // Whatever fails, the user still ends up signed out: a half-finished logout that
+    // leaves them looking at a stale page is the worse outcome.
     try {
-      await Logout();
+      const resp = await Logout();
+      endSessionURL = externalNavigationURL(resp.data?.end_session_url);
       // Cached library/media data belongs to the session that just ended.
       await ClearAllStores();
     } finally {
       setIsAuthed(false);
-      router.replace("/login");
+      if (endSessionURL) {
+        window.location.href = endSessionURL;
+      } else {
+        router.replace("/login");
+      }
     }
   };
 

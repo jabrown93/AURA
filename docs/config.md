@@ -36,6 +36,8 @@ Auth:
   Password: YOUR_ARGON2ID_HASH_HERE
 ```
 
+aura can also sign users in through an OpenID Connect provider such as [Authentik](https://goauthentik.io/) or Keycloak — see [Single Sign-On (OIDC)](/AURA/oidc) for the full setup. Password and SSO sign-in can be enabled together, which keeps a way in when the provider is unavailable.
+
 While this password authentication method is effective, it is important to keep your password secure and not share it with others. For enhanced security, consider using solutions like [Authentik](https://goauthentik.io/), [Authelia](https://www.authelia.com/) or [Tinyauth](https://tinyauth.app/).  
 **I am not a security expert** 😅
 
@@ -54,6 +56,12 @@ While this password authentication method is effective, it is important to keep 
 - **Details**: This password is used to authenticate user when they log in to the application. It is recommended to use a strong, unique password for this purpose. You can generate a new Argon2id hash using tools like [Argon2 Online](https://argon2.online/). You can use the default settings.
   ![Argon2 Online](assets/argon2-online.png)
 - **Note**: Replace `YOUR_ARGON2ID_HASH_HERE` with the actual Argon2id hash of your desired password.
+- **Note**: The password may be left unset when `Auth.OIDC.Enabled` is `true`. Enabling authentication with neither a password nor OIDC is rejected as invalid, since it would leave the app unreachable.
+
+### OIDC
+
+- **Description**: Single sign-on through an OpenID Connect provider.
+- **Details**: Documented separately in [Single Sign-On (OIDC)](/AURA/oidc).
 
 ---
 
