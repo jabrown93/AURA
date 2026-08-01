@@ -1,5 +1,12 @@
 # Changelog
 
+# [1.8.0](https://github.com/jabrown93/AURA/compare/v1.7.6...v1.8.0) (2026-08-01)
+
+
+### Features
+
+* **auth:** carry sessions in an HttpOnly cookie ([#71](https://github.com/jabrown93/AURA/issues/71)) ([057eb38](https://github.com/jabrown93/AURA/commit/057eb38fae2240b242e7244aa83c448593a7349c)), closes [#72](https://github.com/jabrown93/AURA/issues/72)
+
 ## [1.7.6](https://github.com/jabrown93/AURA/compare/v1.7.5...v1.7.6) (2026-07-31)
 
 
