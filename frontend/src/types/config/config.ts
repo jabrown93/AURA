@@ -13,7 +13,7 @@ export interface AppConfig {
 
 export interface AppConfigAuth {
   enabled: boolean; // Whether authentication is enabled
-  password: string; // Hashed password for authentication
+  password: string; // Argon2id password hash; may be empty when OIDC is enabled. Returned masked.
   oidc: AppConfigOIDC; // Single sign-on via an OpenID Connect provider
 }
 

@@ -126,12 +126,13 @@ Sign-in failures return you to the login page with a message. What each one mean
 
 | Message | Cause |
 | ------- | ----- |
-| Single sign-on is not enabled | `Auth.Enabled` or `Auth.OIDC.Enabled` is `false` |
-| The identity provider could not be reached or refused the sign-in | Discovery failed (wrong `IssuerURL`, DNS, TLS) or the provider denied the request |
-| The sign-in attempt expired or did not match | More than 10 minutes elapsed, or cookies were dropped between the two requests |
-| The identity provider rejected the authorization code | Wrong `ClientSecret`, or a `RedirectURL` that differs from the registered one |
-| The identity token could not be verified | Signature, issuer, audience or nonce mismatch |
-| Your account is not permitted to access aura | The user matched none of the configured allowlists |
+| Single sign-on is not enabled. | `Auth.Enabled` or `Auth.OIDC.Enabled` is `false` |
+| The identity provider could not be reached or refused the sign-in. | Discovery failed (wrong `IssuerURL`, DNS, TLS) or the provider denied the request |
+| The sign-in attempt expired or did not match. Please try again. | More than 10 minutes elapsed, or cookies were dropped between the two requests |
+| The identity provider rejected the authorization code. | Wrong `ClientSecret`, or a `RedirectURL` that differs from the registered one |
+| The identity token could not be verified. | Signature, issuer, audience or nonce mismatch, or an ID token with no subject |
+| Your account is not permitted to access aura. | The user matched none of the configured allowlists |
+| Something went wrong while completing sign-in. | aura could not issue a session, e.g. its signing key was unavailable |
 
 The backend log carries the underlying reason for each — the login page deliberately shows a fixed message rather than the provider's own text.
 

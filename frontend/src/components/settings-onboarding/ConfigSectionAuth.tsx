@@ -22,6 +22,12 @@ interface ConfigSectionAuthProps {
 
 const hashRegex = /^\$argon2id\$v=\d+\$m=\d+,t=\d+,p=\d+\$[A-Za-z0-9+/=]+\$[A-Za-z0-9+/=]+$/;
 
+/**
+ * Mirrors the backend's masking of stored secrets. A masked value means "unchanged", so it
+ * must not be validated as if the user had typed it.
+ */
+const maskedSecretRegex = /^\*{3}[^*]+$/;
+
 const emptyOIDC: AppConfigOIDC = {
   enabled: false,
   issuer_url: "",
@@ -79,7 +85,7 @@ export const ConfigSectionAuth: React.FC<ConfigSectionAuthProps> = ({
       if (!oidc.enabled) {
         errs.password = "Set a password hash or enable OpenID Connect when authentication is enabled.";
       }
-    } else if (!hashRegex.test(password)) {
+    } else if (!maskedSecretRegex.test(password) && !hashRegex.test(password)) {
       errs.password = "Invalid Argon2id hash format.";
     }
 
@@ -144,7 +150,12 @@ export const ConfigSectionAuth: React.FC<ConfigSectionAuthProps> = ({
               {editing && (
                 <PopoverHelp ariaLabel="help-auth-password-hash">
                   <p className="mb-2">
-                    Provide an Argon2id hash. If authentication is enabled this hash must match the user's password.
+                    Provide an Argon2id hash. If authentication is enabled this hash must match the user&apos;s
+                    password.
+                  </p>
+                  <p className="mb-2">
+                    A stored hash is shown masked. Leave it as-is to keep it, paste a new hash to replace it, or clear
+                    the field to remove password sign-in once OIDC is enabled.
                   </p>
                   <p>
                     You can use a site like{" "}
