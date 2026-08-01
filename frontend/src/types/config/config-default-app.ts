@@ -6,6 +6,20 @@ export const defaultAppConfig = (): AppConfig =>
     auth: {
       enabled: false,
       password: "",
+      oidc: {
+        enabled: false,
+        issuer_url: "",
+        client_id: "",
+        client_secret: "",
+        redirect_url: "",
+        scopes: [],
+        groups_claim: "",
+        allowed_groups: [],
+        allowed_emails: [],
+        allowed_subjects: [],
+        button_label: "",
+        rp_initiated_logout: false,
+      },
     },
     logging: {
       level: "",

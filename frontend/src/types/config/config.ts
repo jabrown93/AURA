@@ -14,6 +14,22 @@ export interface AppConfig {
 export interface AppConfigAuth {
   enabled: boolean; // Whether authentication is enabled
   password: string; // Hashed password for authentication
+  oidc: AppConfigOIDC; // Single sign-on via an OpenID Connect provider
+}
+
+export interface AppConfigOIDC {
+  enabled: boolean; // Whether OIDC sign-in is offered
+  issuer_url: string; // Provider issuer used for discovery
+  client_id: string; // Client ID registered with the provider
+  client_secret: string; // Client secret registered with the provider
+  redirect_url: string; // Callback URL registered with the provider
+  scopes?: string[]; // Scopes to request; "openid" is always included
+  groups_claim?: string; // ID token claim holding group membership
+  allowed_groups?: string[]; // Groups permitted to sign in
+  allowed_emails?: string[]; // Email addresses permitted to sign in
+  allowed_subjects?: string[]; // Subject identifiers permitted to sign in
+  button_label?: string; // Label for the sign-in button
+  rp_initiated_logout: boolean; // Whether logout also ends the provider session
 }
 
 export interface AppConfigLogging {

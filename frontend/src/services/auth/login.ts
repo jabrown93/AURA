@@ -16,7 +16,12 @@ export interface Login_Response {
 export interface AuthMethods_Response {
   auth_enabled: boolean;
   password_enabled: boolean;
+  oidc_enabled: boolean;
+  oidc_button_label?: string;
 }
+
+/** Where the browser must navigate to start an OIDC sign-in. */
+export const OIDC_LOGIN_PATH = "/api/auth/oidc/login";
 
 export interface Session_Response {
   authenticated: boolean;
@@ -25,6 +30,8 @@ export interface Session_Response {
 
 export interface Logout_Response {
   logged_out: boolean;
+  /** Set when the provider session should be ended too; the UI navigates there. */
+  end_session_url?: string;
 }
 
 /**
