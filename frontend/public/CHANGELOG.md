@@ -1,5 +1,12 @@
 # Changelog
 
+# [1.9.0](https://github.com/jabrown93/AURA/compare/v1.8.0...v1.9.0) (2026-08-01)
+
+
+### Features
+
+* **auth:** add OIDC sign-in to the UI and docs ([#73](https://github.com/jabrown93/AURA/issues/73)) ([dee1931](https://github.com/jabrown93/AURA/commit/dee19314395d43bed6ec77439eba2e0079079cb8))
+
 # [1.8.0](https://github.com/jabrown93/AURA/compare/v1.7.6...v1.8.0) (2026-08-01)
 
 
