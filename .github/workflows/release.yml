@@ -142,7 +142,7 @@ jobs:
         with:
           # Pin the cosign binary (not just the installer) so signature/bundle format
           # stays stable and Kyverno verification is reproducible.
-          cosign-release: "v3.1.1"
+          cosign-release: "v3.1.2"
 
       # Keyless (Fulcio/rekor) signature over the pushed digest so the homelab Kyverno
       # verify-ghcr-images policy can verify this image.
