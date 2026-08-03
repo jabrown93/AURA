@@ -14,7 +14,7 @@ import { GlobalStore, PageStore } from "@/lib/stores/stores";
 
 /**
  * Clears all in‑memory zustand store slices (calls each store's clear()).
- * If options.deep === true, also wipes the underlying persisted PageStore + GlobalStore (localforage),
+ * If options.deep === true, also wipes the underlying persisted PageStore + GlobalStore (IndexedDB),
  * removing all persisted keys (fresh start).
  */
 export const ClearAllStores = async (options?: { deep?: boolean }) => {
