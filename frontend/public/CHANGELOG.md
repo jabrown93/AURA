@@ -1,5 +1,31 @@
 # Changelog
 
+## [1.9.1](https://github.com/jabrown93/AURA/compare/v1.9.0...v1.9.1) (2026-08-03)
+
+
+### Bug Fixes
+
+* **deps:** pin dependencies ([daa7152](https://github.com/jabrown93/AURA/commit/daa71525b286a0a98b658d8a7798d03f3ee57e76))
+* **deps:** update dependency axios to v1.19.0 ([c832a4a](https://github.com/jabrown93/AURA/commit/c832a4a1a4ee1f25147276a1119374cbcfe004a4))
+* **deps:** update dependency lucide-react to v1.28.0 ([c733700](https://github.com/jabrown93/AURA/commit/c7337004ce3054f5d827548bf9e0aec1f4abdb0b))
+* **deps:** update module github.com/lestrrat-go/jwx/v3 to v3.2.0 ([c521f4d](https://github.com/jabrown93/AURA/commit/c521f4d0a6b5aed807fd2007ba171346562b07b0))
+* **deps:** update module github.com/lestrrat-go/jwx/v3 to v3.2.0 ([26f1b89](https://github.com/jabrown93/AURA/commit/26f1b897c744a482f60dc1c92b7e589d00143632))
+* **deps:** update module github.com/lestrrat-go/jwx/v3 to v3.2.0 ([756064c](https://github.com/jabrown93/AURA/commit/756064c8cdff1f6e73f1013d57f8e77f21eb55fc))
+* **deps:** update module github.com/lestrrat-go/jwx/v3 to v3.2.0 ([a4b2bec](https://github.com/jabrown93/AURA/commit/a4b2becfc7d5da63939185d3a698717da40cd2a5))
+* **deps:** update module github.com/lestrrat-go/jwx/v3 to v3.2.0 ([6040d9d](https://github.com/jabrown93/AURA/commit/6040d9de6f0fc5d4203ea058fbe8e3cafde51b1f))
+* **deps:** update module github.com/lestrrat-go/jwx/v3 to v3.2.0 ([fe75f55](https://github.com/jabrown93/AURA/commit/fe75f554b1c5448aaf6ab5de4630ff8dc770ac74))
+* **deps:** update module github.com/lestrrat-go/jwx/v3 to v3.2.0 ([b2f8152](https://github.com/jabrown93/AURA/commit/b2f8152b4f7e74805684d1c96932b1dbdf281f50))
+* **deps:** update module github.com/lestrrat-go/jwx/v3 to v3.2.0 ([e10dab5](https://github.com/jabrown93/AURA/commit/e10dab53fb7f7f991b87e1b8939d4fe0b0baae38))
+* **deps:** update module github.com/lestrrat-go/jwx/v3 to v4 ([#74](https://github.com/jabrown93/AURA/issues/74)) ([9b36b52](https://github.com/jabrown93/AURA/commit/9b36b520d5bcda9a85bfb5367675068d289c63d9))
+* **deps:** update module github.com/lestrrat-go/jwx/v3 to v4 ([#75](https://github.com/jabrown93/AURA/issues/75)) ([1c28fcc](https://github.com/jabrown93/AURA/commit/1c28fcc2424c2386616ea91403a6270df36bbc32))
+* **deps:** update module github.com/lestrrat-go/jwx/v3 to v4 ([#76](https://github.com/jabrown93/AURA/issues/76)) ([332ebaa](https://github.com/jabrown93/AURA/commit/332ebaa9653da9c328a10a0939df2eceb1d0f3e4))
+* **deps:** update module github.com/lestrrat-go/jwx/v3 to v4 ([#77](https://github.com/jabrown93/AURA/issues/77)) ([d97b53d](https://github.com/jabrown93/AURA/commit/d97b53dade1c98d4d2d43cc7d41548da8f46d828))
+* **deps:** update module github.com/lestrrat-go/jwx/v3 to v4 ([#78](https://github.com/jabrown93/AURA/issues/78)) ([75e3bc2](https://github.com/jabrown93/AURA/commit/75e3bc258355209f5a82ed5b8db25a9353302bcf))
+* **deps:** update module github.com/lestrrat-go/jwx/v3 to v4 ([#79](https://github.com/jabrown93/AURA/issues/79)) ([e172b33](https://github.com/jabrown93/AURA/commit/e172b33808d4729092a596e523e7f4edea54a56d))
+* **deps:** update module github.com/lestrrat-go/jwx/v3 to v4 ([#80](https://github.com/jabrown93/AURA/issues/80)) ([02b0c81](https://github.com/jabrown93/AURA/commit/02b0c81f55768b57eaa8330977ac8e68a7412c3d))
+* **deps:** update module github.com/lestrrat-go/jwx/v3 to v4 ([#81](https://github.com/jabrown93/AURA/issues/81)) ([15f7b05](https://github.com/jabrown93/AURA/commit/15f7b0568c58b1450cdf15432cf293367b3f0b50))
+* **deps:** update module github.com/mattn/go-sqlite3 to v1.14.49 ([51d93f6](https://github.com/jabrown93/AURA/commit/51d93f63f963bf4dd9cb855bff0d06112e4fd90c))
+
 # [1.9.0](https://github.com/jabrown93/AURA/compare/v1.8.0...v1.9.0) (2026-08-01)
 
 
