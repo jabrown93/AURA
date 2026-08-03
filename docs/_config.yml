@@ -1,6 +1,12 @@
-baseurl: ""
 title: Docs | aura
+# Previously sourced from the GitHub repo description by jekyll-github-metadata,
+# which the github-pages gem supplied. Set explicitly so builds need no API call.
+description: "A tool to use MediUX poster images for Media Server content"
 baseurl: "/AURA"
 # Build settings
-remote_theme: just-the-docs/just-the-docs
+theme: just-the-docs
 color_scheme: "dark"
+
+# Jekyll 4 emits sourcemaps by default; the site does not ship them.
+sass:
+  sourcemap: never

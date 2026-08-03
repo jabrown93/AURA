@@ -1,3 +1,9 @@
+---
+layout: default
+title: "CI / GitHub Actions"
+nav_order: 7
+---
+
 # CI / GitHub Actions
 
 This fork's workflows follow the same conventions as the rest of `jabrown93/*`:
