@@ -3,7 +3,7 @@
 import { formatExactDateTime } from "@/helper/format-date-last-updates";
 import { formatDownloadSize } from "@/helper/format-download-size";
 import { downloadImageFileForMediaItem } from "@/services/downloads/download-image";
-import { decode } from "blurhash";
+import { decodeBlurHash } from "fast-blurhash";
 import { Download } from "lucide-react";
 import { toast } from "sonner";
 
@@ -55,7 +55,7 @@ function decodeBlurhashToDataURL(blurhash: string): string | undefined {
     // For blur placeholders, very small dimensions are sufficient
     const width = 2;
     const height = 2;
-    const pixels = decode(blurhash, width, height);
+    const pixels = decodeBlurHash(blurhash, width, height);
 
     // Create canvas and draw pixels
     const canvas = document.createElement("canvas");
