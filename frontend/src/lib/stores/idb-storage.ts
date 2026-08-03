@@ -16,24 +16,22 @@ const LEGACY_DB_NAME = "aura";
  * database is a plain per-key copy, not a format conversion.
  */
 async function readLegacyEntries(legacyStoreName: string): Promise<[IDBValidKey, unknown][]> {
-  if (typeof indexedDB === "undefined" || typeof indexedDB.databases !== "function") {
-    return [];
-  }
-
-  let legacyDbExists: boolean;
-  try {
-    legacyDbExists = (await indexedDB.databases()).some((info) => info.name === LEGACY_DB_NAME);
-  } catch {
-    return [];
-  }
-  if (!legacyDbExists) {
+  if (typeof indexedDB === "undefined") {
     return [];
   }
 
   return new Promise((resolve) => {
-    // Opened with no explicit version: connects to whatever version already
-    // exists without firing onupgradeneeded, so this never creates the
-    // database as a side effect of merely checking it.
+    // Opened with no explicit version, so if "aura" already exists (it was
+    // created by localforage) this connects to it as-is with no
+    // onupgradeneeded. `IDBFactory.databases()` would be a cleaner existence
+    // check, but it isn't supported everywhere; gating on it meant the
+    // migration silently no-op'd on those browsers and then permanently
+    // skipped itself the moment the new store got its first write -- the
+    // exact reset this migration exists to prevent. If "aura" doesn't exist,
+    // this open creates an empty version-1 database as a side effect (no
+    // object stores, since there's no onupgradeneeded handler below to add
+    // any) -- harmless clutter for a fresh install, traded for migration
+    // actually working everywhere else.
     const openReq = indexedDB.open(LEGACY_DB_NAME);
     openReq.onerror = () => resolve([]);
     openReq.onsuccess = () => {
