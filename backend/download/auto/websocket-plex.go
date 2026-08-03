@@ -11,6 +11,7 @@ import (
 	"aura/utils"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"runtime/debug"
@@ -134,7 +135,7 @@ func connectAndListenPlexWithStop(stop <-chan struct{}) (err error) {
 			return nil
 		default:
 		}
-		return fmt.Errorf("failed to connect to Plex WebSocket at %s: %w", wsURLForLog, err)
+		return fmt.Errorf("failed to connect to Plex WebSocket at %s: %w", wsURLForLog, sanitizeWSDialError(err, wsURL, wsURLForLog))
 	}
 	defer conn.CloseNow()
 
@@ -166,6 +167,20 @@ func connectAndListenPlexWithStop(stop <-chan struct{}) (err error) {
 		}
 		handleMessage(message)
 	}
+}
+
+// sanitizeWSDialError strips the raw dial URL -- which may embed an API token
+// in its query string -- from a failed dial's error text, replacing it with
+// the already-masked URL used elsewhere for logging. net/http's *url.Error
+// embeds the full request URL verbatim in its Error() string regardless of
+// any masking applied to the surrounding log message, so wrapping the error
+// as-is would leak the token into the log/console independent of that
+// masking.
+func sanitizeWSDialError(err error, rawURL, maskedURL string) error {
+	if err == nil || rawURL == maskedURL {
+		return err
+	}
+	return errors.New(strings.ReplaceAll(err.Error(), rawURL, maskedURL))
 }
 
 func buildPlexWebSocketURL() (wsURL string, wsURLForLog string, err error) {

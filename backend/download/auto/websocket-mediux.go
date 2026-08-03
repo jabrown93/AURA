@@ -58,7 +58,7 @@ func connectAndSubscribeMediux() error {
 	c, _, err := websocket.Dial(dialCtx, URL, &websocket.DialOptions{CompressionMode: websocket.CompressionDisabled})
 	cancelDial()
 	if err != nil {
-		return fmt.Errorf("failed to connect to Mediux WebSocket at %s: %w", maskedURL, err)
+		return fmt.Errorf("failed to connect to Mediux WebSocket at %s: %w", maskedURL, sanitizeWSDialError(err, URL, maskedURL))
 	}
 	defer c.CloseNow()
 
