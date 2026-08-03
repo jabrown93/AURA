@@ -3,8 +3,7 @@
 import { makePlural } from "@/helper/make_plural";
 import { ReturnErrorMessage } from "@/services/api-error-return";
 import { ClearLogFiles } from "@/services/logs/clear";
-import type { GetLogContents_Response } from "@/services/logs/get";
-import { GetLogContents } from "@/services/logs/get";
+import { GetLogContents, type GetLogContents_Response } from "@/services/logs/get";
 import { EllipsisIcon, SaveIcon, XCircle } from "lucide-react";
 import { toast } from "sonner";
 

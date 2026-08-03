@@ -7,8 +7,10 @@ import { Plus, TestTube, Trash2 } from "lucide-react";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { GetConnectionColor } from "@/components/settings-onboarding/ConfigSectionMediaServer";
-import type { ConfigConnectionStatus } from "@/components/settings-onboarding/ConfigSectionSonarrRadarr";
-import { CONNECTION_STATUS_COLORS_BG } from "@/components/settings-onboarding/ConfigSectionSonarrRadarr";
+import {
+  CONNECTION_STATUS_COLORS_BG,
+  type ConfigConnectionStatus,
+} from "@/components/settings-onboarding/ConfigSectionSonarrRadarr";
 import { PopoverHelp } from "@/components/shared/popover-help";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";

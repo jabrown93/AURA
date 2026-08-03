@@ -1,8 +1,7 @@
 "use client";
 
 import { ReturnErrorMessage } from "@/services/api-error-return";
-import type { JobInfo } from "@/services/jobs/get";
-import { GetAllJobs } from "@/services/jobs/get";
+import { GetAllJobs, type JobInfo } from "@/services/jobs/get";
 import { RunJob } from "@/services/jobs/run";
 import { toast } from "sonner";
 

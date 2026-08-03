@@ -7,8 +7,7 @@ import { UpdateAppConfig } from "@/services/config/update";
 import * as yaml from "js-yaml";
 import { toast } from "sonner";
 
-import type { JSX } from "react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { type JSX, useCallback, useEffect, useMemo, useState } from "react";
 
 import Image from "next/image";
 

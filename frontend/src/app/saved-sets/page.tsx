@@ -2,8 +2,7 @@
 
 import { makePlural } from "@/helper/make_plural";
 import { ReturnErrorMessage } from "@/services/api-error-return";
-import type { AutodownloadResult } from "@/services/database/autodownload-force-check";
-import { AutoDownloadForceCheck } from "@/services/database/autodownload-force-check";
+import { AutoDownloadForceCheck, type AutodownloadResult } from "@/services/database/autodownload-force-check";
 import { DeleteItemFromDB } from "@/services/database/delete";
 import { getAllItemsFromDB } from "@/services/database/get-all";
 import { AddItemToDownloadQueue } from "@/services/downloads/queue-add";

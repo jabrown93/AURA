@@ -7,8 +7,7 @@ import { GetAllCollectionQueueItems } from "@/services/downloads/collection-queu
 import { GetAllDownloadQueueItems } from "@/services/downloads/queue-get";
 import { RemoveItemFromQueue } from "@/services/downloads/queue-remove";
 import { RetryItemInQueue } from "@/services/downloads/queue-retry";
-import type { GetDownloadQueueStatus_Response } from "@/services/downloads/queue-status";
-import { GetDownloadQueueStatus } from "@/services/downloads/queue-status";
+import { GetDownloadQueueStatus, type GetDownloadQueueStatus_Response } from "@/services/downloads/queue-status";
 import { Globe, RefreshCcw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 

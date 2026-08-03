@@ -26,12 +26,13 @@ import { useSearchQueryStore } from "@/lib/stores/global-store-search-query";
 import { extractInfoFromSearchQuery } from "@/hooks/search-query";
 
 import type { LibrarySection } from "@/types/media-and-posters/media-item-and-library";
-import type {
-  TYPE_FILTER_IGNORED_OPTIONS,
-  TYPE_HOME_PAGE_FILTER_HAS_SETS_AVAILABLE_OPTIONS,
-  TYPE_HOME_PAGE_FILTER_IN_DB_OPTIONS,
+import {
+  FILTER_IGNORED_OPTIONS,
+  HOME_PAGE_FILTER_IN_DB_OPTIONS,
+  type TYPE_FILTER_IGNORED_OPTIONS,
+  type TYPE_HOME_PAGE_FILTER_HAS_SETS_AVAILABLE_OPTIONS,
+  type TYPE_HOME_PAGE_FILTER_IN_DB_OPTIONS,
 } from "@/types/ui-options";
-import { FILTER_IGNORED_OPTIONS, HOME_PAGE_FILTER_IN_DB_OPTIONS } from "@/types/ui-options";
 
 type HomeFilterProps = {
   // Filtering

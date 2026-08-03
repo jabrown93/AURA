@@ -68,6 +68,13 @@ export default [
       /* TypeScript */
       "@typescript-eslint/no-unused-vars": ["warn", { argsIgnorePattern: "^_", varsIgnorePattern: "^_" }],
       "@typescript-eslint/no-explicit-any": "warn",
+
+      /* Imports */
+      "import-x/no-unresolved": "error",
+      "import-x/named": "error",
+      "import-x/no-cycle": "error",
+      "import-x/no-self-import": "error",
+      "import-x/no-duplicates": ["error", { "prefer-inline": true }],
     },
   },
 

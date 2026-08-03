@@ -8,8 +8,7 @@ import { Check, Download, ListEnd, LoaderIcon, User, X } from "lucide-react";
 import { toast } from "sonner";
 import { z } from "zod";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import React from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 
 import Link from "next/link";
