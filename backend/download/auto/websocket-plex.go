@@ -121,11 +121,27 @@ func connectAndListenPlexWithStop(stop <-chan struct{}) (err error) {
 
 	// Connect to WebSocket. Compression is disabled to preserve the wire behavior of the
 	// previous gorilla/websocket client, which never negotiated permessage-deflate here.
-	conn, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{CompressionMode: websocket.CompressionDisabled})
+	// Bound the handshake with a timeout (gorilla's DefaultDialer imposed 45s) so a stalled
+	// TCP/TLS handshake can't block this goroutine forever.
+	dialCtx, cancelDial := context.WithTimeout(ctx, 45*time.Second)
+	conn, _, err := websocket.Dial(dialCtx, wsURL, &websocket.DialOptions{CompressionMode: websocket.CompressionDisabled})
+	cancelDial()
 	if err != nil {
+		select {
+		case <-stop:
+			// stop was closed while the dial was in flight; this is a clean shutdown,
+			// not a connection failure.
+			return nil
+		default:
+		}
 		return fmt.Errorf("failed to connect to Plex WebSocket at %s: %w", wsURLForLog, err)
 	}
 	defer conn.CloseNow()
+
+	// coder/websocket defaults to a 32KiB per-message read limit; gorilla imposed none here.
+	// Raise it generously rather than disabling it outright, so a busy library emitting many
+	// batched timeline entries in one notification can't be truncated/dropped.
+	conn.SetReadLimit(4 << 20)
 
 	logging.LOGGER.Info().Timestamp().
 		Msg("Plex Event Listener: Connected — watching for metadata refresh events")

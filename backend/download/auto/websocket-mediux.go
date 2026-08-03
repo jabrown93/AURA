@@ -52,11 +52,20 @@ func connectAndSubscribeMediux() error {
 
 	// Connect to WebSocket. Compression is disabled to preserve the wire behavior of the
 	// previous gorilla/websocket client, which never negotiated permessage-deflate here.
-	c, _, err := websocket.Dial(ctx, URL, &websocket.DialOptions{CompressionMode: websocket.CompressionDisabled})
+	// Bound the handshake with a timeout (gorilla's DefaultDialer imposed 45s) so a stalled
+	// TCP/TLS handshake can't block this goroutine forever.
+	dialCtx, cancelDial := context.WithTimeout(ctx, 45*time.Second)
+	c, _, err := websocket.Dial(dialCtx, URL, &websocket.DialOptions{CompressionMode: websocket.CompressionDisabled})
+	cancelDial()
 	if err != nil {
 		return fmt.Errorf("failed to connect to Mediux WebSocket at %s: %w", maskedURL, err)
 	}
 	defer c.CloseNow()
+
+	// coder/websocket defaults to a 32KiB per-message read limit; gorilla imposed none here.
+	// Raise it generously rather than disabling it outright, so a large update payload can't
+	// be truncated/dropped.
+	c.SetReadLimit(4 << 20)
 
 	collectionType := "show_sets"
 	subscribeMsg := map[string]any{
