@@ -2,8 +2,17 @@ source "https://rubygems.org"
 
 #     bundle exec jekyll serve
 
-gem "just-the-docs"
-gem "github-pages", group: :jekyll_plugins
+gem "jekyll", "~> 4.4"
+gem "just-the-docs", "~> 0.12"
+
+# Required by just-the-docs; the github-pages gem used to supply these implicitly.
+group :jekyll_plugins do
+  gem "jekyll-include-cache"
+  gem "jekyll-seo-tag", "~> 2.8"
+  # Rewrites .md links in source so they work both on github.com and on the
+  # rendered site. index.md relies on this.
+  gem "jekyll-relative-links"
+end
 
 # Windows and JRuby does not include zoneinfo files, so bundle the tzinfo-data gem
 # and associated library.
