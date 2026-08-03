@@ -1,4 +1,4 @@
-import { type UseStore, createStore, del, get, keys, clear as idbClear, set } from "idb-keyval";
+import { type UseStore, createStore, del, get, clear as idbClear, set } from "idb-keyval";
 import type { PersistStorage, StorageValue } from "zustand/middleware";
 
 /**
@@ -8,6 +8,16 @@ import type { PersistStorage, StorageValue } from "zustand/middleware";
 export type IdbPersistStorage<S> = PersistStorage<S> & { clear: () => Promise<void> };
 
 const LEGACY_DB_NAME = "aura";
+
+/**
+ * Marks migration as done in the new store once every legacy entry has been
+ * copied. Checked instead of "does the target have any key" -- that check
+ * looks true after only the first key of a multi-key migration lands, so an
+ * interrupted migration (tab closed, write fails) would permanently skip the
+ * rest. Copying is idempotent (`set` overwrites), so retrying on a missing
+ * marker is safe.
+ */
+const MIGRATION_MARKER_KEY = "__aura_legacy_migrated__";
 
 /**
  * localforage's IndexedDB driver stores each key's value directly (structured
@@ -65,12 +75,12 @@ async function readLegacyEntries(legacyStoreName: string): Promise<[IDBValidKey,
  * One-time copy of this store's data out of the old shared `localforage`
  * database, so upgrading users don't silently lose persisted state (filters,
  * saved sets, onboarding status, etc.) just because the storage backend
- * changed. Runs at most once per store: skipped entirely once the new store
- * already has any key, whether from a prior migration or a fresh write.
+ * changed. Runs at most once per store: skipped once `MIGRATION_MARKER_KEY`
+ * is present, set only after every legacy entry has been copied.
  */
 async function migrateLegacyEntries(legacyStoreName: string, target: UseStore): Promise<void> {
-  const existingKeys = await keys(target);
-  if (existingKeys.length > 0) {
+  const alreadyMigrated = await get(MIGRATION_MARKER_KEY, target);
+  if (alreadyMigrated) {
     return;
   }
 
@@ -80,6 +90,44 @@ async function migrateLegacyEntries(legacyStoreName: string, target: UseStore): 
       await set(key, value, target);
     }
   }
+  await set(MIGRATION_MARKER_KEY, true, target);
+}
+
+/**
+ * Clears the legacy `aura` database's object store for this instance, scoped
+ * to `legacyStoreName` since `PageStores` and `GlobalStores` share that one
+ * database. Without this, a deep reset only wipes the new per-store database
+ * -- the legacy data survives and gets copied right back in by
+ * `migrateLegacyEntries` the next time this store starts fresh.
+ */
+async function clearLegacyEntries(legacyStoreName: string): Promise<void> {
+  if (typeof indexedDB === "undefined") {
+    return;
+  }
+
+  return new Promise((resolve) => {
+    const openReq = indexedDB.open(LEGACY_DB_NAME);
+    openReq.onerror = () => resolve();
+    openReq.onsuccess = () => {
+      const db = openReq.result;
+      if (!db.objectStoreNames.contains(legacyStoreName)) {
+        db.close();
+        resolve();
+        return;
+      }
+
+      const tx = db.transaction(legacyStoreName, "readwrite");
+      tx.objectStore(legacyStoreName).clear();
+      tx.oncomplete = () => {
+        db.close();
+        resolve();
+      };
+      tx.onerror = () => {
+        db.close();
+        resolve();
+      };
+    };
+  });
 }
 
 /**
@@ -121,6 +169,8 @@ export function createIdbStorage<S>(
     },
     clear: async () => {
       await idbClear(getStore());
+      await clearLegacyEntries(legacyStoreName);
+      migration = undefined;
     },
   };
 }
