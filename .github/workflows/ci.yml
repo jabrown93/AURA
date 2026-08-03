@@ -9,6 +9,10 @@ on:
     # ruleset can fast-forward the target branch once the branch is green.
     branches: [main, beta, 'renovate/**']
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 

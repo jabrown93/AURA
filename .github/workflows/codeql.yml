@@ -8,6 +8,10 @@ on:
   schedule:
     - cron: '25 22 * * 5'
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 # codeql is now a composite action, so each caller job owns runs-on and MUST
 # grant the permissions CodeQL needs (a composite action cannot declare
 # job-level permissions). AURA is multi-language: analyze Go and TypeScript
