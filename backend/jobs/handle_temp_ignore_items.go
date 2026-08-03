@@ -4,48 +4,59 @@ import (
 	"aura/logging"
 	"aura/mediaserver"
 	"context"
+
+	"github.com/go-co-op/gocron/v2"
+	"github.com/google/uuid"
 )
 
 func StartHandleTempIgnoredItemsJob() error {
 	mu.Lock()
 	defer mu.Unlock()
 
-	if c == nil {
+	if sched == nil {
 		logging.LOGGER.Error().Timestamp().Msg("Cron Jobs Scheduler is not initialized")
 		return nil
 	}
 
-	if handleTempIgnoredItemsJobID != 0 {
-		c.Remove(handleTempIgnoredItemsJobID)
-		handleTempIgnoredItemsJobID = 0
+	if handleTempIgnoredItemsJobID != uuid.Nil {
+		if err := sched.RemoveJob(handleTempIgnoredItemsJobID); err != nil {
+			logging.LOGGER.Error().Timestamp().Err(err).Msg("Failed to remove existing Handle Temp Ignored Items Job")
+		}
+		handleTempIgnoredItemsJobID = uuid.Nil
+		handleTempIgnoredItemsJob = nil
 	}
 
-	var err error
 	spec := "0 */1 * * *"
-	handleTempIgnoredItemsJobID, err = c.AddFunc(spec, func() {
-		defer func() {
-			if r := recover(); r != nil {
-				logging.LOGGER.Error().Timestamp().Interface("recover", r).Msg("PANIC: in scheduled HandleTempIgnoredItemsJob")
+	job, err := sched.NewJob(
+		gocron.CronJob(spec, false),
+		gocron.NewTask(func() {
+			defer func() {
+				if r := recover(); r != nil {
+					logging.LOGGER.Error().Timestamp().Interface("recover", r).Msg("PANIC: in scheduled HandleTempIgnoredItemsJob")
+				}
+			}()
+			ctx, ld := logging.CreateLoggingContext(context.Background(), "Cron Job")
+			action := ld.AddAction("Handle Temp Ignored Items", logging.LevelInfo)
+			ctx = logging.WithCurrentAction(ctx, action)
+			Err := mediaserver.HandleTempIgnoredItems(ctx)
+			if Err.Message != "" {
+				logging.LOGGER.Error().Timestamp().Str("error", Err.Message).
+					Str("next_run", formatNextRun(handleTempIgnoredItemsJob)).
+					Msg("Error running Handle Temp Ignored Items Job")
+			} else {
+				logging.LOGGER.Info().Timestamp().
+					Str("next_run", formatNextRun(handleTempIgnoredItemsJob)).
+					Msg("Handle Temp Ignored Items Job Completed")
 			}
-		}()
-		ctx, ld := logging.CreateLoggingContext(context.Background(), "Cron Job")
-		action := ld.AddAction("Handle Temp Ignored Items", logging.LevelInfo)
-		ctx = logging.WithCurrentAction(ctx, action)
-		Err := mediaserver.HandleTempIgnoredItems(ctx)
-		if Err.Message != "" {
-			logging.LOGGER.Error().Timestamp().Str("error", Err.Message).
-				Str("next_run", c.Entry(handleTempIgnoredItemsJobID).Next.String()).
-				Msg("Error running Handle Temp Ignored Items Job")
-		} else {
-			logging.LOGGER.Info().Timestamp().
-				Str("next_run", c.Entry(handleTempIgnoredItemsJobID).Next.String()).
-				Msg("Handle Temp Ignored Items Job Completed")
-		}
-		ld.Log()
-	})
+			ld.Log()
+		}),
+		gocron.WithName("Handle Temp Ignored Items Job"),
+	)
 	if err != nil {
 		return err
 	}
+	handleTempIgnoredItemsJob = job
+	handleTempIgnoredItemsJobID = job.ID()
 	jobSpecs[handleTempIgnoredItemsJobID] = spec
 
 	logging.LOGGER.Info().Timestamp().
@@ -59,22 +70,19 @@ func RunHandleTempIgnoredItemsJobNow() {
 	mu.Lock()
 	defer mu.Unlock()
 
-	if c == nil {
+	if sched == nil {
 		logging.LOGGER.Error().Timestamp().Msg("Cron Jobs Scheduler is not initialized")
 		return
 	}
 
-	if handleTempIgnoredItemsJobID == 0 {
+	if handleTempIgnoredItemsJobID == uuid.Nil || handleTempIgnoredItemsJob == nil {
 		logging.LOGGER.Error().Timestamp().Msg("Handle Temp Ignored Items Job is not scheduled")
 		return
 	}
 
 	go func() {
-		entry := c.Entry(handleTempIgnoredItemsJobID)
-		if entry.ID == 0 {
-			logging.LOGGER.Error().Timestamp().Msg("Handle Temp Ignored Items Job entry not found")
-			return
+		if err := handleTempIgnoredItemsJob.RunNow(); err != nil {
+			logging.LOGGER.Error().Timestamp().Err(err).Msg("Failed to run Handle Temp Ignored Items Job")
 		}
-		entry.Job.Run()
 	}()
 }

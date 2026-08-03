@@ -9,7 +9,7 @@ export interface RunJob_Response {
   message: string;
 }
 
-export const RunJob = async (jobName: string, jobId: number): Promise<APIResponse<RunJob_Response>> => {
+export const RunJob = async (jobName: string, jobId: string): Promise<APIResponse<RunJob_Response>> => {
   log("INFO", "API - Jobs", "Trigger", `Triggering job: ${jobName} (ID: ${jobId})`);
 
   try {

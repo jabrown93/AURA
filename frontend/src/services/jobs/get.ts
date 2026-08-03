@@ -6,7 +6,7 @@ import { log } from "@/lib/logger";
 import type { APIResponse } from "@/types/api/api-response";
 
 export type JobInfo = {
-  id: number;
+  id: string;
   spec: string;
   next_run: string;
   prev_run: string;

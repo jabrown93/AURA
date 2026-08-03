@@ -5,6 +5,8 @@ go 1.26.0
 require (
 	github.com/coreos/go-oidc/v3 v3.20.0
 	github.com/go-chi/chi/v5 v5.3.1
+	github.com/go-co-op/gocron/v2 v2.22.0
+	github.com/google/uuid v1.6.0
 	github.com/lestrrat-go/jwx/v3 v3.2.0
 	github.com/rs/zerolog v1.35.1
 	github.com/swaggo/http-swagger/v2 v2.0.2
@@ -27,6 +29,7 @@ require (
 	github.com/go-openapi/swag/typeutils v0.25.5 // indirect
 	github.com/go-openapi/swag/yamlutils v0.25.5 // indirect
 	github.com/goccy/go-json v0.10.6 // indirect
+	github.com/jonboulle/clockwork v0.5.0 // indirect
 	github.com/lestrrat-go/blackmagic v1.0.4 // indirect
 	github.com/lestrrat-go/dsig v1.3.0 // indirect
 	github.com/lestrrat-go/dsig-secp256k1 v1.0.0 // indirect

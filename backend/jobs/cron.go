@@ -6,48 +6,82 @@ import (
 	"sync"
 	"time"
 
-	"github.com/robfig/cron/v3"
+	"github.com/go-co-op/gocron/v2"
+	"github.com/google/uuid"
 )
 
 var (
-	c  *cron.Cron
-	mu sync.Mutex
+	sched gocron.Scheduler
+	mu    sync.Mutex
 
-	jobSpecs = map[cron.EntryID]string{}
+	jobSpecs = map[uuid.UUID]string{}
 
 	// Runs Always
-	downloadQueueJobID                   cron.EntryID = 0
-	refreshMediaItemsAndCollectionsJobID cron.EntryID = 0
-	refreshMediuxUsersJobID              cron.EntryID = 0
-	checkMediuxSiteLinkJobID             cron.EntryID = 0
-	checkForMediaItemChangesJobID        cron.EntryID = 0
-	handleTempIgnoredItemsJobID          cron.EntryID = 0
-	refreshAnidbMappingsJobID            cron.EntryID = 0
+	downloadQueueJobID                   uuid.UUID = uuid.Nil
+	refreshMediaItemsAndCollectionsJobID uuid.UUID = uuid.Nil
+	refreshMediuxUsersJobID              uuid.UUID = uuid.Nil
+	checkMediuxSiteLinkJobID             uuid.UUID = uuid.Nil
+	checkForMediaItemChangesJobID        uuid.UUID = uuid.Nil
+	handleTempIgnoredItemsJobID          uuid.UUID = uuid.Nil
+	refreshAnidbMappingsJobID            uuid.UUID = uuid.Nil
 
 	// Configurable
-	autodownloadJobID cron.EntryID = 0
-	kometaImportJobID cron.EntryID = 0
+	autodownloadJobID uuid.UUID = uuid.Nil
+	kometaImportJobID uuid.UUID = uuid.Nil
+
+	// Job handles, kept alongside the ID vars above so TriggerJob and the
+	// per-job "run now" helpers can call RunNow() without a lookup accessor;
+	// gocron v2 doesn't expose one.
+	downloadQueueJob                   gocron.Job
+	refreshMediaItemsAndCollectionsJob gocron.Job
+	refreshMediuxUsersJob              gocron.Job
+	checkMediuxSiteLinkJob             gocron.Job
+	checkForMediaItemChangesJob        gocron.Job
+	handleTempIgnoredItemsJob          gocron.Job
+	refreshAnidbMappingsJob            gocron.Job
+	autodownloadJob                    gocron.Job
+	kometaImportJob                    gocron.Job
 )
 
-var manualPrevRun = map[cron.EntryID]string{}
+var manualPrevRun = map[uuid.UUID]string{}
 
 func init() {
-	c = cron.New()
+	var err error
+	sched, err = gocron.NewScheduler()
+	if err != nil {
+		logging.LOGGER.Error().Timestamp().Err(err).Msg("Failed to initialize Cron Jobs Scheduler")
+		sched = nil
+	}
 }
 
 func StartJobs() {
-	if c != nil {
-		c.Start()
+	if sched != nil {
+		sched.Start()
 		logging.LOGGER.Info().Timestamp().Msg("Cron Jobs Scheduler Started")
 	}
 }
 
 type JobInfo struct {
-	ID      cron.EntryID `json:"id"`
-	Spec    string       `json:"spec"`
-	NextRun string       `json:"next_run"`
-	PrevRun string       `json:"prev_run"`
-	JobName string       `json:"job_name"`
+	ID      uuid.UUID `json:"id"`
+	Spec    string    `json:"spec"`
+	NextRun string    `json:"next_run"`
+	PrevRun string    `json:"prev_run"`
+	JobName string    `json:"job_name"`
+}
+
+// formatNextRun resolves a job's next scheduled run time for display/logging.
+// Returns an empty string (and logs) if the job is nil or gocron can't compute it.
+func formatNextRun(job gocron.Job) string {
+	if job == nil {
+		return ""
+	}
+	next, err := job.NextRun()
+	if err != nil {
+		logging.LOGGER.Error().Timestamp().Err(err).Str("job_id", job.ID().String()).
+			Msg("Failed to get job next run time")
+		return ""
+	}
+	return next.Format("2006-01-02 15:04:05")
 }
 
 func GetListOfJobs() []JobInfo {
@@ -55,35 +89,45 @@ func GetListOfJobs() []JobInfo {
 	defer mu.Unlock()
 
 	var jobs []JobInfo
-	if c != nil {
-		entries := c.Entries()
+	if sched != nil {
+		entries := sched.Jobs()
 		for _, entry := range entries {
-			prevRun := entry.Prev.String()
-			if manual, ok := manualPrevRun[entry.ID]; ok {
+			entryID := entry.ID()
+
+			prevRun := ""
+			if manual, ok := manualPrevRun[entryID]; ok {
 				prevRun = manual
-			} else if prevRun == "0001-01-01 00:00:00 +0000 UTC" {
-				prevRun = ""
+			} else if last, err := entry.LastRunStartedAt(); err != nil {
+				logging.LOGGER.Error().Timestamp().Err(err).Str("job_id", entryID.String()).
+					Msg("Failed to get job last run start time")
+			} else if !last.IsZero() {
+				prevRun = last.Format("2006-01-02 15:04:05")
+			}
+
+			nextRun := ""
+			if next, err := entry.NextRun(); err != nil {
+				logging.LOGGER.Error().Timestamp().Err(err).Str("job_id", entryID.String()).
+					Msg("Failed to get job next run time")
 			} else {
-				prevRun = entry.Prev.Format("2006-01-02 15:04:05")
+				nextRun = next.Format("2006-01-02 15:04:05")
 			}
 
 			jobInfo := JobInfo{
-				ID:      entry.ID,
+				ID:      entryID,
 				Spec:    "",
-				NextRun: entry.Next.Format("2006-01-02 15:04:05"),
+				NextRun: nextRun,
 				PrevRun: prevRun,
 				JobName: "",
 			}
 
-			// Use stored spec; cron doesn't expose it from the parsed schedule.
-			if spec, ok := jobSpecs[entry.ID]; ok {
+			// Use stored spec; gocron doesn't expose the original cron string from the job.
+			if spec, ok := jobSpecs[entryID]; ok {
 				jobInfo.Spec = spec
 			} else {
-				// optional fallback: at least show concrete schedule type
-				jobInfo.Spec = fmt.Sprintf("%T", entry.Schedule)
+				jobInfo.Spec = entry.Name()
 			}
 
-			switch entry.ID {
+			switch entryID {
 			case downloadQueueJobID:
 				jobInfo.JobName = "Download Queue Processing Job"
 			case autodownloadJobID:
@@ -115,43 +159,49 @@ func TriggerJob(jobName string, jobID string) error {
 	mu.Lock()
 	defer mu.Unlock()
 
-	var entryID cron.EntryID
+	var entryID uuid.UUID
+	var job gocron.Job
 	switch jobName {
 	case "Download Queue Processing Job":
 		entryID = downloadQueueJobID
+		job = downloadQueueJob
 	case "AutoDownload Job":
 		entryID = autodownloadJobID
+		job = autodownloadJob
 	case "Refresh Media Items and Collections Job":
 		entryID = refreshMediaItemsAndCollectionsJobID
+		job = refreshMediaItemsAndCollectionsJob
 	case "Refresh Mediux Users Job":
 		entryID = refreshMediuxUsersJobID
+		job = refreshMediuxUsersJob
 	case "Check Mediux Site Link Availability Job":
 		entryID = checkMediuxSiteLinkJobID
+		job = checkMediuxSiteLinkJob
 	case "Check for Media Item Changes Job":
 		entryID = checkForMediaItemChangesJobID
+		job = checkForMediaItemChangesJob
 	case "Handle Temp Ignored Items Job":
 		entryID = handleTempIgnoredItemsJobID
+		job = handleTempIgnoredItemsJob
 	case "Refresh AniDB Mappings Job":
 		entryID = refreshAnidbMappingsJobID
+		job = refreshAnidbMappingsJob
 	case "Kometa Asset Import Job":
 		entryID = kometaImportJobID
+		job = kometaImportJob
 	default:
 		return fmt.Errorf("unknown job name: %s", jobName)
 	}
 
-	if entryID == 0 {
+	if entryID == uuid.Nil || job == nil {
 		return fmt.Errorf("job not found or not scheduled: %s", jobName)
 	}
 
-	entry := c.Entry(entryID)
-	if entry.ID == 0 {
-		return fmt.Errorf("job entry not found for ID: %d", entryID)
-	}
-
 	go func() {
-		if entry.Job != nil {
-			manualPrevRun[entry.ID] = time.Now().Format("2006-01-02 15:04:05")
-			entry.Job.Run()
+		manualPrevRun[entryID] = time.Now().Format("2006-01-02 15:04:05")
+		if err := job.RunNow(); err != nil {
+			logging.LOGGER.Error().Timestamp().Err(err).Str("job_name", jobName).
+				Msg("Failed to trigger job")
 		}
 	}()
 

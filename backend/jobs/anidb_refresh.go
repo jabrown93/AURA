@@ -4,41 +4,52 @@ import (
 	"aura/anidb"
 	"aura/logging"
 	"context"
+
+	"github.com/go-co-op/gocron/v2"
+	"github.com/google/uuid"
 )
 
 func StartRefreshAnidbMappingsJob() error {
 	mu.Lock()
 	defer mu.Unlock()
 
-	if c == nil {
+	if sched == nil {
 		logging.LOGGER.Error().Timestamp().Msg("Cron Jobs Scheduler is not initialized")
 		return nil
 	}
 
-	if refreshAnidbMappingsJobID != 0 {
-		c.Remove(refreshAnidbMappingsJobID)
-		refreshAnidbMappingsJobID = 0
+	if refreshAnidbMappingsJobID != uuid.Nil {
+		if err := sched.RemoveJob(refreshAnidbMappingsJobID); err != nil {
+			logging.LOGGER.Error().Timestamp().Err(err).Msg("Failed to remove existing Refresh AniDB Mappings Job")
+		}
+		refreshAnidbMappingsJobID = uuid.Nil
+		refreshAnidbMappingsJob = nil
 	}
 
-	var err error
 	// Weekly (Monday 04:00). The Fribb dataset changes slowly, so a frequent
 	// refresh would be wasteful.
 	spec := "0 4 * * 1"
-	refreshAnidbMappingsJobID, err = c.AddFunc(spec, func() {
-		defer func() {
-			if r := recover(); r != nil {
-				logging.LOGGER.Error().Timestamp().Interface("recover", r).Msg("PANIC: in scheduled RefreshAnidbMappingsJob")
-			}
-		}()
-		ctx, ld := logging.CreateLoggingContext(context.Background(), "Cron Job")
-		action := ld.AddAction("Refresh AniDB Mappings", logging.LevelInfo)
-		ctx = logging.WithCurrentAction(ctx, action)
-		anidb.PreloadAnidbMappings(ctx)
-		ld.Log()
-	})
+	job, err := sched.NewJob(
+		gocron.CronJob(spec, false),
+		gocron.NewTask(func() {
+			defer func() {
+				if r := recover(); r != nil {
+					logging.LOGGER.Error().Timestamp().Interface("recover", r).Msg("PANIC: in scheduled RefreshAnidbMappingsJob")
+				}
+			}()
+			ctx, ld := logging.CreateLoggingContext(context.Background(), "Cron Job")
+			action := ld.AddAction("Refresh AniDB Mappings", logging.LevelInfo)
+			ctx = logging.WithCurrentAction(ctx, action)
+			anidb.PreloadAnidbMappings(ctx)
+			ld.Log()
+		}),
+		gocron.WithName("Refresh AniDB Mappings Job"),
+	)
 	if err != nil {
 		return err
 	}
+	refreshAnidbMappingsJob = job
+	refreshAnidbMappingsJobID = job.ID()
 	jobSpecs[refreshAnidbMappingsJobID] = spec
 
 	logging.LOGGER.Info().Timestamp().
@@ -52,12 +63,12 @@ func RunRefreshAnidbMappingsJobNow() {
 	mu.Lock()
 	defer mu.Unlock()
 
-	if c == nil {
+	if sched == nil {
 		logging.LOGGER.Error().Timestamp().Msg("Cron Jobs Scheduler is not initialized")
 		return
 	}
 
-	if refreshAnidbMappingsJobID == 0 {
+	if refreshAnidbMappingsJobID == uuid.Nil {
 		logging.LOGGER.Error().Timestamp().Msg("Refresh AniDB Mappings Job is not scheduled")
 		return
 	}

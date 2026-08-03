@@ -512,7 +512,7 @@ definitions:
   jobs.JobInfo:
     properties:
       id:
-        type: integer
+        type: string
       job_name:
         type: string
       next_run:
