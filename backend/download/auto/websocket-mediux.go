@@ -8,14 +8,14 @@ import (
 	"aura/models"
 	"aura/utils"
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/url"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/gorilla/websocket"
+	"github.com/coder/websocket"
+	"github.com/coder/websocket/wsjson"
 )
 
 const (
@@ -37,6 +37,8 @@ func StartMediuxWebSocketClient() {
 }
 
 func connectAndSubscribeMediux() error {
+	ctx := context.Background()
+
 	// Build WebSocket URL with token
 	URL, err := buildMediuxWebSocketURL()
 	if err != nil {
@@ -48,12 +50,22 @@ func connectAndSubscribeMediux() error {
 	logging.LOGGER.Info().Timestamp().Str("url", maskedURL).
 		Msg("Mediux Event Listener: Connecting to Mediux WebSocket")
 
-	// Connect to WebSocket
-	c, _, err := websocket.DefaultDialer.Dial(URL, nil)
+	// Connect to WebSocket. Compression is disabled to preserve the wire behavior of the
+	// previous gorilla/websocket client, which never negotiated permessage-deflate here.
+	// Bound the handshake with a timeout (gorilla's DefaultDialer imposed 45s) so a stalled
+	// TCP/TLS handshake can't block this goroutine forever.
+	dialCtx, cancelDial := context.WithTimeout(ctx, 45*time.Second)
+	c, _, err := websocket.Dial(dialCtx, URL, &websocket.DialOptions{CompressionMode: websocket.CompressionDisabled})
+	cancelDial()
 	if err != nil {
-		return fmt.Errorf("failed to connect to Mediux WebSocket at %s: %w", maskedURL, err)
+		return fmt.Errorf("failed to connect to Mediux WebSocket at %s: %w", maskedURL, sanitizeWSDialError(err, URL, maskedURL))
 	}
-	defer c.Close()
+	defer c.CloseNow()
+
+	// coder/websocket defaults to a 32KiB per-message read limit; gorilla imposed none here.
+	// Raise it generously rather than disabling it outright, so a large update payload can't
+	// be truncated/dropped.
+	c.SetReadLimit(4 << 20)
 
 	collectionType := "show_sets"
 	subscribeMsg := map[string]any{
@@ -61,23 +73,16 @@ func connectAndSubscribeMediux() error {
 		"collection": collectionType,
 	}
 
-	if err := c.WriteJSON(subscribeMsg); err != nil {
+	if err := wsjson.Write(ctx, c, subscribeMsg); err != nil {
 		return err
 	}
 	logging.LOGGER.Debug().Timestamp().Str("collection", collectionType).Msg("Subscribed to Mediux WebSocket collection")
 
 	// Listen for messages until error/close
 	for {
-		_, message, err := c.ReadMessage()
-		if err != nil {
-			return err
-		}
-
-		// Decode message
 		var msg MediuxWebSocketResponseMessage
-		if err := json.Unmarshal(message, &msg); err != nil {
-			logging.LOGGER.Error().Timestamp().Err(err).Msg("Failed to unmarshal WebSocket message")
-			continue
+		if err := wsjson.Read(ctx, c, &msg); err != nil {
+			return err
 		}
 
 		// Handle Ping messages
@@ -85,7 +90,7 @@ func connectAndSubscribeMediux() error {
 			pongMsg := map[string]string{
 				"type": "pong",
 			}
-			if err := c.WriteJSON(pongMsg); err != nil {
+			if err := wsjson.Write(ctx, c, pongMsg); err != nil {
 				logging.LOGGER.Error().Timestamp().Err(err).Msg("Failed to send pong message")
 			}
 			continue
