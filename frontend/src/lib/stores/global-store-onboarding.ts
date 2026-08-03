@@ -1,5 +1,4 @@
-import type { AppConfigStatus_Response } from "@/services/config/status";
-import { GetAppConfigStatus } from "@/services/config/status";
+import { type AppConfigStatus_Response, GetAppConfigStatus } from "@/services/config/status";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 

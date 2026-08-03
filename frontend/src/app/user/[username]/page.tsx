@@ -2,8 +2,7 @@
 
 import { setRefsToFormItems } from "@/helper/download-modal/set-to-form-item";
 import { formatLastUpdatedDate } from "@/helper/format-date-last-updates";
-import type { TMDBLookupMap } from "@/helper/search-idb-for-tmdb-id";
-import { createTMDBLookupMap, searchWithLookupMap } from "@/helper/search-idb-for-tmdb-id";
+import { type TMDBLookupMap, createTMDBLookupMap, searchWithLookupMap } from "@/helper/search-idb-for-tmdb-id";
 import { ReturnErrorMessage } from "@/services/api-error-return";
 import { GetAllUserSets } from "@/services/mediux/get-user-sets";
 import { ArrowDownAZ, ArrowDownZA, ClockArrowDown, ClockArrowUp, User } from "lucide-react";

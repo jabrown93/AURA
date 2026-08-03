@@ -5,12 +5,12 @@ import { PageStore } from "@/lib/stores/stores";
 
 import type { MediaItem } from "@/types/media-and-posters/media-item-and-library";
 import type { PaginationStore, SortStore } from "@/types/store-interfaces";
-import type {
-  TYPE_FILTER_IGNORED_OPTIONS,
-  TYPE_HOME_PAGE_FILTER_HAS_SETS_AVAILABLE_OPTIONS,
-  TYPE_SORT_ORDER_OPTIONS,
+import {
+  type TYPE_FILTER_IGNORED_OPTIONS,
+  type TYPE_HOME_PAGE_FILTER_HAS_SETS_AVAILABLE_OPTIONS,
+  type TYPE_HOME_PAGE_FILTER_IN_DB_OPTIONS,
+  type TYPE_SORT_ORDER_OPTIONS,
 } from "@/types/ui-options";
-import type { TYPE_HOME_PAGE_FILTER_IN_DB_OPTIONS } from "@/types/ui-options";
 
 type Direction = "next" | "previous";
 

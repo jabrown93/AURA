@@ -1,7 +1,12 @@
 "use client";
 
-import type { AuthMethods_Response } from "@/services/auth/login";
-import { AttemptLogin, GetAuthMethods, GetSession, OIDC_LOGIN_PATH } from "@/services/auth/login";
+import {
+  AttemptLogin,
+  type AuthMethods_Response,
+  GetAuthMethods,
+  GetSession,
+  OIDC_LOGIN_PATH,
+} from "@/services/auth/login";
 import { Eye, EyeOff, KeyRound, Loader2, Lock } from "lucide-react";
 
 import { useEffect, useState } from "react";

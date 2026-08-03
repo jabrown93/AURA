@@ -12,8 +12,7 @@ import Link from "next/link";
 
 import { AssetImage } from "@/components/shared/asset-image";
 import { ConfirmDestructiveDialogActionButton } from "@/components/shared/dialog-destructive-action";
-import type { FormItemDisplay } from "@/components/shared/download-modal";
-import DownloadModal from "@/components/shared/download-modal";
+import DownloadModal, { type FormItemDisplay } from "@/components/shared/download-modal";
 import { renderTypeBadges } from "@/components/shared/saved-sets-shared";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";

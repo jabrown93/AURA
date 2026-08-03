@@ -5,8 +5,10 @@ import { ValidateMediuxInfo } from "@/services/validation/mediux";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 
 import { GetConnectionColor } from "@/components/settings-onboarding/ConfigSectionMediaServer";
-import type { ConfigConnectionStatus } from "@/components/settings-onboarding/ConfigSectionSonarrRadarr";
-import { CONNECTION_STATUS_COLORS_BG } from "@/components/settings-onboarding/ConfigSectionSonarrRadarr";
+import {
+  CONNECTION_STATUS_COLORS_BG,
+  type ConfigConnectionStatus,
+} from "@/components/settings-onboarding/ConfigSectionSonarrRadarr";
 import { PopoverHelp } from "@/components/shared/popover-help";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
