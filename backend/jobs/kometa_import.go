@@ -5,6 +5,9 @@ import (
 	"aura/kometa"
 	"aura/logging"
 	"runtime/debug"
+
+	"github.com/go-co-op/gocron/v2"
+	"github.com/google/uuid"
 )
 
 // StartKometaImportJob (re)schedules the periodic Kometa asset import job. It is a no-op
@@ -14,14 +17,17 @@ func StartKometaImportJob() error {
 	mu.Lock()
 	defer mu.Unlock()
 
-	if c == nil {
+	if sched == nil {
 		logging.LOGGER.Error().Timestamp().Msg("Cron Jobs Scheduler is not initialized")
 		return nil
 	}
 
-	if kometaImportJobID != 0 {
-		c.Remove(kometaImportJobID)
-		kometaImportJobID = 0
+	if kometaImportJobID != uuid.Nil {
+		if err := sched.RemoveJob(kometaImportJobID); err != nil {
+			logging.LOGGER.Error().Timestamp().Err(err).Msg("Failed to remove existing Kometa Asset Import Job")
+		}
+		kometaImportJobID = uuid.Nil
+		kometaImportJob = nil
 	}
 
 	k := config.Current.Images.Kometa
@@ -32,24 +38,29 @@ func StartKometaImportJob() error {
 
 	spec := k.ImportCron
 
-	var err error
-	kometaImportJobID, err = c.AddFunc(spec, func() {
-		defer func() {
-			if r := recover(); r != nil {
-				logging.LOGGER.Error().
-					Timestamp().
-					Interface("recover", r).
-					Str("stack", string(debug.Stack())).
-					Msg("PANIC: in scheduled Kometa Asset Import Job")
+	job, err := sched.NewJob(
+		gocron.CronJob(spec, false),
+		gocron.NewTask(func() {
+			defer func() {
+				if r := recover(); r != nil {
+					logging.LOGGER.Error().
+						Timestamp().
+						Interface("recover", r).
+						Str("stack", string(debug.Stack())).
+						Msg("PANIC: in scheduled Kometa Asset Import Job")
+				}
+			}()
+			if started := kometa.StartImport(); !started {
+				logging.LOGGER.Warn().Timestamp().Msg("Kometa Asset Import skipped (already running or not enabled)")
 			}
-		}()
-		if started := kometa.StartImport(); !started {
-			logging.LOGGER.Warn().Timestamp().Msg("Kometa Asset Import skipped (already running or not enabled)")
-		}
-	})
+		}),
+		gocron.WithName("Kometa Asset Import Job"),
+	)
 	if err != nil {
 		return err
 	}
+	kometaImportJob = job
+	kometaImportJobID = job.ID()
 	jobSpecs[kometaImportJobID] = spec
 
 	logging.LOGGER.Info().Timestamp().
