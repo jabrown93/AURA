@@ -19,7 +19,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gorilla/websocket"
+	"github.com/coder/websocket"
 )
 
 const (
@@ -94,7 +94,10 @@ func StartOrRestartPlexWebSocketClient() {
 	}(stopChan)
 }
 
-// connectAndListenPlexWithStop is like connectAndListenPlex but returns early if stop is closed.
+// connectAndListenPlexWithStop connects to the Plex WebSocket and blocks until either the
+// connection errors (including on a 60s read idle-timeout, which drives the reconnect
+// cadence in StartOrRestartPlexWebSocketClient) or stop is closed, in which case it returns
+// a nil error to signal a clean shutdown rather than a connection failure.
 func connectAndListenPlexWithStop(stop <-chan struct{}) (err error) {
 	wsURL, wsURLForLog, err := buildPlexWebSocketURL()
 	if err != nil {
@@ -104,12 +107,25 @@ func connectAndListenPlexWithStop(stop <-chan struct{}) (err error) {
 	logging.LOGGER.Info().Timestamp().Str("url", wsURLForLog).
 		Msg("Plex Event Listener: Connecting to Plex WebSocket")
 
-	// Connect to WebSocket
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	// Derive a context from the stop channel so dial/read calls cancel promptly when the
+	// caller requests shutdown, instead of relying on a deadline-then-select pattern.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		select {
+		case <-stop:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+
+	// Connect to WebSocket. Compression is disabled to preserve the wire behavior of the
+	// previous gorilla/websocket client, which never negotiated permessage-deflate here.
+	conn, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{CompressionMode: websocket.CompressionDisabled})
 	if err != nil {
 		return fmt.Errorf("failed to connect to Plex WebSocket at %s: %w", wsURLForLog, err)
 	}
-	defer conn.Close()
+	defer conn.CloseNow()
 
 	logging.LOGGER.Info().Timestamp().
 		Msg("Plex Event Listener: Connected — watching for metadata refresh events")
@@ -119,41 +135,19 @@ func connectAndListenPlexWithStop(stop <-chan struct{}) (err error) {
 		case <-stop:
 			return nil
 		default:
-			conn.SetReadDeadline(time.Now().Add(60 * time.Second))
-			_, message, err := conn.ReadMessage()
-			if err != nil {
-				return fmt.Errorf("error reading from Plex WebSocket: %w", err)
-			}
-			handleMessage(message)
 		}
-	}
-}
 
-func connectAndListenPlex() (err error) {
-	wsURL, wsURLForLog, err := buildPlexWebSocketURL()
-	if err != nil {
-		return err
-	}
-
-	logging.LOGGER.Info().Timestamp().Str("url", wsURLForLog).
-		Msg("Plex Event Listener: Connecting to Plex WebSocket")
-
-	// Connect to WebSocket
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
-	if err != nil {
-		return fmt.Errorf("failed to connect to Plex WebSocket at %s: %w", wsURLForLog, err)
-	}
-	defer conn.Close()
-
-	logging.LOGGER.Info().Timestamp().
-		Msg("Plex Event Listener: Connected — watching for metadata refresh events")
-
-	for {
-		_, message, err := conn.ReadMessage()
+		readCtx, cancelRead := context.WithTimeout(ctx, 60*time.Second)
+		_, message, err := conn.Read(readCtx)
+		cancelRead()
 		if err != nil {
+			if ctx.Err() != nil {
+				// stop was closed while the read was in flight; this is a clean shutdown,
+				// not a connection error.
+				return nil
+			}
 			return fmt.Errorf("error reading from Plex WebSocket: %w", err)
 		}
-
 		handleMessage(message)
 	}
 }
