@@ -1,5 +1,42 @@
 # Changelog
 
+# [2.0.0](https://github.com/jabrown93/AURA/compare/v1.9.1...v2.0.0) (2026-08-03)
+
+
+### Bug Fixes
+
+* **deps:** update module go.yaml.in/yaml/v3 to v3.0.5 ([f23403c](https://github.com/jabrown93/AURA/commit/f23403ce164105f203eac4afab308745620cebea))
+
+
+### chore
+
+* **deps:** migrate job scheduler from robfig/cron to gocron/v2 ([#101](https://github.com/jabrown93/AURA/issues/101)) ([4e86b1e](https://github.com/jabrown93/AURA/commit/4e86b1ecb08ca3267b239198d8a155a77b6c1e76)), closes [backend/config/validate.go#ValidateCron](https://github.com/backend/config/validate.go/issues/ValidateCron)
+
+
+### BREAKING CHANGES
+
+* **deps:** JobInfo.ID moves from int (robfig's sequential entry ID) to
+a string-serialized UUID (gocron's job ID type), changing the shape of
+GET /api/jobs and the job_id param expected on POST /api/jobs. Swagger docs
+regenerated to reflect it. Frontend types updated to match
+(frontend/src/services/jobs/{get,run}.ts); frontend/src/app/jobs/page.tsx
+needed no changes since it only passes job.id through opaquely.
+
+All 9 job registrations use gocron.CronJob(spec, false) to match the existing
+5-field cron specs. Added backend/jobs/cron_spec_test.go asserting each
+spec's computed next-run matches robfig/cron's own ParseStandard semantics --
+note the test doc comment explains why this specific check can't actually
+distinguish withSeconds=false from true for these 5-field literals (gocron's
+SecondOptional-based parser auto-detects field count either way); false is
+still used for clarity and consistency with validate.go.
+
+The pre-existing unused job_id query param on TriggerJob (routing/jobs/run.go)
+was left as-is; not touched by this migration.
+
+This diff was authored by an AI agent (Claude Code) on behalf of @jabrown93.
+
+Claude-Session: https://claude.ai/code/session_011YS4q3pPBvYB5pFJcNv2Ju
+
 ## [1.9.1](https://github.com/jabrown93/AURA/compare/v1.9.0...v1.9.1) (2026-08-03)
 
 
