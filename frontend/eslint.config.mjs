@@ -1,7 +1,7 @@
 // eslint.config.js
 import js from "@eslint/js";
 import prettier from "eslint-config-prettier";
-import importPlugin from "eslint-plugin-import";
+import importPlugin from "eslint-plugin-import-x";
 import jsxA11y from "eslint-plugin-jsx-a11y";
 import react from "eslint-plugin-react";
 import reactHooks from "eslint-plugin-react-hooks";
@@ -40,11 +40,11 @@ export default [
       react,
       "react-hooks": reactHooks,
       "jsx-a11y": jsxA11y,
-      import: importPlugin,
+      "import-x": importPlugin,
     },
     settings: {
       react: { version: "detect" },
-      "import/resolver": {
+      "import-x/resolver": {
         typescript: {
           project: "./tsconfig.eslint.json",
         },
