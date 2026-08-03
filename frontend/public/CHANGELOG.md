@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.0.1](https://github.com/jabrown93/AURA/compare/v2.0.0...v2.0.1) (2026-08-03)
+
+
+### Bug Fixes
+
+* **deps:** update module github.com/lestrrat-go/jwx/v3 to v4 ([#82](https://github.com/jabrown93/AURA/issues/82)) ([caebb9e](https://github.com/jabrown93/AURA/commit/caebb9e7a5812af6506f311b9164d2e3210c373b))
+* **frontend:** enable import-x baseline rules ([#102](https://github.com/jabrown93/AURA/issues/102)) ([008eea3](https://github.com/jabrown93/AURA/commit/008eea3ad388be6d4f104c096d3ea0dedddd1f78))
+
 # [2.0.0](https://github.com/jabrown93/AURA/compare/v1.9.1...v2.0.0) (2026-08-03)
 
 
