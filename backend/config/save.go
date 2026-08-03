@@ -6,7 +6,7 @@ import (
 	"os"
 	"path"
 
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 )
 
 func (config *Config) Save(ctx context.Context) (Err logging.LogErrorInfo) {
