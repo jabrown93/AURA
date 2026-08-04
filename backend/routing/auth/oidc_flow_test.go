@@ -11,16 +11,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lestrrat-go/jwx/v3/jwa"
-	"github.com/lestrrat-go/jwx/v3/jwk"
-	"github.com/lestrrat-go/jwx/v3/jwt"
+	"github.com/go-jose/go-jose/v4"
 )
 
 // fakeProvider is a minimal OpenID provider: discovery, a JWKS, and a token endpoint that
 // hands back an ID token the test controls.
 type fakeProvider struct {
 	server     *httptest.Server
-	signingKey jwk.Key
+	signingKey *rsa.PrivateKey
 	clientID   string
 
 	// idTokenClaims is applied to every ID token issued; tests mutate it to exercise
@@ -37,15 +35,8 @@ func newFakeProvider(t *testing.T, clientID string) *fakeProvider {
 	if err != nil {
 		t.Fatalf("failed to generate a signing key: %v", err)
 	}
-	signingKey, err := jwk.Import(rsaKey)
-	if err != nil {
-		t.Fatalf("failed to import the signing key: %v", err)
-	}
-	if err := signingKey.Set(jwk.KeyIDKey, "test-key"); err != nil {
-		t.Fatalf("failed to set the key id: %v", err)
-	}
 
-	provider := &fakeProvider{signingKey: signingKey, clientID: clientID, idTokenClaims: map[string]any{}}
+	provider := &fakeProvider{signingKey: rsaKey, clientID: clientID, idTokenClaims: map[string]any{}}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, _ *http.Request) {
@@ -59,17 +50,12 @@ func newFakeProvider(t *testing.T, clientID string) *fakeProvider {
 		})
 	})
 	mux.HandleFunc("/jwks", func(w http.ResponseWriter, _ *http.Request) {
-		public, err := jwk.PublicKeyOf(provider.signingKey)
-		if err != nil {
-			t.Errorf("failed to derive the public key: %v", err)
-			return
-		}
-		set := jwk.NewSet()
-		if err := set.AddKey(public); err != nil {
-			t.Errorf("failed to build the key set: %v", err)
-			return
-		}
-		writeJSON(w, set)
+		writeJSON(w, jose.JSONWebKeySet{Keys: []jose.JSONWebKey{{
+			Key:       &provider.signingKey.PublicKey,
+			KeyID:     "test-key",
+			Algorithm: "RS256",
+			Use:       "sig",
+		}}})
 	})
 	mux.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
 		if err := r.ParseForm(); err != nil {
@@ -102,7 +88,6 @@ func (p *fakeProvider) issuer() string {
 func (p *fakeProvider) signIDToken(t *testing.T) string {
 	t.Helper()
 
-	token := jwt.New()
 	claims := map[string]any{
 		"iss": p.issuer(),
 		"aud": p.clientID,
@@ -112,17 +97,28 @@ func (p *fakeProvider) signIDToken(t *testing.T) string {
 	for k, v := range p.idTokenClaims {
 		claims[k] = v
 	}
-	for k, v := range claims {
-		if err := token.Set(k, v); err != nil {
-			t.Fatalf("failed to set claim %s: %v", k, err)
-		}
+
+	payload, err := json.Marshal(claims)
+	if err != nil {
+		t.Fatalf("failed to marshal the claims: %v", err)
 	}
 
-	signed, err := jwt.Sign(token, jwt.WithKey(jwa.RS256(), p.signingKey))
+	signer, err := jose.NewSigner(
+		jose.SigningKey{Algorithm: jose.RS256, Key: p.signingKey},
+		(&jose.SignerOptions{}).WithHeader("kid", "test-key"),
+	)
+	if err != nil {
+		t.Fatalf("failed to create the signer: %v", err)
+	}
+	jws, err := signer.Sign(payload)
 	if err != nil {
 		t.Fatalf("failed to sign the ID token: %v", err)
 	}
-	return string(signed)
+	signed, err := jws.CompactSerialize()
+	if err != nil {
+		t.Fatalf("failed to serialize the ID token: %v", err)
+	}
+	return signed
 }
 
 func writeJSON(w http.ResponseWriter, payload any) {
