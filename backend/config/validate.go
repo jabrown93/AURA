@@ -9,7 +9,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/alexedwards/argon2id"
+	"aura/utils/argon2id"
 	"github.com/robfig/cron/v3"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"

@@ -1,8 +1,8 @@
+import eslintReact from "@eslint-react/eslint-plugin";
 import js from "@eslint/js";
 import prettier from "eslint-config-prettier";
 import importPlugin from "eslint-plugin-import-x";
 import jsxA11y from "eslint-plugin-jsx-a11y";
-import react from "eslint-plugin-react";
 import reactHooks from "eslint-plugin-react-hooks";
 import tseslint from "typescript-eslint";
 
@@ -25,6 +25,19 @@ export default [
   ...tseslint.configs.recommended,
 
   /* =========================
+     React rules (@eslint-react). Only rules matching the old
+     eslint-plugin-react posture are enabled; the recommended preset's extra
+     rules are deliberately not adopted here.
+     ========================= */
+  {
+    files: ["src/**/*.{ts,tsx}"],
+    plugins: eslintReact.configs["recommended-typescript"].plugins,
+    rules: {
+      "@eslint-react/no-missing-key": "error",
+    },
+  },
+
+  /* =========================
      TypeScript + React (type-aware, scoped)
      ========================= */
   {
@@ -36,13 +49,11 @@ export default [
       },
     },
     plugins: {
-      react,
       "react-hooks": reactHooks,
       "jsx-a11y": jsxA11y,
       "import-x": importPlugin,
     },
     settings: {
-      react: { version: "detect" },
       "import-x/resolver": {
         typescript: {
           project: "./tsconfig.eslint.json",
@@ -50,13 +61,6 @@ export default [
       },
     },
     rules: {
-      /* React */
-      "react/react-in-jsx-scope": "off",
-      "react/jsx-uses-react": "off",
-      "react/jsx-key": "error",
-      "react/no-unknown-property": "error",
-      "react/jsx-filename-extension": ["warn", { extensions: [".tsx"] }],
-
       /* Hooks */
       "react-hooks/rules-of-hooks": "error",
       "react-hooks/exhaustive-deps": "warn",

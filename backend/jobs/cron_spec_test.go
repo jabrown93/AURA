@@ -2,10 +2,10 @@ package jobs
 
 import (
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/go-co-op/gocron/v2"
-	"github.com/jonboulle/clockwork"
 	"github.com/robfig/cron/v3"
 )
 
@@ -42,56 +42,65 @@ var cronSpecCases = []struct {
 }
 
 // TestCronSpecs_NextRunMatchesStandardCronSemantics schedules each spec with
-// gocron.CronJob(spec, false) under a frozen clock, then independently
+// gocron.CronJob(spec, false) under synctest's fake clock, then independently
 // computes the expected next run via robfig/cron's own ParseStandard (the
 // same parser backend/config/validate.go#ValidateCron uses) and asserts the
 // two agree. A mismatch here means the specs are no longer being interpreted
 // as plain 5-field standard cron.
 func TestCronSpecs_NextRunMatchesStandardCronSemantics(t *testing.T) {
-	// Arbitrary fixed instant with non-trivial day-of-week/hour components so
-	// weekly/hourly/every-N-minute schedules all exercise real arithmetic.
-	reference := time.Date(2026, 3, 15, 10, 30, 0, 0, time.UTC)
-
 	for _, tc := range cronSpecCases {
 		t.Run(tc.name, func(t *testing.T) {
-			fakeClock := clockwork.NewFakeClockAt(reference)
+			synctest.Test(t, func(t *testing.T) {
+				// The bubble's clock starts at 2000-01-01 00:00:00 UTC, whose
+				// all-zero components would let day-of-week/hour bugs slip
+				// through. Sleep forward to an instant with non-trivial
+				// components (2000-01-02 10:30 UTC, a Sunday) so weekly/
+				// hourly/every-N-minute schedules all exercise real
+				// arithmetic. Inside the bubble this advances the fake clock
+				// instantly.
+				time.Sleep(34*time.Hour + 30*time.Minute)
+				// .UTC() so robfig's Next computes in the same location the
+				// scheduler is pinned to below; time.Now() reports the fake
+				// clock in the local zone.
+				reference := time.Now().UTC()
 
-			sched, err := gocron.NewScheduler(gocron.WithClock(fakeClock), gocron.WithLocation(time.UTC))
-			if err != nil {
-				t.Fatalf("failed to create scheduler: %v", err)
-			}
-			t.Cleanup(func() {
-				if err := sched.Shutdown(); err != nil {
-					t.Errorf("scheduler shutdown failed: %v", err)
+				sched, err := gocron.NewScheduler(gocron.WithLocation(time.UTC))
+				if err != nil {
+					t.Fatalf("failed to create scheduler: %v", err)
+				}
+				t.Cleanup(func() {
+					if err := sched.Shutdown(); err != nil {
+						t.Errorf("scheduler shutdown failed: %v", err)
+					}
+				})
+
+				job, err := sched.NewJob(
+					gocron.CronJob(tc.spec, false),
+					gocron.NewTask(func() {}),
+					gocron.WithName(tc.name),
+				)
+				if err != nil {
+					t.Fatalf("failed to schedule job for spec %q: %v", tc.spec, err)
+				}
+
+				sched.Start()
+
+				got, err := job.NextRun()
+				if err != nil {
+					t.Fatalf("NextRun() error: %v", err)
+				}
+
+				schedule, err := cron.ParseStandard(tc.spec)
+				if err != nil {
+					t.Fatalf("robfig/cron failed to parse spec %q: %v", tc.spec, err)
+				}
+				want := schedule.Next(reference)
+
+				if !got.Equal(want) {
+					t.Errorf("spec %q: gocron next run = %v, want %v (standard 5-field cron semantics per robfig/cron.ParseStandard)",
+						tc.spec, got, want)
 				}
 			})
-
-			job, err := sched.NewJob(
-				gocron.CronJob(tc.spec, false),
-				gocron.NewTask(func() {}),
-				gocron.WithName(tc.name),
-			)
-			if err != nil {
-				t.Fatalf("failed to schedule job for spec %q: %v", tc.spec, err)
-			}
-
-			sched.Start()
-
-			got, err := job.NextRun()
-			if err != nil {
-				t.Fatalf("NextRun() error: %v", err)
-			}
-
-			schedule, err := cron.ParseStandard(tc.spec)
-			if err != nil {
-				t.Fatalf("robfig/cron failed to parse spec %q: %v", tc.spec, err)
-			}
-			want := schedule.Next(reference)
-
-			if !got.Equal(want) {
-				t.Errorf("spec %q: gocron next run = %v, want %v (standard 5-field cron semantics per robfig/cron.ParseStandard)",
-					tc.spec, got, want)
-			}
 		})
 	}
 }
