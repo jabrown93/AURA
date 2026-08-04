@@ -6,7 +6,7 @@ import (
 	"aura/utils/httpx"
 	"net/http"
 
-	"github.com/alexedwards/argon2id"
+	"aura/utils/argon2id"
 )
 
 type loginRequest struct {
