@@ -19,11 +19,12 @@ import (
 )
 
 var (
-	APP_NAME    = "aura"
-	APP_VERSION = "dev"
-	AUTHOR      = "xmoosex"
-	LICENSE     = "MIT"
-	APP_PORT    = 8888
+	APP_NAME     = "aura"
+	APP_VERSION  = "dev"
+	AUTHOR       = "xmoosex"
+	LICENSE      = "MIT"
+	APP_PORT     = 8888
+	APP_TLS_PORT = 8443
 )
 
 var activeHandler atomic.Value

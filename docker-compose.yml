@@ -14,6 +14,9 @@ services:
         ports:
             - "3000:3000" # Web UI PORT
             - "8888:8888" # API PORT
+            ## HTTPS ports — uncomment when TLS_CERT_FILE/TLS_KEY_FILE are set below
+            # - "3443:3443" # Web UI HTTPS PORT
+            # - "8443:8443" # API HTTPS PORT
 
         # Make sure to change these paths to match your host system
         volumes:
@@ -26,3 +29,7 @@ services:
             - PGID=100
             - UMASK=022
             - TZ=America/New_York # Set your timezone, e.g., America/New_York
+            ## HTTPS: mount your certificate and key (e.g. under /config) and point
+            ## these at them. Both must be set; restart the container after rotating.
+            # - TLS_CERT_FILE=/config/certs/tls.crt
+            # - TLS_KEY_FILE=/config/certs/tls.key
