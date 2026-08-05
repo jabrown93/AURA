@@ -1,5 +1,23 @@
 # Changelog
 
+# [2.1.0](https://github.com/jabrown93/AURA/compare/v2.0.1...v2.1.0) (2026-08-05)
+
+
+### Bug Fixes
+
+* **deps:** update dependency @hookform/resolvers to v5.6.0 ([d0b4718](https://github.com/jabrown93/AURA/commit/d0b4718247d589b79af119cc2f894daec5e90596))
+* **deps:** update dependency js-yaml to v5.2.3 ([c1fb486](https://github.com/jabrown93/AURA/commit/c1fb48633c213713239c83976fb7699a6199725e))
+* **deps:** update dependency react-hook-form to v7.84.0 ([06934a3](https://github.com/jabrown93/AURA/commit/06934a3bfb4d6c226be99ae496c19835227ac9d9))
+* **deps:** update module github.com/lestrrat-go/jwx/v3 to v3.2.0 ([1213a4f](https://github.com/jabrown93/AURA/commit/1213a4f1e0a6e1daebd2497c6bb5f3efaa63f4ca))
+* **deps:** update module github.com/lestrrat-go/jwx/v3 to v3.2.0 ([0227ac2](https://github.com/jabrown93/AURA/commit/0227ac2840df8f9ece681e53ed0b0b6871748241))
+* **deps:** update module github.com/lestrrat-go/jwx/v3 to v4 ([#103](https://github.com/jabrown93/AURA/issues/103)) ([63804c1](https://github.com/jabrown93/AURA/commit/63804c14f7990964a6083e76fc228c104c41af51))
+* **deps:** update module github.com/lestrrat-go/jwx/v3 to v4 ([#104](https://github.com/jabrown93/AURA/issues/104)) ([d3a3f3e](https://github.com/jabrown93/AURA/commit/d3a3f3ed7121f57587ae892f46b2dc60a8b871d5))
+
+
+### Features
+
+* serve HTTPS with user-provided TLS cert and key ([#109](https://github.com/jabrown93/AURA/issues/109)) ([e3cf1c5](https://github.com/jabrown93/AURA/commit/e3cf1c5e88ec46a85eddfda22afc1e7c4f718cad))
+
 ## [2.0.1](https://github.com/jabrown93/AURA/compare/v2.0.0...v2.0.1) (2026-08-03)
 
 
