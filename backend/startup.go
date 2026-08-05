@@ -14,8 +14,10 @@ import (
 	"aura/mediux"
 	"aura/utils"
 	"context"
+	"crypto/tls"
 	"fmt"
 	"net/http"
+	"os"
 	"time"
 )
 
@@ -259,6 +261,8 @@ func runWarmup() (success bool) {
 }
 
 func startAPI() {
+	startTLSIfConfigured()
+
 	// Start HTTP Server
 	logging.LOGGER.Info().Timestamp().Int("port", APP_PORT).
 		Bool("full_routes", config.Loaded && config.Valid).
@@ -267,6 +271,37 @@ func startAPI() {
 	if err := http.ListenAndServe(fmt.Sprintf(":%d", APP_PORT), http.HandlerFunc(dispatch)); err != nil {
 		logging.LOGGER.Fatal().Err(err).Msg("Failed to start server")
 	}
+}
+
+// startTLSIfConfigured starts an HTTPS listener on APP_TLS_PORT when
+// TLS_CERT_FILE and TLS_KEY_FILE are set. It is an additional listener rather
+// than a replacement: the UI's build-time /api rewrite targets
+// http://localhost:8888, so the plain HTTP listener must stay up for
+// UI-to-API traffic. Certificates are loaded once at startup; a restart is
+// required to pick up rotated certs.
+func startTLSIfConfigured() {
+	certFile := os.Getenv("TLS_CERT_FILE")
+	keyFile := os.Getenv("TLS_KEY_FILE")
+	if certFile == "" && keyFile == "" {
+		return
+	}
+	// Half-configured TLS is treated as fatal: silently serving HTTP only
+	// would defeat the point of the user asking for HTTPS.
+	if certFile == "" || keyFile == "" {
+		logging.LOGGER.Fatal().Str("TLS_CERT_FILE", certFile).Str("TLS_KEY_FILE", keyFile).
+			Msg("TLS_CERT_FILE and TLS_KEY_FILE must both be set to enable HTTPS")
+	}
+	if _, err := tls.LoadX509KeyPair(certFile, keyFile); err != nil {
+		logging.LOGGER.Fatal().Err(err).Str("TLS_CERT_FILE", certFile).Str("TLS_KEY_FILE", keyFile).
+			Msg("Failed to load TLS certificate/key pair")
+	}
+
+	go func() {
+		logging.LOGGER.Info().Timestamp().Int("port", APP_TLS_PORT).Msg("Starting HTTPS Server")
+		if err := http.ListenAndServeTLS(fmt.Sprintf(":%d", APP_TLS_PORT), certFile, keyFile, http.HandlerFunc(dispatch)); err != nil {
+			logging.LOGGER.Fatal().Err(err).Msg("Failed to start HTTPS server")
+		}
+	}()
 }
 
 // dispatch forwards to the currently active router.

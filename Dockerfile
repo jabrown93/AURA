@@ -103,6 +103,9 @@ ENV XDG_CACHE_HOME=/tmp/.cache
 # Expose the ports for both the backend and frontend
 EXPOSE 3000
 EXPOSE 8888
+# HTTPS ports, active only when TLS_CERT_FILE and TLS_KEY_FILE are set
+EXPOSE 3443
+EXPOSE 8443
 
 # Run both processes under the node supervisor (shellless, so no `sh -c`).
 ENTRYPOINT ["node", "/app/launcher.mjs"]
