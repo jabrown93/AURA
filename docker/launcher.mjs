@@ -94,19 +94,36 @@ function start(name, command, args) {
  * @param {number} targetPort
  * @param {{cert: Buffer, key: Buffer}} tlsOptions
  */
+// RFC 9110 hop-by-hop headers: they describe the client->proxy connection and
+// must not be forwarded to the upstream (node manages its own connection
+// semantics and picks chunked encoding itself when the body has no length).
+const HOP_BY_HOP_HEADERS = [
+  "connection",
+  "keep-alive",
+  "proxy-authenticate",
+  "proxy-authorization",
+  "te",
+  "trailer",
+  "transfer-encoding",
+  "upgrade",
+];
+
 function startTlsProxy(listenPort, targetPort, tlsOptions) {
   const server = createHttpsServer(tlsOptions, (req, res) => {
+    const headers = { ...req.headers };
+    for (const h of HOP_BY_HOP_HEADERS) delete headers[h];
+    headers["x-forwarded-proto"] = "https";
+    // Deliberately overwrite rather than append: this proxy is the outermost
+    // TLS endpoint, so any inbound x-forwarded-for is client-supplied and
+    // spoofable.
+    headers["x-forwarded-for"] = req.socket.remoteAddress ?? "";
     const upstream = httpRequest(
       {
         host: "127.0.0.1",
         port: targetPort,
         path: req.url,
         method: req.method,
-        headers: {
-          ...req.headers,
-          "x-forwarded-proto": "https",
-          "x-forwarded-for": req.socket.remoteAddress ?? "",
-        },
+        headers,
       },
       (upRes) => {
         res.writeHead(upRes.statusCode ?? 502, upRes.headers);
@@ -148,15 +165,16 @@ function startTlsIfConfigured() {
     shutdown(1);
     return;
   }
-  let tlsOptions;
+  // createServer also throws synchronously on malformed or mismatched
+  // cert/key PEM, so it shares the read's catch instead of crashing the
+  // supervisor with an unhandled exception.
   try {
-    tlsOptions = { cert: readFileSync(certFile), key: readFileSync(keyFile) };
+    const tlsOptions = { cert: readFileSync(certFile), key: readFileSync(keyFile) };
+    startTlsProxy(3443, 3000, tlsOptions);
   } catch (err) {
-    console.error(`[launcher] failed to read TLS cert/key: ${err.message}`);
+    console.error(`[launcher] failed to load TLS cert/key: ${err.message}`);
     shutdown(1);
-    return;
   }
-  startTlsProxy(3443, 3000, tlsOptions);
 }
 
 process.on("SIGTERM", () => shutdown(0));
