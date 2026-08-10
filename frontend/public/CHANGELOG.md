@@ -1,5 +1,15 @@
 # Changelog
 
+## [2.1.1](https://github.com/jabrown93/AURA/compare/v2.1.0...v2.1.1) (2026-08-10)
+
+
+### Bug Fixes
+
+* **deps:** update dependency @hookform/resolvers to v5.7.1 ([f6be267](https://github.com/jabrown93/AURA/commit/f6be267a44b2bcfae655c42709045fa29b8ea585))
+* **deps:** update dependency lucide-react to v1.29.0 ([d9dfcf2](https://github.com/jabrown93/AURA/commit/d9dfcf2c963547054110563934ce36363be504d6))
+* **deps:** update dependency motion to v13 ([#111](https://github.com/jabrown93/AURA/issues/111)) ([1f61c83](https://github.com/jabrown93/AURA/commit/1f61c83baf2dbd256350b158987ead5e8859a1bb))
+* **deps:** update dependency next to v16.3.0 ([c80543a](https://github.com/jabrown93/AURA/commit/c80543a098ccbd0a9c7c2d8101949c772072e85f))
+
 # [2.1.0](https://github.com/jabrown93/AURA/compare/v2.0.1...v2.1.0) (2026-08-05)
 
 
