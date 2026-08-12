@@ -28,7 +28,7 @@ jobs:
       actions: read
       contents: read
     steps:
-      - uses: jabrown93/ci/actions/codeql@90d7c50cf2328639445467fad778760594ab7971 # codeql-v1.0.5
+      - uses: jabrown93/ci/actions/codeql@ae8087545df7e009d15886d87ad1c8a932d8b583 # codeql-v1.0.6
         with:
           language: go
           build-mode: autobuild
@@ -41,7 +41,7 @@ jobs:
       actions: read
       contents: read
     steps:
-      - uses: jabrown93/ci/actions/codeql@90d7c50cf2328639445467fad778760594ab7971 # codeql-v1.0.5
+      - uses: jabrown93/ci/actions/codeql@ae8087545df7e009d15886d87ad1c8a932d8b583 # codeql-v1.0.6
         with:
           language: javascript-typescript
           build-mode: none
