@@ -1,5 +1,21 @@
 # Changelog
 
+## [2.1.2](https://github.com/jabrown93/AURA/compare/v2.1.1...v2.1.2) (2026-08-17)
+
+
+### Bug Fixes
+
+* **deps:** update dependency @hookform/resolvers to v5.8.0 ([d6aac5d](https://github.com/jabrown93/AURA/commit/d6aac5dfb02f6325b75cd6a56af7800be5684328))
+* **deps:** update dependency lucide-react to v1.30.0 ([7620103](https://github.com/jabrown93/AURA/commit/76201032db8d4eac8c6fb7733729ad58691788e6))
+* **deps:** update dependency lucide-react to v1.31.0 ([16a509b](https://github.com/jabrown93/AURA/commit/16a509bfba0ca35cfb6af9206390adbf96aab134))
+* **deps:** update dependency motion to v13.1.0 ([4834c5d](https://github.com/jabrown93/AURA/commit/4834c5db9ffcc81a4a044c2fa7565c9642f647dc))
+* **deps:** update dependency next to v16.3.1 ([398dee9](https://github.com/jabrown93/AURA/commit/398dee92f588b5f8c30a30e317c45c50a216668a))
+* **deps:** update dependency react-hook-form to v7.85.0 ([0de5fa4](https://github.com/jabrown93/AURA/commit/0de5fa432435e418b501cd8dcd6464d69caf24bd))
+* **deps:** update dependency sonner to v2.0.8 ([6e0c6ee](https://github.com/jabrown93/AURA/commit/6e0c6eea9dfd5d8e9965d4b863472b68a674fd69))
+* **deps:** update dependency zustand to v5.0.15 ([5afdd64](https://github.com/jabrown93/AURA/commit/5afdd649d4b12e40b6b130a00b4b8f5136c4b064))
+* **deps:** update module golang.org/x/crypto to v0.55.0 ([a08ab54](https://github.com/jabrown93/AURA/commit/a08ab54755b513014f8785728b69184fef9dfb11))
+* **deps:** update module golang.org/x/text to v0.41.0 ([1eda66d](https://github.com/jabrown93/AURA/commit/1eda66d182eff48beb76873b25f78a22da8ccc83))
+
 ## [2.1.1](https://github.com/jabrown93/AURA/compare/v2.1.0...v2.1.1) (2026-08-10)
 
 
