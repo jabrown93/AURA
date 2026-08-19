@@ -91,6 +91,12 @@ jobs:
       - name: Install release tooling
         run: npm ci
 
+      # Exports RELEASE_COMMIT_SCRIPT for .releaserc.js's exec prepareCmd,
+      # which creates the version-bump commit via the GitHub API (Verified)
+      # instead of @semantic-release/git.
+      - name: Stage release-commit script
+        uses: jabrown93/ci/actions/release-commit@03c962b18c0808de575db8251919e34083513387 # release-commit-v1.0.0
+
       # Publishes (tags, bumps VERSION.txt/version.json, updates CHANGELOG.md, creates
       # the GitHub Release) only when a feat/fix/breaking commit warrants it. On success
       # the @semantic-release/exec successCmd (see .releaserc.js) emits published/version
