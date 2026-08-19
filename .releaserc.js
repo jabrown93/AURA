@@ -93,14 +93,19 @@ module.exports = {
       },
     ],
     [
-      "@semantic-release/git",
+      "@semantic-release/exec",
       {
-        assets: ["VERSION.txt", "version.json", "frontend/public/CHANGELOG.md"],
-        // Keep the release notes OUT of the commit message: the first release
-        // rolls up ~1800 commits (~130 KB of notes), and inlining that via
-        // `git commit -m` overruns the OS argument limit (E2BIG). The full notes
-        // still land in CHANGELOG.md and the GitHub Release body.
-        message: "chore(release): v${nextRelease.version} [skip ci]",
+        // Version-bump commit via GitHub's GraphQL createCommitOnBranch
+        // instead of @semantic-release/git: API commits are signed by GitHub
+        // and show as Verified, which a local git commit from the CI bot
+        // never can be. The script hard-resets the checkout to the new
+        // commit so the release tag semantic-release creates points at it —
+        // and so the beta-resync push in version-release.yml still pushes
+        // the released tip.
+        prepareCmd:
+          "node scripts/release-commit.mjs --branch ${branch.name}" +
+          " --message 'chore(release): v${nextRelease.version} [skip ci]' --" +
+          " VERSION.txt version.json frontend/public/CHANGELOG.md",
       },
     ],
     [
