@@ -1,7 +1,7 @@
 ############################################################################
 ##### Stage 1: Build the backend application
 ############################################################################
-FROM dhi.io/golang:1.26.6-alpine3.24-dev@sha256:c8b7c6a9fffa5281979cf36df5c43d26d867e76d2e333883e2b78e234f472319 AS backend-builder
+FROM dhi.io/golang:1.26.7-alpine3.24-dev@sha256:0c00bda6cdb72ae77877aae5b9abb1033c34a51bc0aa1e66e5808b864158098b AS backend-builder
 
 # cgo build deps (gcc, musl-dev) plus ca-certificates + tzdata, which are copied
 # into the shellless runtime image (which has no package manager of its own).
