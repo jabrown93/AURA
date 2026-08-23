@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.1.3](https://github.com/jabrown93/AURA/compare/v2.1.2...v2.1.3) (2026-08-23)
+
+
+### Bug Fixes
+
+* close x/mod CVEs and unblock the errored pin-dependencies branch ([#114](https://github.com/jabrown93/AURA/issues/114)) ([82edc13](https://github.com/jabrown93/AURA/commit/82edc13718c18d6050b92f2a3977d45acc64ae76))
+* **deps:** update dependency @hookform/resolvers to v5.9.0 ([bd84e82](https://github.com/jabrown93/AURA/commit/bd84e8296543277f7bf6f0953626d9a7022bb2a4))
+* **deps:** update dependency @hookform/resolvers to v5.9.1 ([b478380](https://github.com/jabrown93/AURA/commit/b478380c1bc563fa10b2c28a4c02f70373011020))
+* **deps:** update dependency js-yaml to v5.3.0 ([639a5d3](https://github.com/jabrown93/AURA/commit/639a5d302f42b8f29458dc1773b3e3cb52c37bea))
+* **deps:** update dependency lucide-react to v1.32.0 ([d3be390](https://github.com/jabrown93/AURA/commit/d3be390bd1818884fe5d7fcfdbe27b6673d27124))
+* **deps:** update dependency lucide-react to v1.33.0 ([dfda445](https://github.com/jabrown93/AURA/commit/dfda44500b0421770b61c2f5389745386fb34b06))
+* **deps:** update module github.com/mattn/go-sqlite3 to v1.14.50 ([db96d3e](https://github.com/jabrown93/AURA/commit/db96d3e681887fa15533b076a6e67b5cb2798896))
+
 ## [2.1.2](https://github.com/jabrown93/AURA/compare/v2.1.1...v2.1.2) (2026-08-17)
 
 
