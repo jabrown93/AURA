@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.4](https://github.com/jabrown93/AURA/compare/v2.1.3...v2.1.4) (2026-08-23)
+
+
+### Bug Fixes
+
+* **docker:** use unversioned alpine DHI tags, move node to 26.7 ([#115](https://github.com/jabrown93/AURA/issues/115)) ([a553879](https://github.com/jabrown93/AURA/commit/a553879f87304074e1327f8cd5773c42f194ae2b))
+
 ## [2.1.3](https://github.com/jabrown93/AURA/compare/v2.1.2...v2.1.3) (2026-08-23)
 
 
