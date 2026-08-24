@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.1.5](https://github.com/jabrown93/AURA/compare/v2.1.4...v2.1.5) (2026-08-24)
+
+
+### Bug Fixes
+
+* **deps:** update dependency motion to v13.1.1 ([6e4263f](https://github.com/jabrown93/AURA/commit/6e4263f582d88f6c333f6e1605b64432e6563f5c))
+* **deps:** update module github.com/go-chi/chi/v5 to v5.3.2 ([b87379a](https://github.com/jabrown93/AURA/commit/b87379aef87788e68ecade85ac95c0990f28082f))
+
 ## [2.1.4](https://github.com/jabrown93/AURA/compare/v2.1.3...v2.1.4) (2026-08-23)
 
 
