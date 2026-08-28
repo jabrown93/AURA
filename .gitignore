@@ -71,3 +71,4 @@ docker_local_build.sh.old
 
 # Claude Code local settings
 .claude/settings.local.json
+.pi/
