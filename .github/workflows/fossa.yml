@@ -1,0 +1,49 @@
+---
+# FOSSA licence and dependency scan.
+#
+# Takes over from the Dependency-Track workflows this replaces -- which never
+# worked here. Their upload job targeted a `arc-oss-aura` runner set that was
+# never created, so it queued until GitHub expired it and no SBOM was ever
+# uploaded. Dependency-Track is decommissioned now regardless
+# (jabrown93/homelab#3167), so FOSSA takes back the licence-scanning role.
+#
+# Push-only, and never `pull_request`. FOSSA_API_KEY is a write-scoped push
+# token that identifies and updates the FOSSA project, so it must not be
+# exposed to PR-controlled code -- and a fork PR would not receive it anyway.
+# The practical cost is that the scan is post-merge rather than pre-merge; it
+# was always advisory, so there is no gate being lost.
+#
+# main only: this answers "what licences ship", and the prerelease branches
+# would only add transient revisions to the same FOSSA project. That also
+# matters more than usual here -- the FOSSA free plan allows five projects and
+# this repo is the fifth.
+name: FOSSA
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: fossa-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    name: Licence scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # run-tests stays off: the scan is advisory, and `fossa test` blocks on
+      # FOSSA finishing its server-side analysis.
+      - name: FOSSA scan
+        uses: jabrown93/ci/actions/fossa@27a3e412cf691a8d106bfb429584e8f8aebb2406 # fossa-v1.0.0
+        with:
+          api-key: ${{ secrets.FOSSA_API_KEY }}
