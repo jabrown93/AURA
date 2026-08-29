@@ -99,3 +99,29 @@ jobs:
             exit 1
           fi
           cosign sign --yes "${IMAGE}@${DIGEST}"
+
+      # buildx `sbom: true` attaches SPDX only -- BuildKit cannot emit CycloneDX.
+      # Same two-format treatment as release.yml, so :edge is inspectable the same
+      # way a released tag is. syft resolves the multi-arch index to one manifest.
+      - name: Generate CycloneDX SBOM
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        env:
+          # Default `owned-by-package` emits a purl-less, license-less `type: file`
+          # component per package-owned file -- pure ballast.
+          SYFT_FILE_METADATA_SELECTION: none
+          # Resolve licenses upstream for ecosystems that ship none in-image.
+          # Best-effort: an unreachable registry degrades coverage, never fails build.
+          SYFT_ENRICH: golang,javascript,python
+          # `enrich: python` also drives guess-unpinned-requirements, which invents
+          # versions for unpinned entries; keep it explicitly off.
+          SYFT_PYTHON_GUESS_UNPINNED_REQUIREMENTS: 'false'
+        with:
+          image: ${{ env.IMAGE }}@${{ steps.build.outputs.digest }}
+          format: cyclonedx-json
+          output-file: sbom.cdx.json
+          upload-artifact: false
+
+      - name: Attach CycloneDX SBOM attestation (keyless)
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: cosign attest --yes --type cyclonedx --predicate sbom.cdx.json "${IMAGE}@${DIGEST}"

@@ -19,8 +19,8 @@ in-cluster jobs.
 | `ci.yml` | PR → `main`, push → `main`/`renovate/**` | Backend `go build`/`vet`/`test` + gofmt gate; frontend `npm ci`/`lint`/`build`. | No |
 | `codeql.yml` | push/PR → `main`/`beta`, weekly | CodeQL for `go` and `javascript-typescript` (build-mode `none`) via the reusable `jabrown93/.github` workflow. | No |
 | `version-release.yml` | push → `main`/`beta`, weekly (Mon 09:00 UTC), manual | semantic-release computes the next version, updates `VERSION.txt`/`version.json`/`frontend/public/CHANGELOG.md`, tags + creates a GitHub Release. Builds nothing — the tag it pushes triggers `release.yml`. Also resyncs `beta` to `main` after a stable release. | No |
-| `release.yml` | GitHub Release published, manual (`publish_tag`) | Builds the multi-arch image for that release's tag and pushes `:v<version>`+`:latest` (stable) or `:v<version>-beta.N`+`:beta` (prerelease). SBOM + provenance, cosign keyless sign. | No |
-| `edge.yml` | push → `main` | Builds the rolling `:edge`+`:edge-<sha>` image from main's tip, independent of releases. SBOM + provenance, cosign keyless sign. | No |
+| `release.yml` | GitHub Release published, manual (`publish_tag`) | Builds the multi-arch image for that release's tag and pushes `:v<version>`+`:latest` (stable) or `:v<version>-beta.N`+`:beta` (prerelease). SPDX + CycloneDX SBOMs, provenance, cosign keyless sign. | No |
+| `edge.yml` | push → `main` | Builds the rolling `:edge`+`:edge-<sha>` image from main's tip, independent of releases. SPDX + CycloneDX SBOMs, provenance, cosign keyless sign. | No |
 | `fossa.yml` | push → `main`, manual | Advisory licence + dependency scan via the shared `jabrown93/ci` `fossa` action. | `FOSSA_API_KEY` |
 | `jekyll-gh-pages.yml` | push → `main` (`docs/**`), manual | Publish `docs/` to GitHub Pages. | Pages setting |
 
@@ -80,11 +80,23 @@ and version badge point at `jabrown93/AURA`, not upstream.
 ## Images
 
 Images publish to **`ghcr.io/<owner>/aura`** using the built-in `GITHUB_TOKEN`
-(`packages: write`) — no registry secrets to configure. They carry an SPDX
-SBOM + max provenance and are keyless-signed (Fulcio/rekor) by digest so the
-homelab Kyverno `verify-ghcr-images` policy can verify them. BuildKit's
-`sbom: true` attestation is SPDX-only; a CycloneDX copy would need a separate
-`cosign attest --type cyclonedx` step, and nothing consumes one here.
+(`packages: write`) — no registry secrets to configure. They carry max
+provenance and **both** SBOM formats as OCI referrers, and are keyless-signed
+(Fulcio/rekor) by digest so the homelab Kyverno `verify-ghcr-images` policy can
+verify them.
+
+Two formats because BuildKit's `sbom: true` attestation is SPDX-only and cannot
+emit CycloneDX, so a syft scan of the pushed digest is attested separately:
+
+```sh
+docker buildx imagetools inspect ghcr.io/<owner>/aura@<digest> --format '{{json .SBOM}}'   # SPDX
+cosign download attestation --predicate-type cyclonedx ghcr.io/<owner>/aura@<digest>       # CycloneDX
+```
+
+The CycloneDX pass is scanned from the digest, never the tag — a floating tag
+can move between push and scan. syft resolves the multi-arch index to a single
+manifest, so that half describes one architecture; these images differ by
+compiled arch, not package set.
 
 ## Licence scanning prerequisites (`fossa.yml`)
 
@@ -99,8 +111,8 @@ The workflow that preceded it — `dt-sbom.yml` plus the `pr-license-check.yml` 
 in-cluster ARC runner. Those never ran: the `arc-oss-aura` runner set was never
 created, so the privileged half queued until GitHub expired it. Dependency-Track
 is decommissioned (jabrown93/homelab#3167) and all three workflows are deleted.
-Image SBOM publishing is unaffected — `release.yml`/`edge.yml` attach one as an
-OCI referrer, as above.
+Image SBOM publishing is unaffected — `release.yml`/`edge.yml` attach both
+formats as OCI referrers, as above.
 
 ## Notes
 
