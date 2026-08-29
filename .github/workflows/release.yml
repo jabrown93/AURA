@@ -157,3 +157,38 @@ jobs:
             exit 1
           fi
           cosign sign --yes "${IMAGE}@${DIGEST}"
+
+      # buildx `sbom: true` above already attached SPDX -- BuildKit's attestation is
+      # SPDX-only and cannot emit CycloneDX. This adds the CycloneDX half so both
+      # formats hang off the same digest.
+      #
+      # syft resolves a multi-arch index to one manifest, so this SBOM describes a
+      # single architecture while buildx's SPDX is per-platform. These images differ
+      # by compiled arch, not package set.
+      - name: Generate CycloneDX SBOM
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        env:
+          # syft's file-metadata cataloger defaults to `owned-by-package`, emitting a
+          # `type: file` component -- name, sha1, sha256, no purl, no license -- per
+          # package-owned file. They match no vulnerability and carry no license, so
+          # they are pure ballast (measured elsewhere at 7,265 of 7,506 components).
+          SYFT_FILE_METADATA_SELECTION: none
+          # Go modules and npm packages often ship no license metadata readable from
+          # the image alone. Enrichment resolves them from upstream registries.
+          # Best-effort: an unreachable registry degrades coverage, never fails build.
+          SYFT_ENRICH: golang,javascript,python
+          # Pinned, not corrective. `enrich: python` also drives
+          # guess-unpinned-requirements, which invents versions for unpinned
+          # requirements.txt entries and would feed them into vulnerability matching.
+          SYFT_PYTHON_GUESS_UNPINNED_REQUIREMENTS: 'false'
+        with:
+          # Digest, never the tag: the tag can move between push and scan.
+          image: ${{ env.IMAGE }}@${{ steps.build.outputs.digest }}
+          format: cyclonedx-json
+          output-file: sbom.cdx.json
+          upload-artifact: false
+
+      - name: Attach CycloneDX SBOM attestation (keyless)
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: cosign attest --yes --type cyclonedx --predicate sbom.cdx.json "${IMAGE}@${DIGEST}"
