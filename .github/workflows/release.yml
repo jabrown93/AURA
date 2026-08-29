@@ -132,8 +132,8 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           # Attach an SPDX SBOM + max provenance as OCI referrers on the image
           # (inspect: `docker buildx imagetools inspect --format '{{json .SBOM}}' <img>`).
-          # SPDX, not CycloneDX: BuildKit's SBOM attestation is SPDX-only. A
-          # CycloneDX copy would need a separate `cosign attest --type cyclonedx`.
+          # SPDX only here: BuildKit's SBOM attestation cannot emit CycloneDX.
+          # The CycloneDX half is attested further down, after the image is pushed.
           provenance: mode=max
           sbom: true
           cache-from: type=gha
