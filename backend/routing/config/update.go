@@ -746,6 +746,10 @@ func checkConfigDifferences_Notifications(ctx context.Context, oldNotifications 
 			changed = true
 		}
 
+		// Set when a masked webhook header cannot be safely resolved, which fails the whole
+		// save rather than persisting either a literal mask or a mispaired credential.
+		maskedHeaderUnresolved := false
+
 		// Providers diff
 		oldMap := providerMapNotifications(oldNotifications.Providers)
 		newMap := providerMapNotifications(newNotifications.Providers)
@@ -908,9 +912,19 @@ func checkConfigDifferences_Notifications(ctx context.Context, oldNotifications 
 						if !config.IsMaskedField(value) {
 							continue
 						}
-						if oldValue, ok := oldHeaders[key]; ok {
-							newProv.Webhook.Headers[key] = oldValue
+						oldValue, ok := oldHeaders[key]
+						// A masked header is only restorable for the URL it was issued
+						// for, under the key it was issued under. Restoring it across a
+						// URL change would re-point the real credential at a new
+						// endpoint; restoring it under a renamed key is impossible, and
+						// leaving it would save the mask text as the credential.
+						if !ok || oldURL != newURL {
+							logAction.SetError("Unable to unmask webhook header",
+								fmt.Sprintf("Provide the full value for header '%s' when changing the webhook URL or renaming a header", key), nil)
+							maskedHeaderUnresolved = true
+							continue
 						}
+						newProv.Webhook.Headers[key] = oldValue
 					}
 					maps.Copy(newHeaders, newProv.Webhook.Headers)
 				}
@@ -958,6 +972,9 @@ func checkConfigDifferences_Notifications(ctx context.Context, oldNotifications 
 			changed = true
 		}
 
+		if maskedHeaderUnresolved {
+			return changed, false
+		}
 	}
 	newValid = config.ValidateNotifications(ctx, newNotifications)
 	return changed, newValid

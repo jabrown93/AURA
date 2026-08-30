@@ -40,6 +40,13 @@ func redactURL(raw string) string {
 	return parsed.String()
 }
 
+// redactErr strips credentials from an error message. http.NewRequest and http.Client.Do
+// both return *url.Error, whose Error() embeds the full request URL, so redacting the
+// separate "url" log field is not enough on its own.
+func redactErr(err error, raw string) string {
+	return strings.ReplaceAll(err.Error(), raw, redactURL(raw))
+}
+
 var sharedTransport = &http.Transport{
 	TLSClientConfig:     &tls.Config{InsecureSkipVerify: false},
 	ForceAttemptHTTP2:   true,
@@ -71,7 +78,7 @@ func MakeHTTPRequest(ctx context.Context, url, method string, headers map[string
 			map[string]any{
 				"method": method,
 				"url":    redactURL(url),
-				"error":  err.Error(),
+				"error":  redactErr(err, url),
 			})
 		return nil, nil, *logAction.Error
 	}
@@ -127,7 +134,7 @@ func MakeHTTPRequest(ctx context.Context, url, method string, headers map[string
 			map[string]any{
 				"method": method,
 				"url":    redactURL(url),
-				"error":  err.Error(),
+				"error":  redactErr(err, url),
 			})
 		return nil, nil, *logAction.Error
 	}
@@ -141,7 +148,7 @@ func MakeHTTPRequest(ctx context.Context, url, method string, headers map[string
 			map[string]any{
 				"method":      method,
 				"url":         redactURL(url),
-				"error":       err.Error(),
+				"error":       redactErr(err, url),
 				"status_code": resp.StatusCode,
 			})
 		return nil, nil, *logAction.Error
