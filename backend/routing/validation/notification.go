@@ -375,8 +375,12 @@ func unmaskWebhookHeaders(webhook *config.Config_Notification_Webhook) bool {
 	}
 
 	// Several providers may share a URL with different credentials, so a mismatch means
-	// "keep looking", not "reject". Values are staged and only applied once one provider
-	// accounts for every masked header, which also avoids leaving a half-restored map behind.
+	// "keep looking", not "reject". Every candidate is collected rather than taking the
+	// first: MaskToken is value-derived, so two providers on one URL whose secrets end the
+	// same way are indistinguishable here. The request carries no provider identity to break
+	// that tie, so an ambiguous match is refused rather than guessed - sending a test with
+	// the wrong provider's credential would deliver it to that provider's endpoint.
+	var matches []map[string]string
 	for _, existingProvider := range config.Current.Notifications.Providers {
 		if existingProvider.Provider != "Webhook" || existingProvider.Webhook == nil {
 			continue
@@ -397,15 +401,17 @@ func unmaskWebhookHeaders(webhook *config.Config_Notification_Webhook) bool {
 			}
 			restored[key] = stored
 		}
-		if !complete {
-			continue
+		if complete {
+			matches = append(matches, restored)
 		}
-		for key, value := range restored {
-			webhook.Headers[key] = value
-		}
-		return true
 	}
-	return false
+	if len(matches) != 1 {
+		return false
+	}
+	for key, value := range matches[0] {
+		webhook.Headers[key] = value
+	}
+	return true
 }
 
 // matchGotifyProvider finds the single stored Gotify provider whose URL and ApiToken both match

@@ -71,6 +71,37 @@ func TestUnmaskWebhookHeadersRejectsUnknownMask(t *testing.T) {
 	}
 }
 
+// MaskToken is value-derived, so two secrets ending the same way are indistinguishable on a
+// shared URL. The request carries no provider identity, so refuse rather than guess: picking
+// one would send the test with the other provider's credential.
+func TestUnmaskWebhookHeadersRefusesAmbiguousMatch(t *testing.T) {
+	const sharedURL = "https://hooks.example.com/notify"
+	const firstSecret = "Bearer alpha-abcd"
+	const secondSecret = "Bearer beta-abcd"
+
+	if config.MaskToken(firstSecret) != config.MaskToken(secondSecret) {
+		t.Fatal("test needs two secrets whose masks collide")
+	}
+
+	withProviders(t,
+		webhookProvider(sharedURL, map[string]string{"Authorization": firstSecret}),
+		webhookProvider(sharedURL, map[string]string{"Authorization": secondSecret}),
+	)
+
+	masked := config.MaskToken(firstSecret)
+	submitted := &config.Config_Notification_Webhook{
+		URL:     sharedURL,
+		Headers: map[string]string{"Authorization": masked},
+	}
+
+	if unmaskWebhookHeaders(submitted) {
+		t.Fatal("an ambiguous match must be refused, not resolved to the first provider")
+	}
+	if got := submitted.Headers["Authorization"]; got != masked {
+		t.Errorf("header = %q, want it left masked rather than resolved to a guess", got)
+	}
+}
+
 // Short values mask to "***" plus a single character, which a fixed three-character suffix
 // comparison could never match.
 func TestMaskedFieldMatchesHandlesShortValues(t *testing.T) {

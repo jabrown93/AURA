@@ -1,7 +1,6 @@
 package httpx
 
 import (
-	"aura/config"
 	"aura/logging"
 	"bytes"
 	"context"
@@ -87,35 +86,12 @@ func MakeHTTPRequest(ctx context.Context, url, method string, headers map[string
 	req.Header.Set("User-Agent", "aura/1.0")
 	req.Header.Set("X-Request", "mediux-aura")
 
-	possibleSensitiveHeaders := []string{
-		"authorization",
-		"api-key",
-		"x-api-key",
-		"x-auth-token",
-		"x-access-token",
-		"access-token",
-		"token",
-		"authentication",
-		"secret",
-		"password",
-		"cookie",
-	}
-
-	if len(headers) > 0 {
-		for key, value := range headers {
-			req.Header.Add(key, value)
-			maskedValue := value
-			lowerKey := strings.ToLower(key)
-			for _, sensitive := range possibleSensitiveHeaders {
-				if strings.Contains(lowerKey, sensitive) {
-					maskedValue = config.MaskToken(value)
-					break
-				}
-			}
-			if strings.ToLower(value) != "aura" {
-				logAction.AppendResult("headers_added", map[string]any{key: maskedValue})
-			}
-		}
+	// Only header names are logged. Webhook headers are caller-supplied, so no list of
+	// sensitive names can be complete - X-Webhook-Key and X-Hub-Signature-256 both carry
+	// credentials and match no obvious pattern. Names alone are enough to debug with.
+	for key, value := range headers {
+		req.Header.Add(key, value)
+		logAction.AppendResult("headers_added", key)
 	}
 
 	// Only set Content-Type to application/json if not already set
