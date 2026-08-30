@@ -1,6 +1,40 @@
 package httpx
 
-import "testing"
+import (
+	"errors"
+	"net/url"
+	"strings"
+	"testing"
+)
+
+// net/http rewrites a password-bearing URL to "user:***@host" before storing it on the
+// url.Error, so the stored URL no longer matches the raw one a substring replace looks for.
+func TestRedactErrRedactsCanonicalizedURL(t *testing.T) {
+	raw := "http://user:pw@host/?token=querysecret"
+	err := &url.Error{
+		Op:  "Get",
+		URL: "http://user:***@host/?token=querysecret",
+		Err: errors.New("dial tcp: connection refused"),
+	}
+
+	got := redactErr(err, raw)
+
+	if strings.Contains(got, "querysecret") {
+		t.Errorf("redactErr = %q, want the query credential removed", got)
+	}
+	if !strings.Contains(got, "connection refused") {
+		t.Errorf("redactErr = %q, want the underlying cause kept", got)
+	}
+}
+
+func TestRedactErrHandlesPlainError(t *testing.T) {
+	raw := "https://plex.tv/api?X-Plex-Token=abc123"
+	got := redactErr(errors.New("failed calling "+raw), raw)
+
+	if strings.Contains(got, "abc123") {
+		t.Errorf("redactErr = %q, want the token removed", got)
+	}
+}
 
 func TestRedactURL(t *testing.T) {
 	tests := []struct {

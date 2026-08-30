@@ -122,6 +122,27 @@ func TestWebhookMaskedHeadersRestoredForEveryProvider(t *testing.T) {
 	}
 }
 
+// This pass runs before ValidateNotificationsProvider title-cases the name, so a provider
+// submitted as "webhook" must still have its masks resolved rather than saved literally.
+func TestWebhookMaskedHeaderRestoredForLowercaseProviderName(t *testing.T) {
+	oldNotifications := webhookNotifications("https://hooks.example.com/notify", map[string]string{
+		"Authorization": webhookSecret,
+	})
+	newNotifications := webhookNotifications("https://hooks.example.com/notify", map[string]string{
+		"Authorization": config.MaskToken(webhookSecret),
+	})
+	newNotifications.Providers[0].Provider = "webhook"
+
+	_, valid := checkConfigDifferences_Notifications(testContext(), oldNotifications, &newNotifications)
+
+	if !valid {
+		t.Fatal("a lowercase provider name should still resolve its masks")
+	}
+	if got := newNotifications.Providers[0].Webhook.Headers["Authorization"]; got != webhookSecret {
+		t.Errorf("header = %q, want %q rather than the mask saved literally", got, webhookSecret)
+	}
+}
+
 // MaskToken is derived from the value, so two secrets ending the same way produce the same
 // mask. With a shared URL and key, nothing but position distinguishes the two providers.
 func TestWebhookMaskedHeadersWithCollidingMasksStayWithTheirProvider(t *testing.T) {

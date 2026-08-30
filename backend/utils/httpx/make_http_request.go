@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -42,7 +43,16 @@ func redactURL(raw string) string {
 // redactErr strips credentials from an error message. http.NewRequest and http.Client.Do
 // both return *url.Error, whose Error() embeds the full request URL, so redacting the
 // separate "url" log field is not enough on its own.
+//
+// The embedded URL is rebuilt from the error rather than string-replaced: when the URL
+// carries a password, net/http's stripPassword rewrites it to "user:***@host" before
+// storing it, so it no longer matches raw and a substring replacement would silently do
+// nothing while leaving any query-string credential exposed.
 func redactErr(err error, raw string) string {
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		return fmt.Sprintf("%s %q: %s", urlErr.Op, redactURL(urlErr.URL), redactErr(urlErr.Err, raw))
+	}
 	return strings.ReplaceAll(err.Error(), raw, redactURL(raw))
 }
 

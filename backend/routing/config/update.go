@@ -1244,10 +1244,13 @@ func restoreMaskedWebhookHeaders(oldProviders, newProviders []config.Config_Noti
 	return resolved
 }
 
+// Provider names are matched case-insensitively because this runs before validation, and
+// ValidateNotificationsProvider title-cases the name afterwards. An exact match would skip a
+// provider submitted as "webhook", leaving its masked headers to be saved as the credential.
 func webhookProviders(items []config.Config_Notification_Provider) []*config.Config_Notification_Webhook {
 	var webhooks []*config.Config_Notification_Webhook
 	for _, provider := range items {
-		if provider.Provider == "Webhook" && provider.Webhook != nil {
+		if strings.EqualFold(provider.Provider, "Webhook") && provider.Webhook != nil {
 			webhooks = append(webhooks, provider.Webhook)
 		}
 	}
