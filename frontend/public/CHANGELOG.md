@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.1.6](https://github.com/jabrown93/AURA/compare/v2.1.5...v2.1.6) (2026-08-30)
+
+
+### Bug Fixes
+
+* **deps:** update dependency axios to v1.20.0 ([#135](https://github.com/jabrown93/AURA/issues/135)) ([b4d1949](https://github.com/jabrown93/AURA/commit/b4d194909c3a3cc7d9bd8a5eb2e17a8367159348))
+* **deps:** update dependency js-yaml to v5.4.0 ([2664d47](https://github.com/jabrown93/AURA/commit/2664d47454fc6a8aaf1baa8b5510ca5740526345))
+* **deps:** update dependency js-yaml to v5.4.1 ([bda82bb](https://github.com/jabrown93/AURA/commit/bda82bb8da30dddc0f7cbb377481a097a89f7d1b))
+* **deps:** update dependency lucide-react to v1.34.0 ([a86409a](https://github.com/jabrown93/AURA/commit/a86409a2a989ca2b6143277a7bd13a3a91bca5b6))
+* **deps:** update dependency next to v16.3.2 ([0516dba](https://github.com/jabrown93/AURA/commit/0516dbab4e23f23a0408bb221768aae4feaf7c10))
+* **deps:** update dependency next to v16.3.3 ([7072576](https://github.com/jabrown93/AURA/commit/70725767dd06cd112fd5b69965118c6e9ea4d7b4))
+* **deps:** update dependency react-hook-form to v7.86.0 ([c268be3](https://github.com/jabrown93/AURA/commit/c268be3de25454f0f85f15ee86288225bdf50550))
+* **security:** stop leaking third-party credentials through logs and config responses ([#136](https://github.com/jabrown93/AURA/issues/136)) ([d7593dd](https://github.com/jabrown93/AURA/commit/d7593dd6fcf572fc9e02a731a0cef6eba1c319c9))
+
 ## [2.1.5](https://github.com/jabrown93/AURA/compare/v2.1.4...v2.1.5) (2026-08-24)
 
 
