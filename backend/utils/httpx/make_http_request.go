@@ -35,11 +35,14 @@ func redactURL(raw string, hidePath bool) string {
 		parsed.User = url.User("***")
 	}
 	if hidePath {
-		parsed.Path = "/***"
-		parsed.RawPath = ""
-		parsed.RawQuery = ""
-		parsed.Fragment = ""
-		return parsed.String()
+		// Built from the safe components rather than blanked in place: an opaque URL such
+		// as "https:secret" keeps the credential in parsed.Opaque, which String() emits
+		// while ignoring Path, so clearing Path alone would leave the secret intact.
+		// Validation only requires a non-empty URL, so that shape does reach here.
+		if parsed.Host == "" {
+			return parsed.Scheme + "://***"
+		}
+		return parsed.Scheme + "://" + parsed.Host + "/***"
 	}
 	query := parsed.Query()
 	for key := range query {

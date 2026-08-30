@@ -38,6 +38,11 @@ func TestRedactURLHidesWebhookPath(t *testing.T) {
 	if got := redactURL(raw, true); !strings.Contains(got, "hooks.slack.com") {
 		t.Errorf("redactURL(hidePath) = %q, want the host kept for debugging", got)
 	}
+	// An opaque URL keeps its credential in parsed.Opaque, which String() emits while
+	// ignoring Path. Validation only requires a non-empty URL, so this shape reaches here.
+	if got := redactURL("https:supersecret", true); strings.Contains(got, "supersecret") {
+		t.Errorf("redactURL(opaque) = %q, want the credential removed", got)
+	}
 	// Media-server paths name the failing endpoint and carry no secret, so they stay.
 	if got := redactURL("https://plex.local/library/metadata/123", false); !strings.Contains(got, "/library/metadata/123") {
 		t.Errorf("redactURL = %q, want the path kept when it is not sensitive", got)
