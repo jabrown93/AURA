@@ -38,7 +38,7 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files 
+# env files
 .env*
 
 # vercel
@@ -54,7 +54,7 @@ next-env.d.ts
 # Mac files
 *.DS_Store
 
-# Local files 
+# Local files
 local/*
 frontend/run_frontend
 backend/.air.toml
@@ -72,3 +72,6 @@ docker_local_build.sh.old
 # Claude Code local settings
 .claude/settings.local.json
 .pi/
+.pi-glla
+.worktrees
+.idea
