@@ -122,6 +122,57 @@ func TestWebhookMaskedHeadersRestoredForEveryProvider(t *testing.T) {
 	}
 }
 
+// MaskToken is derived from the value, so two secrets ending the same way produce the same
+// mask. With a shared URL and key, nothing but position distinguishes the two providers.
+func TestWebhookMaskedHeadersWithCollidingMasksStayWithTheirProvider(t *testing.T) {
+	const firstSecret = "first-secret-abcd"
+	const secondSecret = "second-secret-abcd"
+
+	if config.MaskToken(firstSecret) != config.MaskToken(secondSecret) {
+		t.Fatal("test needs two secrets whose masks collide")
+	}
+
+	sharedURL := "https://hooks.example.com/notify"
+	pair := func(first, second string) config.Config_Notifications {
+		return config.Config_Notifications{
+			Enabled: true,
+			Providers: []config.Config_Notification_Provider{
+				{
+					Provider: "Webhook",
+					Enabled:  true,
+					Webhook: &config.Config_Notification_Webhook{
+						URL:     sharedURL,
+						Headers: map[string]string{"Authorization": first},
+					},
+				},
+				{
+					Provider: "Webhook",
+					Enabled:  true,
+					Webhook: &config.Config_Notification_Webhook{
+						URL:     sharedURL,
+						Headers: map[string]string{"Authorization": second},
+					},
+				},
+			},
+		}
+	}
+
+	oldNotifications := pair(firstSecret, secondSecret)
+	newNotifications := pair(config.MaskToken(firstSecret), config.MaskToken(secondSecret))
+
+	_, valid := checkConfigDifferences_Notifications(testContext(), oldNotifications, &newNotifications)
+
+	if !valid {
+		t.Fatal("both masks should resolve")
+	}
+	if got := newNotifications.Providers[0].Webhook.Headers["Authorization"]; got != firstSecret {
+		t.Errorf("first provider header = %q, want %q", got, firstSecret)
+	}
+	if got := newNotifications.Providers[1].Webhook.Headers["Authorization"]; got != secondSecret {
+		t.Errorf("second provider header = %q, want %q - the first provider's secret must not leak across", got, secondSecret)
+	}
+}
+
 // MaskToken keeps only the last character of a value shorter than four, so a matcher built on
 // a fixed three-character suffix can never recognise these.
 func TestWebhookShortMaskedHeaderIsRestored(t *testing.T) {

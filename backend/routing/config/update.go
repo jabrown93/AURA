@@ -1211,43 +1211,47 @@ func joinNonEmptyComma(items []string) string {
 // restoreMaskedWebhookHeaders puts the stored value back wherever the UI echoed back a
 // masked header, and reports whether every mask was resolvable.
 //
-// A masked header is only restorable from the provider that issued it: same URL, same key.
-// Restoring across a URL change would re-point the real credential at whatever endpoint the
-// caller supplied, and a renamed key has no stored counterpart at all - leaving that one
-// alone would save the mask text itself as the credential.
+// Providers are paired by their position in the webhook list, because that is the only
+// stable identity available: URL, header key and mask can all coincide across two providers
+// (MaskToken is derived from the value, so two secrets ending the same way mask the same),
+// and searching by those would hand back another provider's credential. The URL must still
+// match at that position, so a masked header is never re-pointed at a different endpoint -
+// reordering or removing a provider simply fails the save and asks for the full value.
 func restoreMaskedWebhookHeaders(oldProviders, newProviders []config.Config_Notification_Provider) bool {
+	oldWebhooks := webhookProviders(oldProviders)
+	newWebhooks := webhookProviders(newProviders)
+
 	resolved := true
-	for _, newProv := range newProviders {
-		if newProv.Provider != "Webhook" || newProv.Webhook == nil {
-			continue
-		}
-		for key, value := range newProv.Webhook.Headers {
+	for i, newWebhook := range newWebhooks {
+		for key, value := range newWebhook.Headers {
 			if !config.IsMaskedField(value) {
 				continue
 			}
-			stored, ok := storedWebhookHeader(oldProviders, newProv.Webhook.URL, key, value)
-			if !ok {
+			if i >= len(oldWebhooks) || oldWebhooks[i].URL != newWebhook.URL {
 				resolved = false
 				continue
 			}
-			newProv.Webhook.Headers[key] = stored
+			// Requiring the mask this exact value would produce stops a caller passing an
+			// arbitrary "***" string to fish out a stored credential.
+			stored, ok := oldWebhooks[i].Headers[key]
+			if !ok || value != config.MaskToken(stored) {
+				resolved = false
+				continue
+			}
+			newWebhook.Headers[key] = stored
 		}
 	}
 	return resolved
 }
 
-// storedWebhookHeader finds the header value behind a mask, requiring the mask to be the one
-// this exact value would produce so a caller cannot pass an arbitrary "***" string.
-func storedWebhookHeader(oldProviders []config.Config_Notification_Provider, url, key, masked string) (string, bool) {
-	for _, oldProv := range oldProviders {
-		if oldProv.Provider != "Webhook" || oldProv.Webhook == nil || oldProv.Webhook.URL != url {
-			continue
-		}
-		if stored, ok := oldProv.Webhook.Headers[key]; ok && masked == config.MaskToken(stored) {
-			return stored, true
+func webhookProviders(items []config.Config_Notification_Provider) []*config.Config_Notification_Webhook {
+	var webhooks []*config.Config_Notification_Webhook
+	for _, provider := range items {
+		if provider.Provider == "Webhook" && provider.Webhook != nil {
+			webhooks = append(webhooks, provider.Webhook)
 		}
 	}
-	return "", false
+	return webhooks
 }
 
 func providerMapNotifications(items []config.Config_Notification_Provider) map[string]config.Config_Notification_Provider {

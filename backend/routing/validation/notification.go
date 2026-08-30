@@ -374,6 +374,9 @@ func unmaskWebhookHeaders(webhook *config.Config_Notification_Webhook) bool {
 		return true
 	}
 
+	// Several providers may share a URL with different credentials, so a mismatch means
+	// "keep looking", not "reject". Values are staged and only applied once one provider
+	// accounts for every masked header, which also avoids leaving a half-restored map behind.
 	for _, existingProvider := range config.Current.Notifications.Providers {
 		if existingProvider.Provider != "Webhook" || existingProvider.Webhook == nil {
 			continue
@@ -381,15 +384,24 @@ func unmaskWebhookHeaders(webhook *config.Config_Notification_Webhook) bool {
 		if existingProvider.Webhook.URL != webhook.URL {
 			continue
 		}
+		restored := make(map[string]string, len(webhook.Headers))
+		complete := true
 		for key, value := range webhook.Headers {
 			if !config.IsMaskedField(value) {
 				continue
 			}
 			stored, ok := existingProvider.Webhook.Headers[key]
 			if !ok || !maskedFieldMatches(value, stored) {
-				return false
+				complete = false
+				break
 			}
-			webhook.Headers[key] = stored
+			restored[key] = stored
+		}
+		if !complete {
+			continue
+		}
+		for key, value := range restored {
+			webhook.Headers[key] = value
 		}
 		return true
 	}
