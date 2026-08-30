@@ -18,8 +18,8 @@ import (
 //
 // It skips authentication for the following routes:
 //   - /api/login
-//   - /api/mediaserver/image/*
-//   - /api/mediux/image/*
+//   - GET /api/images/* (image tags cannot send an Authorization header)
+//   - /api/sonarr/webhook and /api/radarr/webhook (called by Sonarr/Radarr)
 //
 // If authentication is globally disabled in the configuration, it allows all requests to pass through.
 func Authenticator(next http.Handler) http.Handler {
@@ -30,9 +30,10 @@ func Authenticator(next http.Handler) http.Handler {
 			return
 		}
 
-		// Public login route
+		// Public login route. The image exemption is GET-only so it cannot also cover the
+		// destructive DELETE /api/images/temp.
 		if strings.HasPrefix(r.URL.Path, "/api/login") ||
-			strings.HasPrefix(r.URL.Path, "/api/images") ||
+			(r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/images")) ||
 			strings.HasPrefix(r.URL.Path, "/api/sonarr/webhook") ||
 			strings.HasPrefix(r.URL.Path, "/api/radarr/webhook") {
 			next.ServeHTTP(w, r)

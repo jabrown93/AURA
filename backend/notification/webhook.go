@@ -35,7 +35,7 @@ func SendWebhookMessage(ctx context.Context, provider *config.Config_Notificatio
 		return *logAction.Error
 	}
 
-	httpResp, respBody, Err := httpx.MakeHTTPRequest(ctx, provider.URL, http.MethodPost, provider.Headers, 60, payloadBytes, provider.URL)
+	httpResp, respBody, Err := httpx.MakeHTTPRequest(ctx, provider.URL, http.MethodPost, provider.Headers, 60, payloadBytes, httpx.WebhookSiteName)
 	if Err.Message != "" {
 		return Err
 	}
