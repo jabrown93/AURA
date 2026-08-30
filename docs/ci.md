@@ -19,11 +19,9 @@ in-cluster jobs.
 | `ci.yml` | PR → `main`, push → `main`/`renovate/**` | Backend `go build`/`vet`/`test` + gofmt gate; frontend `npm ci`/`lint`/`build`. | No |
 | `codeql.yml` | push/PR → `main`/`beta`, weekly | CodeQL for `go` and `javascript-typescript` (build-mode `none`) via the reusable `jabrown93/.github` workflow. | No |
 | `version-release.yml` | push → `main`/`beta`, weekly (Mon 09:00 UTC), manual | semantic-release computes the next version, updates `VERSION.txt`/`version.json`/`frontend/public/CHANGELOG.md`, tags + creates a GitHub Release. Builds nothing — the tag it pushes triggers `release.yml`. Also resyncs `beta` to `main` after a stable release. | No |
-| `release.yml` | GitHub Release published, manual (`publish_tag`) | Builds the multi-arch image for that release's tag and pushes `:v<version>`+`:latest` (stable) or `:v<version>-beta.N`+`:beta` (prerelease). SBOM + provenance, cosign keyless sign. | No |
-| `edge.yml` | push → `main` | Builds the rolling `:edge`+`:edge-<sha>` image from main's tip, independent of releases. SBOM + provenance, cosign keyless sign. | No |
-| `dt-sbom.yml` | push → `main`, manual | syft SBOM (Go + npm) → upload to Dependency-Track (`isLatest`). | **Yes** |
-| `pr-license-check.yml` | PR → `main` (same-repo) | Untrusted producer: build SBOM, upload as artifact. No secrets. | No |
-| `pr-license-comment.yml` | `workflow_run` of the check | Trusted consumer: upload PR SBOM to DT, post advisory license comment. | **Yes** |
+| `release.yml` | GitHub Release published, manual (`publish_tag`) | Builds the multi-arch image for that release's tag and pushes `:v<version>`+`:latest` (stable) or `:v<version>-beta.N`+`:beta` (prerelease). SPDX + CycloneDX SBOMs, provenance, cosign keyless sign. | No |
+| `edge.yml` | push → `main` | Builds the rolling `:edge`+`:edge-<sha>` image from main's tip, independent of releases. SPDX + CycloneDX SBOMs, provenance, cosign keyless sign. | No |
+| `fossa.yml` | push → `main`, manual | Advisory licence + dependency scan via the shared `jabrown93/ci` `fossa` action. | `FOSSA_API_KEY` |
 | `jekyll-gh-pages.yml` | push → `main` (`docs/**`), manual | Publish `docs/` to GitHub Pages. | Pages setting |
 
 ## Versioning
@@ -82,33 +80,39 @@ and version badge point at `jabrown93/AURA`, not upstream.
 ## Images
 
 Images publish to **`ghcr.io/<owner>/aura`** using the built-in `GITHUB_TOKEN`
-(`packages: write`) — no registry secrets to configure. They carry a CycloneDX
-SBOM + max provenance and are keyless-signed (Fulcio/rekor) by digest so the
-homelab Kyverno `verify-ghcr-images` policy can verify them.
+(`packages: write`) — no registry secrets to configure. They carry max
+provenance and **both** SBOM formats as OCI referrers, and are keyless-signed
+(Fulcio/rekor) by digest so the homelab Kyverno `verify-ghcr-images` policy can
+verify them.
 
-## Homelab prerequisites (Dependency-Track workflows)
+Two formats because BuildKit's `sbom: true` attestation is SPDX-only and cannot
+emit CycloneDX, so a syft scan of the pushed digest is attested separately:
 
-`dt-sbom.yml` and `pr-license-comment.yml` run their privileged half on an
-in-cluster ARC runner and pull the DT API key from OpenBao via GitHub OIDC.
-They stay red until this infra exists:
+```sh
+docker buildx imagetools inspect ghcr.io/<owner>/aura@<digest> --format '{{json .SBOM}}'   # SPDX
+cosign download attestation --predicate-type cyclonedx ghcr.io/<owner>/aura@<digest>       # CycloneDX
+```
 
-1. **ARC runner set `arc-oss-aura`** — a repo-scoped Actions Runner Controller
-   set for `jabrown93/AURA`, egress-locked to the in-cluster OpenBao and
-   Dependency-Track Services.
-2. **OpenBao JWT roles** under the `github-actions` mount, bound to this repo:
-   - `dt-sbom-upload` — used by `dt-sbom.yml`.
-   - `dt-pr-license` — used by `pr-license-comment.yml`; bind it to
-     `job_workflow_ref` `jabrown93/AURA/.github/workflows/pr-license-comment.yml@refs/heads/main`
-     so a PR that rewrites the producer cannot mint the key.
-   Both map `secret/data/ci/dependency-track/ci-api-key`.
-3. **Dependency-Track** — reachable at
-   `dependency-track-api-server.dependency-track.svc.cluster.local:8080`; the CI
-   key's **Automation** team needs `BOM_UPLOAD`, `VIEW_PORTFOLIO`, and
-   `VIEW_POLICY_VIOLATION`. Projects are auto-created (`github.com/jabrown93/AURA`,
-   version `<sha>` for main and `pr-<n>` for PRs).
+The CycloneDX pass is scanned from the digest, never the tag — a floating tag
+can move between push and scan. syft resolves the multi-arch index to a single
+manifest, so that half describes one architecture; these images differ by
+compiled arch, not package set.
 
-See `github.com/jabrown93/homelab → docs/dependency-track.md` for the shared
-setup these mirror.
+## Licence scanning prerequisites (`fossa.yml`)
+
+`FOSSA_API_KEY` must exist in this repo's Actions secrets. It is fanned out by
+External Secrets from homelab, not set by hand. It is a write-scoped *push*
+token, which is why the workflow runs on `push` to `main` only and never on
+`pull_request`: a PR must not be able to reach it, and a fork PR would not
+receive it regardless. The scan is therefore post-merge and advisory.
+
+The workflow that preceded it — `dt-sbom.yml` plus the `pr-license-check.yml` /
+`pr-license-comment.yml` pair — uploaded SBOMs to Dependency-Track from an
+in-cluster ARC runner. Those never ran: the `arc-oss-aura` runner set was never
+created, so the privileged half queued until GitHub expired it. Dependency-Track
+is decommissioned (jabrown93/homelab#3167) and all three workflows are deleted.
+Image SBOM publishing is unaffected — `release.yml`/`edge.yml` attach both
+formats as OCI referrers, as above.
 
 ## Notes
 
