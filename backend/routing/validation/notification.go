@@ -284,6 +284,11 @@ func SendTestNotification(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	case "Webhook":
+		if !unmaskWebhookHeaders(nProvider.Webhook) {
+			logAction.SetError("Unable to unmask webhook credentials", "Provide the full header values when changing the webhook URL", nil)
+			httpx.SendResponse(w, ld, response)
+			return
+		}
 		Err := notification.SendWebhookMessage(ctx, nProvider.Webhook, message, imageURL, title)
 		if Err.Message != "" {
 			httpx.SendResponse(w, ld, response)
@@ -342,13 +347,71 @@ func getUnmaskedDiscordWebhook(currentValue string) string {
 	return ""
 }
 
-// maskedFieldMatches reports whether maskedValue is a masked representation of realValue, i.e.
-// their last few characters agree, mirroring the masking scheme in config.IsMaskedField.
+// maskedFieldMatches reports whether maskedValue is the mask of realValue. Comparing against
+// config.MaskToken directly follows the real scheme at every length: MaskToken keeps only the
+// last character of a value shorter than four, which a fixed three-character suffix compare
+// could never match.
 func maskedFieldMatches(maskedValue, realValue string) bool {
-	if len(maskedValue) <= 3 || len(realValue) < 3 {
+	return maskedValue == config.MaskToken(realValue)
+}
+
+// unmaskWebhookHeaders restores masked header values from the stored provider that has the
+// same URL. Headers carry the webhook's Authorization value, so they are only ever restored
+// for the URL they were issued for - otherwise a caller could supply someone else's URL with
+// a masked header and have the real credential sent there by SendWebhookMessage.
+func unmaskWebhookHeaders(webhook *config.Config_Notification_Webhook) bool {
+	if webhook == nil {
+		return true
+	}
+	masked := false
+	for _, value := range webhook.Headers {
+		if config.IsMaskedField(value) {
+			masked = true
+			break
+		}
+	}
+	if !masked {
+		return true
+	}
+
+	// Several providers may share a URL with different credentials, so a mismatch means
+	// "keep looking", not "reject". Every candidate is collected rather than taking the
+	// first: MaskToken is value-derived, so two providers on one URL whose secrets end the
+	// same way are indistinguishable here. The request carries no provider identity to break
+	// that tie, so an ambiguous match is refused rather than guessed - sending a test with
+	// the wrong provider's credential would deliver it to that provider's endpoint.
+	var matches []map[string]string
+	for _, existingProvider := range config.Current.Notifications.Providers {
+		if existingProvider.Provider != "Webhook" || existingProvider.Webhook == nil {
+			continue
+		}
+		if existingProvider.Webhook.URL != webhook.URL {
+			continue
+		}
+		restored := make(map[string]string, len(webhook.Headers))
+		complete := true
+		for key, value := range webhook.Headers {
+			if !config.IsMaskedField(value) {
+				continue
+			}
+			stored, ok := existingProvider.Webhook.Headers[key]
+			if !ok || !maskedFieldMatches(value, stored) {
+				complete = false
+				break
+			}
+			restored[key] = stored
+		}
+		if complete {
+			matches = append(matches, restored)
+		}
+	}
+	if len(matches) != 1 {
 		return false
 	}
-	return maskedValue[len(maskedValue)-3:] == realValue[len(realValue)-3:]
+	for key, value := range matches[0] {
+		webhook.Headers[key] = value
+	}
+	return true
 }
 
 // matchGotifyProvider finds the single stored Gotify provider whose URL and ApiToken both match

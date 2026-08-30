@@ -19,6 +19,7 @@ Middlewares included:
 - CORS Middleware: Allows CORS for all origins (replace this with specific origins).
 - RealIP Middleware: Gets the client's real public IP address from the request headers.
 - StripSlashes Middleware: Strips slashes to no slash URL versions.
+- Request Body Limit Middleware: Caps how much of a request body will be read.
 - Panic Recovery Middleware: Recovers from panics and returns a 500 error.
 
 Parameters:
@@ -27,6 +28,10 @@ Parameters:
 */
 func Configure(r *chi.Mux) {
 
+	// Wildcard is safe alongside AllowCredentials here: rs/cors emits a literal "*" rather
+	// than reflecting the request Origin, and browsers refuse to attach credentials to a
+	// "*" response. Cross-origin reads therefore arrive without a session and are rejected
+	// by the Authenticator. Static linters flag this pair on sight; it is not exploitable.
 	AllowedOrigins := []string{"*"}
 
 	// CORS Middleware: Allow CORS for all origins (replace this with specific origins)
@@ -49,6 +54,10 @@ func Configure(r *chi.Mux) {
 	// Custom middleware to remove extra slashes
 	r.Use(removeExtraSlashes)
 
+	// Cap request bodies. /api/login and the Sonarr/Radarr webhooks take unauthenticated
+	// POSTs, and every handler reads the body fully into memory before decoding it.
+	r.Use(limitRequestBody)
+
 	// Logging Middleware: Custom logging middleware
 	r.Use(LoggingMiddleware)
 
@@ -59,6 +68,17 @@ func Configure(r *chi.Mux) {
 func removeExtraSlashes(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		r.URL.Path = strings.ReplaceAll(r.URL.Path, "//", "/")
+		next.ServeHTTP(w, r)
+	})
+}
+
+// maxRequestBody sits far above any legitimate payload. The largest real request is a saved
+// item for a long-running show, which carries nested episode JSON; nothing here uploads files.
+const maxRequestBody = 8 << 20
+
+func limitRequestBody(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, maxRequestBody)
 		next.ServeHTTP(w, r)
 	})
 }

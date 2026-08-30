@@ -75,9 +75,6 @@ func AddRoutes(r *chi.Mux) {
 		r.Get("/auth/oidc/login", routes_auth.StartOIDCLogin)
 		r.Get("/auth/oidc/callback", routes_auth.HandleOIDCCallback)
 
-		// Search - Public Search Endpoint (Media Items, Saved Sets and MediUX Users)
-		r.Get("/search", routes_search.HandleSearch)
-
 		// Sonarr Webhook Routes - Public since Sonarr/Radarr need to access it without authentication
 		r.Post("/sonarr/webhook", routes_sonarr_radarr.SonarrWebhookHandler)
 		r.Post("/radarr/webhook", routes_sonarr_radarr.RadarrWebhookHandler)
@@ -158,6 +155,9 @@ func AddRoutes(r *chi.Mux) {
 			// Labels & Tags Route
 			r.Post("/labels-tags", routes_labels_tags.ApplyLabelsAndTagsToItem)
 
+			// Search - enumerates library media items, saved sets and MediUX users
+			r.Get("/search", routes_search.HandleSearch)
+
 			// Logging Routes
 			r.Route("/logs", func(r chi.Router) {
 				r.Get("/", routes_logging.GetLogContents)
@@ -226,11 +226,9 @@ func addOnboardingRoutes(r *chi.Mux) {
 		r.Get("/oauth/plex", routes_plex.GetPlexPinAndID)
 		r.Post("/oauth/plex", routes_plex.CheckAuthStatusWithPlex)
 
-		// Logging Routes
-		r.Route("/logs", func(r chi.Router) {
-			r.Get("/", routes_logging.GetLogContents)
-			r.Delete("/", routes_logging.ClearLogFiles)
-		})
+		// Logging routes are deliberately absent here. Onboarding is unauthenticated, and
+		// the log file carries historical credentials, so it must not be readable before a
+		// session exists. Setup never needs it.
 
 		r.Post("/mediaserver/libraries/options", routes_ms.GetLibrarySectionOptions)
 

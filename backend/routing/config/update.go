@@ -303,12 +303,8 @@ func checkConfigDifferences_MediaServer(ctx context.Context, oldMediaServer conf
 
 		if oldMediaServer.ApiToken != newMediaServer.ApiToken {
 			if !strings.HasPrefix(newMediaServer.ApiToken, "***") {
-				logAction.AppendResult("MediaServer.ApiToken changed", fmt.Sprintf("from '%s' to '%s'", oldMediaServer.ApiToken, newMediaServer.ApiToken))
-				logging.LOGGER.Info().
-					Timestamp().
-					Str("old_api_token", fmt.Sprintf("%s", oldMediaServer.ApiToken)).
-					Str("new_api_token", fmt.Sprintf("%s", newMediaServer.ApiToken)).
-					Msg("MediaServer.ApiToken changed")
+				logAction.AppendResult("MediaServer.ApiToken changed", "api token updated")
+				logging.LOGGER.Info().Timestamp().Msg("MediaServer.ApiToken changed")
 				changed = true
 			} else if newMediaServer.URL != oldMediaServer.URL {
 				// A masked token can only be restored for the URL it was issued for. Otherwise the
@@ -376,12 +372,8 @@ func checkConfigDifferences_Mediux(ctx context.Context, oldMediux config.Config_
 	if !reflect.DeepEqual(oldMediux, newMediux) {
 		if oldMediux.ApiToken != newMediux.ApiToken {
 			if !strings.HasPrefix(newMediux.ApiToken, "***") {
-				logAction.AppendResult("Mediux.ApiToken changed", fmt.Sprintf("from '%s' to '%s'", oldMediux.ApiToken, newMediux.ApiToken))
-				logging.LOGGER.Info().
-					Timestamp().
-					Str("old_api_token", fmt.Sprintf("%v", oldMediux.ApiToken)).
-					Str("new_api_token", fmt.Sprintf("%v", newMediux.ApiToken)).
-					Msg("Mediux.ApiToken changed")
+				logAction.AppendResult("Mediux.ApiToken changed", "api token updated")
+				logging.LOGGER.Info().Timestamp().Msg("Mediux.ApiToken changed")
 				changed = true
 			} else {
 				newMediux.ApiToken = oldMediux.ApiToken
@@ -554,12 +546,8 @@ func checkConfigDifferences_TMDB(ctx context.Context, oldTMDB config.Config_TMDB
 	if !reflect.DeepEqual(oldTMDB, newTMDB) {
 		if oldTMDB.ApiToken != newTMDB.ApiToken {
 			if !strings.HasPrefix(newTMDB.ApiToken, "***") {
-				logAction.AppendResult("TMDB.ApiToken changed", fmt.Sprintf("from '%s' to '%s'", oldTMDB.ApiToken, newTMDB.ApiToken))
-				logging.LOGGER.Info().
-					Timestamp().
-					Str("old_api_token", fmt.Sprintf("%v", oldTMDB.ApiToken)).
-					Str("new_api_token", fmt.Sprintf("%v", newTMDB.ApiToken)).
-					Msg("TMDB.ApiToken changed")
+				logAction.AppendResult("TMDB.ApiToken changed", "api token updated")
+				logging.LOGGER.Info().Timestamp().Msg("TMDB.ApiToken changed")
 				changed = true
 			} else {
 				newTMDB.ApiToken = oldTMDB.ApiToken
@@ -758,6 +746,14 @@ func checkConfigDifferences_Notifications(ctx context.Context, oldNotifications 
 			changed = true
 		}
 
+		// Resolved over the full slice, not the type-keyed map below: that map keeps only one
+		// entry per provider type, and a config may hold several Webhook providers.
+		maskedHeaderUnresolved := !restoreMaskedWebhookHeaders(oldNotifications.Providers, newNotifications.Providers)
+		if maskedHeaderUnresolved {
+			logAction.SetError("Unable to unmask webhook header",
+				"Provide the full header value when changing a webhook URL or renaming a header", nil)
+		}
+
 		// Providers diff
 		oldMap := providerMapNotifications(oldNotifications.Providers)
 		newMap := providerMapNotifications(newNotifications.Providers)
@@ -823,12 +819,8 @@ func checkConfigDifferences_Notifications(ctx context.Context, oldNotifications 
 				}
 				if oldWebhook != newWebhook {
 					if !config.IsMaskedWebhook(newWebhook) {
-						logAction.AppendResult("Notifications.Discord.Webhook changed", fmt.Sprintf("from '%v' to '%v'", oldWebhook, newWebhook))
-						logging.LOGGER.Info().
-							Timestamp().
-							Str("old_webhook", oldWebhook).
-							Str("new_webhook", newWebhook).
-							Msg("Notifications.Discord.Webhook changed")
+						logAction.AppendResult("Notifications.Discord.Webhook changed", "webhook url updated")
+						logging.LOGGER.Info().Timestamp().Msg("Notifications.Discord.Webhook changed")
 						changed = true
 					} else {
 						newProv.Discord.Webhook = oldProv.Discord.Webhook
@@ -847,12 +839,8 @@ func checkConfigDifferences_Notifications(ctx context.Context, oldNotifications 
 				}
 				if oldUserKey != newUserKey {
 					if !strings.HasPrefix(newUserKey, "***") {
-						logAction.AppendResult("Notifications.Pushover.UserKey changed", fmt.Sprintf("from '%v' to '%v'", oldUserKey, newUserKey))
-						logging.LOGGER.Info().
-							Timestamp().
-							Str("old_user_key", oldUserKey).
-							Str("new_user_key", newUserKey).
-							Msg("Notifications.Pushover.UserKey changed")
+						logAction.AppendResult("Notifications.Pushover.UserKey changed", "user key updated")
+						logging.LOGGER.Info().Timestamp().Msg("Notifications.Pushover.UserKey changed")
 						changed = true
 					} else {
 						newProv.Pushover.UserKey = oldProv.Pushover.UserKey
@@ -861,12 +849,8 @@ func checkConfigDifferences_Notifications(ctx context.Context, oldNotifications 
 				}
 				if oldToken != newToken {
 					if !strings.HasPrefix(newToken, "***") {
-						logAction.AppendResult("Notifications.Pushover.ApiToken changed", fmt.Sprintf("from '%v' to '%v'", oldToken, newToken))
-						logging.LOGGER.Info().
-							Timestamp().
-							Str("old_api_token", oldToken).
-							Str("new_api_token", newToken).
-							Msg("Notifications.Pushover.ApiToken changed")
+						logAction.AppendResult("Notifications.Pushover.ApiToken changed", "api token updated")
+						logging.LOGGER.Info().Timestamp().Msg("Notifications.Pushover.ApiToken changed")
 						changed = true
 					} else {
 						newProv.Pushover.ApiToken = oldProv.Pushover.ApiToken
@@ -896,12 +880,8 @@ func checkConfigDifferences_Notifications(ctx context.Context, oldNotifications 
 				if oldProv.Gotify != nil && newProv.Gotify != nil {
 					if oldProv.Gotify.ApiToken != newProv.Gotify.ApiToken {
 						if !strings.HasPrefix(newProv.Gotify.ApiToken, "***") {
-							logAction.AppendResult("Notifications.Gotify.ApiToken changed", fmt.Sprintf("from '%v' to '%v'", oldProv.Gotify.ApiToken, newProv.Gotify.ApiToken))
-							logging.LOGGER.Info().
-								Timestamp().
-								Str("old_api_token", fmt.Sprintf("%s", oldProv.Gotify.ApiToken)).
-								Str("new_api_token", fmt.Sprintf("%s", newProv.Gotify.ApiToken)).
-								Msg("Notifications.Gotify.ApiToken changed")
+							logAction.AppendResult("Notifications.Gotify.ApiToken changed", "api token updated")
+							logging.LOGGER.Info().Timestamp().Msg("Notifications.Gotify.ApiToken changed")
 							changed = true
 						} else {
 							newProv.Gotify.ApiToken = oldProv.Gotify.ApiToken
@@ -918,12 +898,8 @@ func checkConfigDifferences_Notifications(ctx context.Context, oldNotifications 
 					newURL = strings.TrimSpace(newProv.Webhook.URL)
 				}
 				if oldURL != newURL {
-					logAction.AppendResult("Notifications.Webhook.URL changed", fmt.Sprintf("from '%v' to '%v'", oldURL, newURL))
-					logging.LOGGER.Info().
-						Timestamp().
-						Str("old_webhook_url", oldURL).
-						Str("new_webhook_url", newURL).
-						Msg("Notifications.Webhook.URL changed")
+					logAction.AppendResult("Notifications.Webhook.URL changed", "webhook url updated")
+					logging.LOGGER.Info().Timestamp().Msg("Notifications.Webhook.URL changed")
 					changed = true
 				}
 
@@ -934,29 +910,27 @@ func checkConfigDifferences_Notifications(ctx context.Context, oldNotifications 
 					maps.Copy(oldHeaders, oldProv.Webhook.Headers)
 				}
 				if newProv.Webhook != nil {
+					// Masked values were already resolved above, across every provider.
 					maps.Copy(newHeaders, newProv.Webhook.Headers)
 				}
 				// Check for changes
 				for k, oldV := range oldHeaders {
 					newV, ok := newHeaders[k]
 					if !ok || oldV != newV {
-						logAction.AppendResult("Notifications.Webhook.Header changed", fmt.Sprintf("Header '%s' changed from '%s' to '%s'", k, oldV, newV))
+						logAction.AppendResult("Notifications.Webhook.Header changed", fmt.Sprintf("Header '%s' updated", k))
 						logging.LOGGER.Info().
 							Timestamp().
 							Str("header_key", k).
-							Str("old_value", oldV).
-							Str("new_value", newV).
 							Msg("Notifications.Webhook.Header changed")
 						changed = true
 					}
 				}
-				for k, newV := range newHeaders {
+				for k := range newHeaders {
 					if _, ok := oldHeaders[k]; !ok {
-						logAction.AppendResult("Notifications.Webhook.Header added", fmt.Sprintf("Header '%s' added with value '%s'", k, newV))
+						logAction.AppendResult("Notifications.Webhook.Header added", fmt.Sprintf("Header '%s' added", k))
 						logging.LOGGER.Info().
 							Timestamp().
 							Str("header_key", k).
-							Str("new_value", newV).
 							Msg("Notifications.Webhook.Header added")
 						changed = true
 					}
@@ -983,6 +957,9 @@ func checkConfigDifferences_Notifications(ctx context.Context, oldNotifications 
 			changed = true
 		}
 
+		if maskedHeaderUnresolved {
+			return changed, false
+		}
 	}
 	newValid = config.ValidateNotifications(ctx, newNotifications)
 	return changed, newValid
@@ -1087,12 +1064,10 @@ func checkConfigDifferences_SonarrRadarr(ctx context.Context, oldSR config.Confi
 			// Per App - ApiToken
 			if oldProv.ApiToken != newProv.ApiToken {
 				if !strings.HasPrefix(newProv.ApiToken, "***") {
-					logAction.AppendResult("SonarrRadarr.Application.ApiToken changed", fmt.Sprintf("from '%s' to '%s'", oldProv.ApiToken, newProv.ApiToken))
+					logAction.AppendResult("SonarrRadarr.Application.ApiToken changed", "api token updated")
 					logging.LOGGER.Info().
 						Timestamp().
 						Str("application", name).
-						Str("old_api_token", oldProv.ApiToken).
-						Str("new_api_token", newProv.ApiToken).
 						Msg("SonarrRadarr.Application ApiToken changed")
 					changed = true
 				} else {
@@ -1233,6 +1208,55 @@ func joinNonEmptyComma(items []string) string {
 }
 
 // providerMapNotifications creates a map of notification providers keyed by provider name.
+// restoreMaskedWebhookHeaders puts the stored value back wherever the UI echoed back a
+// masked header, and reports whether every mask was resolvable.
+//
+// Providers are paired by their position in the webhook list, because that is the only
+// stable identity available: URL, header key and mask can all coincide across two providers
+// (MaskToken is derived from the value, so two secrets ending the same way mask the same),
+// and searching by those would hand back another provider's credential. The URL must still
+// match at that position, so a masked header is never re-pointed at a different endpoint -
+// reordering or removing a provider simply fails the save and asks for the full value.
+func restoreMaskedWebhookHeaders(oldProviders, newProviders []config.Config_Notification_Provider) bool {
+	oldWebhooks := webhookProviders(oldProviders)
+	newWebhooks := webhookProviders(newProviders)
+
+	resolved := true
+	for i, newWebhook := range newWebhooks {
+		for key, value := range newWebhook.Headers {
+			if !config.IsMaskedField(value) {
+				continue
+			}
+			if i >= len(oldWebhooks) || oldWebhooks[i].URL != newWebhook.URL {
+				resolved = false
+				continue
+			}
+			// Requiring the mask this exact value would produce stops a caller passing an
+			// arbitrary "***" string to fish out a stored credential.
+			stored, ok := oldWebhooks[i].Headers[key]
+			if !ok || value != config.MaskToken(stored) {
+				resolved = false
+				continue
+			}
+			newWebhook.Headers[key] = stored
+		}
+	}
+	return resolved
+}
+
+// Provider names are matched case-insensitively because this runs before validation, and
+// ValidateNotificationsProvider title-cases the name afterwards. An exact match would skip a
+// provider submitted as "webhook", leaving its masked headers to be saved as the credential.
+func webhookProviders(items []config.Config_Notification_Provider) []*config.Config_Notification_Webhook {
+	var webhooks []*config.Config_Notification_Webhook
+	for _, provider := range items {
+		if strings.EqualFold(provider.Provider, "Webhook") && provider.Webhook != nil {
+			webhooks = append(webhooks, provider.Webhook)
+		}
+	}
+	return webhooks
+}
+
 func providerMapNotifications(items []config.Config_Notification_Provider) map[string]config.Config_Notification_Provider {
 	m := make(map[string]config.Config_Notification_Provider, len(items))
 	for _, p := range items {

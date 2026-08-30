@@ -72,8 +72,10 @@ func ValidateMediaServerInfo(w http.ResponseWriter, r *http.Request) {
 		httpx.SendResponse(w, ld, response)
 		return
 	} else if !connectionOk {
+		maskedInfo := mediaServerInfo
+		maskedInfo.ApiToken = config.MaskToken(maskedInfo.ApiToken)
 		logAction.SetError("Failed to connect to media server with provided information", "Please check the media server settings and try again", map[string]any{
-			"media_server_info": mediaServerInfo,
+			"media_server_info": maskedInfo,
 		})
 		httpx.SendResponse(w, ld, response)
 		return
