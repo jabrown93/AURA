@@ -47,6 +47,21 @@ func (config *Config) SanitizeConfig(ctx context.Context) *Config {
 					ApiToken: MaskToken(p.Gotify.ApiToken),
 				}
 			}
+			// Without this branch cp.Webhook stays the original pointer, so the headers -
+			// which carry the Authorization value sent to the webhook - would be returned
+			// by /api/config and logged by print.go in full. URL is left alone to match
+			// Gotify: it is the user's own endpoint, and masking it would need a matching
+			// unmask in update.go before the config could be saved back.
+			if p.Webhook != nil {
+				maskedHeaders := make(map[string]string, len(p.Webhook.Headers))
+				for key, value := range p.Webhook.Headers {
+					maskedHeaders[key] = MaskToken(value)
+				}
+				cp.Webhook = &Config_Notification_Webhook{
+					URL:     p.Webhook.URL,
+					Headers: maskedHeaders,
+				}
+			}
 			c.Notifications.Providers[i] = cp
 		}
 	}

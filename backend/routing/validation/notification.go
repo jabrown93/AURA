@@ -284,6 +284,11 @@ func SendTestNotification(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	case "Webhook":
+		if !unmaskWebhookHeaders(nProvider.Webhook) {
+			logAction.SetError("Unable to unmask webhook credentials", "Provide the full header values when changing the webhook URL", nil)
+			httpx.SendResponse(w, ld, response)
+			return
+		}
 		Err := notification.SendWebhookMessage(ctx, nProvider.Webhook, message, imageURL, title)
 		if Err.Message != "" {
 			httpx.SendResponse(w, ld, response)
@@ -349,6 +354,47 @@ func maskedFieldMatches(maskedValue, realValue string) bool {
 		return false
 	}
 	return maskedValue[len(maskedValue)-3:] == realValue[len(realValue)-3:]
+}
+
+// unmaskWebhookHeaders restores masked header values from the stored provider that has the
+// same URL. Headers carry the webhook's Authorization value, so they are only ever restored
+// for the URL they were issued for - otherwise a caller could supply someone else's URL with
+// a masked header and have the real credential sent there by SendWebhookMessage.
+func unmaskWebhookHeaders(webhook *config.Config_Notification_Webhook) bool {
+	if webhook == nil {
+		return true
+	}
+	masked := false
+	for _, value := range webhook.Headers {
+		if config.IsMaskedField(value) {
+			masked = true
+			break
+		}
+	}
+	if !masked {
+		return true
+	}
+
+	for _, existingProvider := range config.Current.Notifications.Providers {
+		if existingProvider.Provider != "Webhook" || existingProvider.Webhook == nil {
+			continue
+		}
+		if existingProvider.Webhook.URL != webhook.URL {
+			continue
+		}
+		for key, value := range webhook.Headers {
+			if !config.IsMaskedField(value) {
+				continue
+			}
+			stored, ok := existingProvider.Webhook.Headers[key]
+			if !ok || !maskedFieldMatches(value, stored) {
+				return false
+			}
+			webhook.Headers[key] = stored
+		}
+		return true
+	}
+	return false
 }
 
 // matchGotifyProvider finds the single stored Gotify provider whose URL and ApiToken both match

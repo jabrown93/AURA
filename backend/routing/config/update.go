@@ -902,6 +902,16 @@ func checkConfigDifferences_Notifications(ctx context.Context, oldNotifications 
 					maps.Copy(oldHeaders, oldProv.Webhook.Headers)
 				}
 				if newProv.Webhook != nil {
+					// The UI is served masked header values; echoing one back means
+					// "unchanged", not "set this header to ***abcd".
+					for key, value := range newProv.Webhook.Headers {
+						if !config.IsMaskedField(value) {
+							continue
+						}
+						if oldValue, ok := oldHeaders[key]; ok {
+							newProv.Webhook.Headers[key] = oldValue
+						}
+					}
 					maps.Copy(newHeaders, newProv.Webhook.Headers)
 				}
 				// Check for changes
