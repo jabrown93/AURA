@@ -9,9 +9,36 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
+
+var sensitiveURLParams = []string{"token", "key", "secret", "password", "auth", "sig"}
+
+// redactURL blanks credentials carried in a URL. Plex sends its account token as an
+// X-Plex-Token query parameter, and these URLs are logged on every transport error.
+func redactURL(raw string) string {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return "<unparseable url>"
+	}
+	if parsed.User != nil {
+		parsed.User = url.User("***")
+	}
+	query := parsed.Query()
+	for key := range query {
+		lowerKey := strings.ToLower(key)
+		for _, sensitive := range sensitiveURLParams {
+			if strings.Contains(lowerKey, sensitive) {
+				query.Set(key, "***")
+				break
+			}
+		}
+	}
+	parsed.RawQuery = query.Encode()
+	return parsed.String()
+}
 
 var sharedTransport = &http.Transport{
 	TLSClientConfig:     &tls.Config{InsecureSkipVerify: false},
@@ -43,7 +70,7 @@ func MakeHTTPRequest(ctx context.Context, url, method string, headers map[string
 			"Check error and try again",
 			map[string]any{
 				"method": method,
-				"url":    url,
+				"url":    redactURL(url),
 				"error":  err.Error(),
 			})
 		return nil, nil, *logAction.Error
@@ -62,6 +89,9 @@ func MakeHTTPRequest(ctx context.Context, url, method string, headers map[string
 		"access-token",
 		"token",
 		"authentication",
+		"secret",
+		"password",
+		"cookie",
 	}
 
 	if len(headers) > 0 {
@@ -96,7 +126,7 @@ func MakeHTTPRequest(ctx context.Context, url, method string, headers map[string
 			"Check error and try again",
 			map[string]any{
 				"method": method,
-				"url":    url,
+				"url":    redactURL(url),
 				"error":  err.Error(),
 			})
 		return nil, nil, *logAction.Error
@@ -110,7 +140,7 @@ func MakeHTTPRequest(ctx context.Context, url, method string, headers map[string
 			"Check error and try again",
 			map[string]any{
 				"method":      method,
-				"url":         url,
+				"url":         redactURL(url),
 				"error":       err.Error(),
 				"status_code": resp.StatusCode,
 			})

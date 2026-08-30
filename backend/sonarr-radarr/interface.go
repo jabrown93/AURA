@@ -42,7 +42,7 @@ func MakeSureAllAppInfoPresent(ctx context.Context, app *config.Config_SonarrRad
 				"type":      app.Type,
 				"library":   app.Library,
 				"url":       app.URL,
-				"api_token": app.ApiToken,
+				"api_token": config.MaskToken(app.ApiToken),
 			})
 		return *logAction.Error
 	}
