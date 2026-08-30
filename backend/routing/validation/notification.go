@@ -347,13 +347,12 @@ func getUnmaskedDiscordWebhook(currentValue string) string {
 	return ""
 }
 
-// maskedFieldMatches reports whether maskedValue is a masked representation of realValue, i.e.
-// their last few characters agree, mirroring the masking scheme in config.IsMaskedField.
+// maskedFieldMatches reports whether maskedValue is the mask of realValue. Comparing against
+// config.MaskToken directly follows the real scheme at every length: MaskToken keeps only the
+// last character of a value shorter than four, which a fixed three-character suffix compare
+// could never match.
 func maskedFieldMatches(maskedValue, realValue string) bool {
-	if len(maskedValue) <= 3 || len(realValue) < 3 {
-		return false
-	}
-	return maskedValue[len(maskedValue)-3:] == realValue[len(realValue)-3:]
+	return maskedValue == config.MaskToken(realValue)
 }
 
 // unmaskWebhookHeaders restores masked header values from the stored provider that has the

@@ -746,9 +746,13 @@ func checkConfigDifferences_Notifications(ctx context.Context, oldNotifications 
 			changed = true
 		}
 
-		// Set when a masked webhook header cannot be safely resolved, which fails the whole
-		// save rather than persisting either a literal mask or a mispaired credential.
-		maskedHeaderUnresolved := false
+		// Resolved over the full slice, not the type-keyed map below: that map keeps only one
+		// entry per provider type, and a config may hold several Webhook providers.
+		maskedHeaderUnresolved := !restoreMaskedWebhookHeaders(oldNotifications.Providers, newNotifications.Providers)
+		if maskedHeaderUnresolved {
+			logAction.SetError("Unable to unmask webhook header",
+				"Provide the full header value when changing a webhook URL or renaming a header", nil)
+		}
 
 		// Providers diff
 		oldMap := providerMapNotifications(oldNotifications.Providers)
@@ -906,26 +910,7 @@ func checkConfigDifferences_Notifications(ctx context.Context, oldNotifications 
 					maps.Copy(oldHeaders, oldProv.Webhook.Headers)
 				}
 				if newProv.Webhook != nil {
-					// The UI is served masked header values; echoing one back means
-					// "unchanged", not "set this header to ***abcd".
-					for key, value := range newProv.Webhook.Headers {
-						if !config.IsMaskedField(value) {
-							continue
-						}
-						oldValue, ok := oldHeaders[key]
-						// A masked header is only restorable for the URL it was issued
-						// for, under the key it was issued under. Restoring it across a
-						// URL change would re-point the real credential at a new
-						// endpoint; restoring it under a renamed key is impossible, and
-						// leaving it would save the mask text as the credential.
-						if !ok || oldURL != newURL {
-							logAction.SetError("Unable to unmask webhook header",
-								fmt.Sprintf("Provide the full value for header '%s' when changing the webhook URL or renaming a header", key), nil)
-							maskedHeaderUnresolved = true
-							continue
-						}
-						newProv.Webhook.Headers[key] = oldValue
-					}
+					// Masked values were already resolved above, across every provider.
 					maps.Copy(newHeaders, newProv.Webhook.Headers)
 				}
 				// Check for changes
@@ -1223,6 +1208,48 @@ func joinNonEmptyComma(items []string) string {
 }
 
 // providerMapNotifications creates a map of notification providers keyed by provider name.
+// restoreMaskedWebhookHeaders puts the stored value back wherever the UI echoed back a
+// masked header, and reports whether every mask was resolvable.
+//
+// A masked header is only restorable from the provider that issued it: same URL, same key.
+// Restoring across a URL change would re-point the real credential at whatever endpoint the
+// caller supplied, and a renamed key has no stored counterpart at all - leaving that one
+// alone would save the mask text itself as the credential.
+func restoreMaskedWebhookHeaders(oldProviders, newProviders []config.Config_Notification_Provider) bool {
+	resolved := true
+	for _, newProv := range newProviders {
+		if newProv.Provider != "Webhook" || newProv.Webhook == nil {
+			continue
+		}
+		for key, value := range newProv.Webhook.Headers {
+			if !config.IsMaskedField(value) {
+				continue
+			}
+			stored, ok := storedWebhookHeader(oldProviders, newProv.Webhook.URL, key, value)
+			if !ok {
+				resolved = false
+				continue
+			}
+			newProv.Webhook.Headers[key] = stored
+		}
+	}
+	return resolved
+}
+
+// storedWebhookHeader finds the header value behind a mask, requiring the mask to be the one
+// this exact value would produce so a caller cannot pass an arbitrary "***" string.
+func storedWebhookHeader(oldProviders []config.Config_Notification_Provider, url, key, masked string) (string, bool) {
+	for _, oldProv := range oldProviders {
+		if oldProv.Provider != "Webhook" || oldProv.Webhook == nil || oldProv.Webhook.URL != url {
+			continue
+		}
+		if stored, ok := oldProv.Webhook.Headers[key]; ok && masked == config.MaskToken(stored) {
+			return stored, true
+		}
+	}
+	return "", false
+}
+
 func providerMapNotifications(items []config.Config_Notification_Provider) map[string]config.Config_Notification_Provider {
 	m := make(map[string]config.Config_Notification_Provider, len(items))
 	for _, p := range items {
