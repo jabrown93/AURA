@@ -16,15 +16,30 @@ import (
 
 var sensitiveURLParams = []string{"token", "key", "secret", "password", "auth", "sig"}
 
+// WebhookSiteName marks a request to a user-configured webhook, whose URL is treated as a
+// credential in full rather than just its query string.
+const WebhookSiteName = "Webhook"
+
 // redactURL blanks credentials carried in a URL. Plex sends its account token as an
 // X-Plex-Token query parameter, and these URLs are logged on every transport error.
-func redactURL(raw string) string {
+// hidePath drops the path as well, for endpoints where the path itself is the credential:
+// a generic webhook is a user-supplied capability URL (the Slack shape puts the secret in
+// /services/.../<secret>), so nothing past the host is safe to log. It stays on for the
+// media-server and MediUX calls, whose paths name the failing endpoint and carry no secret.
+func redactURL(raw string, hidePath bool) string {
 	parsed, err := url.Parse(raw)
 	if err != nil {
 		return "<unparseable url>"
 	}
 	if parsed.User != nil {
 		parsed.User = url.User("***")
+	}
+	if hidePath {
+		parsed.Path = "/***"
+		parsed.RawPath = ""
+		parsed.RawQuery = ""
+		parsed.Fragment = ""
+		return parsed.String()
 	}
 	query := parsed.Query()
 	for key := range query {
@@ -48,12 +63,12 @@ func redactURL(raw string) string {
 // carries a password, net/http's stripPassword rewrites it to "user:***@host" before
 // storing it, so it no longer matches raw and a substring replacement would silently do
 // nothing while leaving any query-string credential exposed.
-func redactErr(err error, raw string) string {
+func redactErr(err error, raw string, hidePath bool) string {
 	var urlErr *url.Error
 	if errors.As(err, &urlErr) {
-		return fmt.Sprintf("%s %q: %s", urlErr.Op, redactURL(urlErr.URL), redactErr(urlErr.Err, raw))
+		return fmt.Sprintf("%s %q: %s", urlErr.Op, redactURL(urlErr.URL, hidePath), redactErr(urlErr.Err, raw, hidePath))
 	}
-	return strings.ReplaceAll(err.Error(), raw, redactURL(raw))
+	return strings.ReplaceAll(err.Error(), raw, redactURL(raw, hidePath))
 }
 
 var sharedTransport = &http.Transport{
@@ -74,6 +89,9 @@ func MakeHTTPRequest(ctx context.Context, url, method string, headers map[string
 	ctx, logAction := logging.AddSubActionToContext(ctx, fmt.Sprintf("Making %s request to %s", method, siteName), logging.LevelTrace)
 	defer logAction.Complete()
 
+	// Webhook endpoints are configured by the user and may carry their secret in the path.
+	hidePath := siteName == WebhookSiteName
+
 	// Create a context with a timeout
 	timeoutInterval := time.Duration(timeout) * time.Second
 	ctx, cancel := context.WithTimeout(context.Background(), timeoutInterval)
@@ -86,8 +104,8 @@ func MakeHTTPRequest(ctx context.Context, url, method string, headers map[string
 			"Check error and try again",
 			map[string]any{
 				"method": method,
-				"url":    redactURL(url),
-				"error":  redactErr(err, url),
+				"url":    redactURL(url, hidePath),
+				"error":  redactErr(err, url, hidePath),
 			})
 		return nil, nil, *logAction.Error
 	}
@@ -119,8 +137,8 @@ func MakeHTTPRequest(ctx context.Context, url, method string, headers map[string
 			"Check error and try again",
 			map[string]any{
 				"method": method,
-				"url":    redactURL(url),
-				"error":  redactErr(err, url),
+				"url":    redactURL(url, hidePath),
+				"error":  redactErr(err, url, hidePath),
 			})
 		return nil, nil, *logAction.Error
 	}
@@ -133,8 +151,8 @@ func MakeHTTPRequest(ctx context.Context, url, method string, headers map[string
 			"Check error and try again",
 			map[string]any{
 				"method":      method,
-				"url":         redactURL(url),
-				"error":       redactErr(err, url),
+				"url":         redactURL(url, hidePath),
+				"error":       redactErr(err, url, hidePath),
 				"status_code": resp.StatusCode,
 			})
 		return nil, nil, *logAction.Error
