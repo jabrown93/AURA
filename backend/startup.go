@@ -260,6 +260,20 @@ func runWarmup() (success bool) {
 	return success
 }
 
+// newAPIServer builds a listener with timeouts. ReadHeaderTimeout is the one that matters:
+// without it a client can hold a connection open indefinitely by dribbling out headers.
+// WriteTimeout is deliberately left unset, because image and log responses are proxied from
+// a media server that can legitimately be slow.
+func newAPIServer(addr string) *http.Server {
+	return &http.Server{
+		Addr:              addr,
+		Handler:           http.HandlerFunc(dispatch),
+		ReadHeaderTimeout: 15 * time.Second,
+		ReadTimeout:       60 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
+}
+
 func startAPI() {
 	startTLSIfConfigured()
 
@@ -268,7 +282,7 @@ func startAPI() {
 		Bool("full_routes", config.Loaded && config.Valid).
 		Str("log_level", logging.LOGGER.GetLevel().String()).
 		Msg("Starting HTTP Server")
-	if err := http.ListenAndServe(fmt.Sprintf(":%d", APP_PORT), http.HandlerFunc(dispatch)); err != nil {
+	if err := newAPIServer(fmt.Sprintf(":%d", APP_PORT)).ListenAndServe(); err != nil {
 		logging.LOGGER.Fatal().Err(err).Msg("Failed to start server")
 	}
 }
@@ -298,7 +312,7 @@ func startTLSIfConfigured() {
 
 	go func() {
 		logging.LOGGER.Info().Timestamp().Int("port", APP_TLS_PORT).Msg("Starting HTTPS Server")
-		if err := http.ListenAndServeTLS(fmt.Sprintf(":%d", APP_TLS_PORT), certFile, keyFile, http.HandlerFunc(dispatch)); err != nil {
+		if err := newAPIServer(fmt.Sprintf(":%d", APP_TLS_PORT)).ListenAndServeTLS(certFile, keyFile); err != nil {
 			logging.LOGGER.Fatal().Err(err).Msg("Failed to start HTTPS server")
 		}
 	}()
