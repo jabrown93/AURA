@@ -17,32 +17,33 @@ import (
 var sensitiveURLParams = []string{"token", "key", "secret", "password", "auth", "sig"}
 
 // WebhookSiteName marks a request to a user-configured webhook, whose URL is treated as a
-// credential in full rather than just its query string.
+// credential in full and kept out of logs entirely.
 const WebhookSiteName = "Webhook"
+
+// redactedWebhookURL replaces a webhook URL entirely in logs.
+//
+// A generic webhook is a user-supplied capability URL, and every component has turned out to
+// be able to carry the secret: the query string, the path (Slack's /services/.../<secret>),
+// the opaque remainder of "https:secret", and a DNS label such as
+// https://<token>.hooks.example. Validation only requires the URL to be non-empty, so all of
+// those shapes reach the log. Rather than keep discovering components to blank, none of it
+// is logged - the site name already says which provider failed.
+const redactedWebhookURL = "<webhook url redacted>"
 
 // redactURL blanks credentials carried in a URL. Plex sends its account token as an
 // X-Plex-Token query parameter, and these URLs are logged on every transport error.
-// hidePath drops the path as well, for endpoints where the path itself is the credential:
-// a generic webhook is a user-supplied capability URL (the Slack shape puts the secret in
-// /services/.../<secret>), so nothing past the host is safe to log. It stays on for the
-// media-server and MediUX calls, whose paths name the failing endpoint and carry no secret.
-func redactURL(raw string, hidePath bool) string {
+// redactAll drops the URL completely, for webhooks. Media-server and MediUX URLs keep their
+// host and path: they name the failing endpoint and carry no secret.
+func redactURL(raw string, redactAll bool) string {
+	if redactAll {
+		return redactedWebhookURL
+	}
 	parsed, err := url.Parse(raw)
 	if err != nil {
 		return "<unparseable url>"
 	}
 	if parsed.User != nil {
 		parsed.User = url.User("***")
-	}
-	if hidePath {
-		// Built from the safe components rather than blanked in place: an opaque URL such
-		// as "https:secret" keeps the credential in parsed.Opaque, which String() emits
-		// while ignoring Path, so clearing Path alone would leave the secret intact.
-		// Validation only requires a non-empty URL, so that shape does reach here.
-		if parsed.Host == "" {
-			return parsed.Scheme + "://***"
-		}
-		return parsed.Scheme + "://" + parsed.Host + "/***"
 	}
 	query := parsed.Query()
 	for key := range query {
@@ -66,12 +67,25 @@ func redactURL(raw string, hidePath bool) string {
 // carries a password, net/http's stripPassword rewrites it to "user:***@host" before
 // storing it, so it no longer matches raw and a substring replacement would silently do
 // nothing while leaving any query-string credential exposed.
-func redactErr(err error, raw string, hidePath bool) string {
+func redactErr(err error, raw string, redactAll bool) string {
 	var urlErr *url.Error
 	if errors.As(err, &urlErr) {
-		return fmt.Sprintf("%s %q: %s", urlErr.Op, redactURL(urlErr.URL, hidePath), redactErr(urlErr.Err, raw, hidePath))
+		return fmt.Sprintf("%s %q: %s", urlErr.Op, redactURL(urlErr.URL, redactAll), redactErr(urlErr.Err, raw, redactAll))
 	}
-	return strings.ReplaceAll(err.Error(), raw, redactURL(raw, hidePath))
+	msg := strings.ReplaceAll(err.Error(), raw, redactURL(raw, redactAll))
+	if !redactAll {
+		return msg
+	}
+	// DNS and dial failures name the host on their own, without the surrounding URL, so
+	// replacing the URL is not enough when the host itself is the credential.
+	if parsed, parseErr := url.Parse(raw); parseErr == nil {
+		for _, host := range []string{parsed.Host, parsed.Hostname()} {
+			if host != "" {
+				msg = strings.ReplaceAll(msg, host, "***")
+			}
+		}
+	}
+	return msg
 }
 
 var sharedTransport = &http.Transport{
@@ -93,7 +107,7 @@ func MakeHTTPRequest(ctx context.Context, url, method string, headers map[string
 	defer logAction.Complete()
 
 	// Webhook endpoints are configured by the user and may carry their secret in the path.
-	hidePath := siteName == WebhookSiteName
+	redactAll := siteName == WebhookSiteName
 
 	// Create a context with a timeout
 	timeoutInterval := time.Duration(timeout) * time.Second
@@ -107,8 +121,8 @@ func MakeHTTPRequest(ctx context.Context, url, method string, headers map[string
 			"Check error and try again",
 			map[string]any{
 				"method": method,
-				"url":    redactURL(url, hidePath),
-				"error":  redactErr(err, url, hidePath),
+				"url":    redactURL(url, redactAll),
+				"error":  redactErr(err, url, redactAll),
 			})
 		return nil, nil, *logAction.Error
 	}
@@ -140,8 +154,8 @@ func MakeHTTPRequest(ctx context.Context, url, method string, headers map[string
 			"Check error and try again",
 			map[string]any{
 				"method": method,
-				"url":    redactURL(url, hidePath),
-				"error":  redactErr(err, url, hidePath),
+				"url":    redactURL(url, redactAll),
+				"error":  redactErr(err, url, redactAll),
 			})
 		return nil, nil, *logAction.Error
 	}
@@ -154,8 +168,8 @@ func MakeHTTPRequest(ctx context.Context, url, method string, headers map[string
 			"Check error and try again",
 			map[string]any{
 				"method":      method,
-				"url":         redactURL(url, hidePath),
-				"error":       redactErr(err, url, hidePath),
+				"url":         redactURL(url, redactAll),
+				"error":       redactErr(err, url, redactAll),
 				"status_code": resp.StatusCode,
 			})
 		return nil, nil, *logAction.Error

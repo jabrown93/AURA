@@ -27,34 +27,39 @@ func TestRedactErrRedactsCanonicalizedURL(t *testing.T) {
 	}
 }
 
-// A generic webhook is a capability URL: the secret sits in the path, not the query, so the
-// whole path has to go.
-func TestRedactURLHidesWebhookPath(t *testing.T) {
-	raw := "https://hooks.slack.com/services/T00000/B00000/XXXXsecretXXXX"
-
-	if got := redactURL(raw, true); strings.Contains(got, "secret") {
-		t.Errorf("redactURL(hidePath) = %q, want the path removed", got)
+// Every component of a webhook URL has turned out to be able to carry the secret, so none
+// of it is logged.
+func TestRedactURLDropsWebhookURLEntirely(t *testing.T) {
+	secretURLs := []string{
+		"https://hooks.slack.com/services/T00000/B00000/XXXXsecretXXXX", // secret in path
+		"https:supersecret",                        // secret in the opaque remainder
+		"https://supersecret.hooks.example/notify", // secret in a DNS label
+		"https://h/n?token=supersecret",            // secret in the query
 	}
-	if got := redactURL(raw, true); !strings.Contains(got, "hooks.slack.com") {
-		t.Errorf("redactURL(hidePath) = %q, want the host kept for debugging", got)
+	for _, raw := range secretURLs {
+		if got := redactURL(raw, true); strings.Contains(got, "secret") {
+			t.Errorf("redactURL(%q, true) = %q, want no part of the URL", raw, got)
+		}
 	}
-	// An opaque URL keeps its credential in parsed.Opaque, which String() emits while
-	// ignoring Path. Validation only requires a non-empty URL, so this shape reaches here.
-	if got := redactURL("https:supersecret", true); strings.Contains(got, "supersecret") {
-		t.Errorf("redactURL(opaque) = %q, want the credential removed", got)
-	}
-	// Media-server paths name the failing endpoint and carry no secret, so they stay.
+	// Media-server URLs name the failing endpoint and carry no secret, so they stay.
 	if got := redactURL("https://plex.local/library/metadata/123", false); !strings.Contains(got, "/library/metadata/123") {
 		t.Errorf("redactURL = %q, want the path kept when it is not sensitive", got)
 	}
 }
 
-func TestRedactErrHidesWebhookPath(t *testing.T) {
-	raw := "https://hooks.slack.com/services/T00000/B00000/XXXXsecretXXXX"
-	err := &url.Error{Op: "Post", URL: raw, Err: errors.New("connection refused")}
+func TestRedactErrDropsWebhookURLEntirely(t *testing.T) {
+	raw := "https://supersecret.hooks.example/services/XXXXsecretXXXX"
 
-	if got := redactErr(err, raw, true); strings.Contains(got, "secret") {
-		t.Errorf("redactErr(hidePath) = %q, want the path removed", got)
+	// A dial failure names the host on its own, outside the URL.
+	inner := errors.New("dial tcp: lookup supersecret.hooks.example: no such host")
+	err := &url.Error{Op: "Post", URL: raw, Err: inner}
+
+	got := redactErr(err, raw, true)
+	if strings.Contains(got, "secret") {
+		t.Errorf("redactErr = %q, want the host and path removed", got)
+	}
+	if !strings.Contains(got, "no such host") {
+		t.Errorf("redactErr = %q, want the failure cause kept", got)
 	}
 }
 
