@@ -226,11 +226,9 @@ func addOnboardingRoutes(r *chi.Mux) {
 		r.Get("/oauth/plex", routes_plex.GetPlexPinAndID)
 		r.Post("/oauth/plex", routes_plex.CheckAuthStatusWithPlex)
 
-		// Logging Routes
-		r.Route("/logs", func(r chi.Router) {
-			r.Get("/", routes_logging.GetLogContents)
-			r.Delete("/", routes_logging.ClearLogFiles)
-		})
+		// Logging routes are deliberately absent here. Onboarding is unauthenticated, and
+		// the log file carries historical credentials, so it must not be readable before a
+		// session exists. Setup never needs it.
 
 		r.Post("/mediaserver/libraries/options", routes_ms.GetLibrarySectionOptions)
 
