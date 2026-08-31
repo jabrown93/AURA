@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.8](https://github.com/jabrown93/AURA/compare/v2.1.7...v2.1.8) (2026-08-31)
+
+
+### Bug Fixes
+
+* **database:** detach cache refresh goroutine from the request context ([#143](https://github.com/jabrown93/AURA/issues/143)) ([8535f64](https://github.com/jabrown93/AURA/commit/8535f64416f64d50739a8f65e8d6d2a44d9f631b))
+
 ## [2.1.7](https://github.com/jabrown93/AURA/compare/v2.1.6...v2.1.7) (2026-08-31)
 
 
