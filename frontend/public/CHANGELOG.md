@@ -1,5 +1,15 @@
 # Changelog
 
+## [2.1.7-beta.1](https://github.com/jabrown93/AURA/compare/v2.1.6...v2.1.7-beta.1) (2026-08-31)
+
+
+### Bug Fixes
+
+* **auto-download:** gate season posters on season number ([#142](https://github.com/jabrown93/AURA/issues/142)) ([04c1c69](https://github.com/jabrown93/AURA/commit/04c1c69ea679db6374ba582cc6938160881c7844)), closes [#118](https://github.com/jabrown93/AURA/issues/118)
+* **frontend:** normalize poster sets in saved-sets table and fix overlap check ([#141](https://github.com/jabrown93/AURA/issues/141)) ([0e53ed4](https://github.com/jabrown93/AURA/commit/0e53ed452fd80759b1198003335d2bf42727c32f))
+* **jobs:** guard manualPrevRun write with the scheduler mutex ([#140](https://github.com/jabrown93/AURA/issues/140)) ([d9126fc](https://github.com/jabrown93/AURA/commit/d9126fc83dc36182c2accc8e6a3ffe45c232def2)), closes [#120](https://github.com/jabrown93/AURA/issues/120)
+* wave 2 trivials — queue panic, dropped re-apply log, uncancellable HTTP requests ([#144](https://github.com/jabrown93/AURA/issues/144)) ([c536ec9](https://github.com/jabrown93/AURA/commit/c536ec98e15e6055eb7867d1bf8f88cd4c07e57f))
+
 ## [2.1.6](https://github.com/jabrown93/AURA/compare/v2.1.5...v2.1.6) (2026-08-30)
 
 
