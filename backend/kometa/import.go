@@ -14,17 +14,30 @@ import (
 	"time"
 )
 
+var executeImport = runImport
+
 // StartImport kicks off a Kometa asset import in the background. It returns false if an
 // import is already running or if Kometa mode is not enabled/configured for Plex.
-func StartImport() (started bool) {
-	if !importEnabled() {
+func StartImport() bool {
+	if !claimImport() {
 		return false
 	}
-	if !tryStart() {
-		return false
-	}
-	go runImport()
+	go executeImport()
 	return true
+}
+
+// RunImport runs a Kometa asset import synchronously. Scheduled jobs use it so their
+// admission gate remains held until the import finishes.
+func RunImport() bool {
+	if !claimImport() {
+		return false
+	}
+	executeImport()
+	return true
+}
+
+func claimImport() bool {
+	return importEnabled() && tryStart()
 }
 
 // importEnabled reports whether Kometa import can run given the current config.

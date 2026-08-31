@@ -50,7 +50,7 @@ func StartKometaImportJob() error {
 						Msg("PANIC: in scheduled Kometa Asset Import Job")
 				}
 			}()
-			if started := kometa.StartImport(); !started {
+			if started := kometa.RunImport(); !started {
 				logging.LOGGER.Warn().Timestamp().Msg("Kometa Asset Import skipped (already running or not enabled)")
 			}
 		}).runScheduled),
