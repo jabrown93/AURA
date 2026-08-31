@@ -141,10 +141,28 @@ func AddNewItemToDB(w http.ResponseWriter, r *http.Request) {
 
 	// If this is the first time adding the item, we need to update the cache
 	// Run this asynchronously
+	cachedItem := saveItem.MediaItem
 	go func() {
-		_, _, dbSets, _ := database.CheckIfMediaItemExists(ctx, saveItem.MediaItem.TMDB_ID, saveItem.MediaItem.LibraryTitle)
-		saveItem.MediaItem.DBSavedSets = dbSets
-		cache.LibraryStore.UpdateMediaItem(saveItem.MediaItem.LibraryTitle, &saveItem.MediaItem)
+		ctx, ld := logging.CreateLoggingContext(context.Background(), "Saved Sets Cache Refresh")
+		logAction := ld.AddAction("Refresh Cached DB Saved Sets for Added Item", logging.LevelInfo)
+		ctx = logging.WithCurrentAction(ctx, logAction)
+		defer ld.Log()
+
+		_, _, dbSets, Err := database.CheckIfMediaItemExists(ctx, cachedItem.TMDB_ID, cachedItem.LibraryTitle)
+		if Err.Message != "" {
+			logAction.SetErrorFromInfo(Err)
+			return
+		}
+		// On a hit the cached entry is media-server-owned and richer than the request's
+		// copy, so only DBSavedSets may be written. On a miss there is nothing to clobber
+		// and the item must still be inserted, or its saved sets stay invisible until the
+		// next full library refresh.
+		if _, found := cache.LibraryStore.GetMediaItemFromSectionByTMDBID(cachedItem.LibraryTitle, cachedItem.TMDB_ID); found {
+			cache.LibraryStore.UpdateMediaItemDBSavedSets(cachedItem.LibraryTitle, &cachedItem, dbSets)
+			return
+		}
+		cachedItem.DBSavedSets = dbSets
+		cache.LibraryStore.UpdateMediaItem(cachedItem.LibraryTitle, &cachedItem)
 	}()
 	response.SavedItem = saveItem
 
