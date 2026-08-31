@@ -160,8 +160,19 @@ func runWarmup() (success bool) {
 	// Database-Migration: If not a new DB, run migrations
 	if !newDB {
 		config.AppLoadingStep = "Running Database Migrations"
-		migrationsCompleted, _ := migration.RunMigrations()
+		migrationsCompleted, migrateErr := migration.RunMigrations()
 		logging.LOGGER.Info().Timestamp().Msgf("%d database migrations performed", migrationsCompleted)
+		if migrateErr.Message != "" {
+			// A failed migration leaves the schema partially applied and the VERSION row
+			// unbumped, so booting on would run every query against a schema that does not
+			// match the code. Fail warmup instead of half-booting.
+			config.AppLoadingStep = "Database Migration Failed"
+			logging.LOGGER.Error().Timestamp().
+				Str("help", migrateErr.Help).
+				Interface("detail", migrateErr.Detail).
+				Msgf("Database migration failed: %s", migrateErr.Message)
+			return false
+		}
 	}
 
 	// Cache: Add all media server sections and items
