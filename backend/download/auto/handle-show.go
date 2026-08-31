@@ -273,7 +273,7 @@ func handleShow(ctx context.Context, mediaItem models.MediaItem, dbItem models.D
 				check.Reason = "Backdrop not selected for this set"
 				actionImageChecks.AppendResult(imageName, check)
 				continue
-			} else if image.Type == "season_poster" && !dbSet.SelectedTypes.SeasonPoster && !dbSet.SelectedTypes.SpecialSeasonPoster {
+			} else if image.Type == "season_poster" && !seasonPosterSelected(dbSet.SelectedTypes, image) {
 				check.Reason = "Season Poster not selected for this set"
 				actionImageChecks.AppendResult(imageName, check)
 				continue
@@ -484,6 +484,20 @@ func handleShow(ctx context.Context, mediaItem models.MediaItem, dbItem models.D
 
 	getOverallResults(&result)
 	return result
+}
+
+// seasonPosterSelected reports whether a season_poster image is selected by the set's types.
+// Season 0 is a special season and requires SpecialSeasonPoster; every other season requires
+// SeasonPoster. Checking only that one of the two is set lets a set download the season kind
+// the user did not select.
+func seasonPosterSelected(selectedTypes models.SelectedTypes, image models.ImageFile) bool {
+	if image.SeasonNumber == nil {
+		return false
+	}
+	if *image.SeasonNumber == 0 {
+		return selectedTypes.SpecialSeasonPoster
+	}
+	return selectedTypes.SeasonPoster
 }
 
 func getShowInfoChangeReason(changes ShowChangeDetails) string {
