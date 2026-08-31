@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.12](https://github.com/jabrown93/AURA/compare/v2.1.11...v2.1.12) (2026-08-31)
+
+
+### Performance Improvements
+
+* **library:** page home media requests ([#154](https://github.com/jabrown93/AURA/issues/154)) ([5f46cba](https://github.com/jabrown93/AURA/commit/5f46cbad09a6d239fa13209897ad80409115b986))
+
 ## [2.1.11](https://github.com/jabrown93/AURA/compare/v2.1.10...v2.1.11) (2026-08-31)
 
 
