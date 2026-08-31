@@ -239,7 +239,9 @@ func DownloadApplyImageToMediaItem(ctx context.Context, item *models.MediaItem, 
 		return Err
 	}
 	if Err = msClient.DownloadApplyImageToMediaItem(ctx, item, imageFile); Err.Message == "" {
-		cache.LibraryStore.AdvanceMediaItemUpdatedAt(item.RatingKey, time.Now().Unix())
+		if version, ok := cache.LibraryStore.AdvanceMediaItemUpdatedAt(item.RatingKey, time.Now().Unix()); ok {
+			item.UpdatedAt = version
+		}
 	}
 	return Err
 }
@@ -258,7 +260,9 @@ func ApplyCollectionImage(ctx context.Context, collectionItem *models.Collection
 		return Err
 	}
 	if Err = msClient.ApplyCollectionImage(ctx, collectionItem, imageFile); Err.Message == "" {
-		cache.CollectionsStore.AdvanceCollectionUpdatedAt(collectionItem.RatingKey, time.Now().Unix())
+		if version, ok := cache.CollectionsStore.AdvanceCollectionUpdatedAt(collectionItem.RatingKey, time.Now().Unix()); ok {
+			collectionItem.UpdatedAt = version
+		}
 	}
 	return Err
 }

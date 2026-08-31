@@ -114,7 +114,7 @@ export function AssetImage({
   } else if (imageType === "item") {
     imageSrc = `/api/images/media/item?rating_key=${(image as MediaItem).rating_key}&image_type=${aspect}&v=${(image as MediaItem).updated_at}`;
   } else if (imageType === "collection") {
-    imageSrc = `/api/images/media/collection?rating_key=${(image as CollectionItem).rating_key}&image_type=${aspect}&index=${(image as CollectionItem).index}`;
+    imageSrc = `/api/images/media/collection?rating_key=${(image as CollectionItem).rating_key}&image_type=${aspect}&index=${(image as CollectionItem).index}&v=${(image as CollectionItem).updated_at}`;
   } else {
     imageSrc = "";
   }

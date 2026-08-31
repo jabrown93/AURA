@@ -93,5 +93,5 @@ type CollectionItem struct {
 	ChildCount   int         `json:"child_count"`
 	MediaItems   []MediaItem `json:"media_items"`
 	LibraryTitle string      `json:"library_title,omitempty"`
-	UpdatedAt    int64       `json:"-" swaggerignore:"true"`
+	UpdatedAt    int64       `json:"updated_at"`
 }

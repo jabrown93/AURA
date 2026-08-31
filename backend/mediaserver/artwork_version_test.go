@@ -26,7 +26,7 @@ func TestSuccessfulArtworkAppliesAdvanceParentVersions(t *testing.T) {
 	defer server.Close()
 
 	cleanupArtworkVersionTest(t, server.URL)
-	baseVersion := time.Now().Unix() + 1000
+	baseVersion := time.Now().UnixMicro() + 1000
 	seasonNumber, episodeNumber := 1, 2
 	item := models.MediaItem{
 		RatingKey: "show-1", Type: "show", Title: "Show", LibraryTitle: "TV", UpdatedAt: baseVersion,
@@ -55,6 +55,9 @@ func TestSuccessfulArtworkAppliesAdvanceParentVersions(t *testing.T) {
 		if !ok || cached.UpdatedAt != baseVersion+int64(i)+1 {
 			t.Fatalf("after %s parent version = %d, found = %v; want %d", image.Type, cached.UpdatedAt, ok, baseVersion+int64(i)+1)
 		}
+		if item.UpdatedAt != cached.UpdatedAt {
+			t.Fatalf("after %s mutation result version = %d, want cached version %d", image.Type, item.UpdatedAt, cached.UpdatedAt)
+		}
 	}
 
 	collectionImage := models.ImageFile{ID: "collection", Type: "collection_poster", Modified: time.Unix(1, 0)}
@@ -64,6 +67,9 @@ func TestSuccessfulArtworkAppliesAdvanceParentVersions(t *testing.T) {
 	cachedCollection, ok := cache.CollectionsStore.GetCollectionByRatingKey(collection.RatingKey)
 	if !ok || cachedCollection.UpdatedAt != baseVersion+1 {
 		t.Fatalf("collection version = %d, found = %v; want %d", cachedCollection.UpdatedAt, ok, baseVersion+1)
+	}
+	if collection.UpdatedAt != cachedCollection.UpdatedAt {
+		t.Fatalf("collection mutation result version = %d, want cached version %d", collection.UpdatedAt, cachedCollection.UpdatedAt)
 	}
 
 	mu.Lock()
@@ -91,7 +97,7 @@ func TestFailedArtworkAppliesDoNotAdvanceVersions(t *testing.T) {
 	defer server.Close()
 
 	cleanupArtworkVersionTest(t, server.URL)
-	const version = int64(100)
+	version := time.Now().UnixMicro() + 1000
 	item := models.MediaItem{RatingKey: "movie-1", Type: "movie", Title: "Movie", LibraryTitle: "Movies", UpdatedAt: version}
 	cache.LibraryStore.UpdateSection(&models.LibrarySection{
 		LibrarySectionBase: models.LibrarySectionBase{Title: "Movies"},

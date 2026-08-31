@@ -7,8 +7,10 @@ import (
 	"aura/models"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestSuccessfulImageResponsesUseSafeCachePolicies(t *testing.T) {
@@ -34,14 +36,16 @@ func TestSuccessfulImageResponsesUseSafeCachePolicies(t *testing.T) {
 	config.Current.Images.CacheImages.Enabled = false
 	mediux.MediuxApiURL = server.URL
 
+	mediaVersion := time.Now().UnixMicro() + 1000
+	collectionVersion := mediaVersion + 1
 	cache.LibraryStore = cache.Cache_NewLibraryCache()
 	cache.LibraryStore.UpdateSection(&models.LibrarySection{
 		LibrarySectionBase: models.LibrarySectionBase{Title: "Movies"},
-		MediaItems:         []models.MediaItem{{RatingKey: "media-1", Title: "Movie", UpdatedAt: 1700000000}},
+		MediaItems:         []models.MediaItem{{RatingKey: "media-1", Title: "Movie", UpdatedAt: mediaVersion}},
 	})
 	cache.CollectionsStore = cache.Cache_NewCollectionsCache()
 	cache.CollectionsStore.UpsertCollection(&models.CollectionItem{
-		RatingKey: "collection-1", LibraryTitle: "Movies", Title: "Collection", UpdatedAt: 1700000001,
+		RatingKey: "collection-1", LibraryTitle: "Movies", Title: "Collection", UpdatedAt: collectionVersion,
 	})
 
 	tests := []struct {
@@ -50,10 +54,10 @@ func TestSuccessfulImageResponsesUseSafeCachePolicies(t *testing.T) {
 		handler      http.HandlerFunc
 		cacheControl string
 	}{
-		{"versioned media item", "/api/images/media/item?rating_key=media-1&image_type=poster&v=1700000000", GetMediaItemImage, versionedImageCacheControl},
+		{"versioned media item", "/api/images/media/item?rating_key=media-1&image_type=poster&v=" + strconv.FormatInt(mediaVersion, 10), GetMediaItemImage, versionedImageCacheControl},
 		{"unversioned media item", "/api/images/media/item?rating_key=media-1&image_type=poster", GetMediaItemImage, unversionedImageCacheControl},
-		{"stale media item version", "/api/images/media/item?rating_key=media-1&image_type=poster&v=1699999999", GetMediaItemImage, unversionedImageCacheControl},
-		{"versioned collection", "/api/images/media/collection?rating_key=collection-1&image_type=poster&v=1700000001", GetCollectionItemImage, versionedImageCacheControl},
+		{"stale media item version", "/api/images/media/item?rating_key=media-1&image_type=poster&v=" + strconv.FormatInt(mediaVersion-1, 10), GetMediaItemImage, unversionedImageCacheControl},
+		{"versioned collection", "/api/images/media/collection?rating_key=collection-1&image_type=poster&v=" + strconv.FormatInt(collectionVersion, 10), GetCollectionItemImage, versionedImageCacheControl},
 		{"unversioned collection", "/api/images/media/collection?rating_key=collection-1&image_type=poster", GetCollectionItemImage, unversionedImageCacheControl},
 		{"versioned MediUX image", "/api/images/mediux/item?asset_id=asset-1&modified_date=2024-01-01T12:00:00Z", GetMediuxImage, versionedImageCacheControl},
 		{"unversioned MediUX avatar", "/api/images/mediux/avatar?avatar_id=avatar-1", GetMediuxAvatarImage, unversionedImageCacheControl},
@@ -90,13 +94,15 @@ func TestStaleBrowserVersionUsesCurrentPlexVersion(t *testing.T) {
 	})
 	config.Current.MediaServer = config.Config_MediaServer{Type: "Plex", URL: server.URL, ApiToken: "plex-secret"}
 	config.Current.Images.CacheImages.Enabled = false
+	oldVersion := time.Now().UnixMicro() + 1000
+	currentVersion := oldVersion + 1
 	cache.LibraryStore = cache.Cache_NewLibraryCache()
 	cache.LibraryStore.UpdateSection(&models.LibrarySection{
 		LibrarySectionBase: models.LibrarySectionBase{Title: "Movies"},
-		MediaItems:         []models.MediaItem{{RatingKey: "media-1", UpdatedAt: 100}},
+		MediaItems:         []models.MediaItem{{RatingKey: "media-1", UpdatedAt: oldVersion}},
 	})
-	if version, ok := cache.LibraryStore.AdvanceMediaItemUpdatedAt("media-1", 200); !ok || version != 200 {
-		t.Fatalf("advanced version = %d, found = %v; want 200, true", version, ok)
+	if version, ok := cache.LibraryStore.AdvanceMediaItemUpdatedAt("media-1", currentVersion); !ok || version != currentVersion {
+		t.Fatalf("advanced version = %d, found = %v; want %d, true", version, ok, currentVersion)
 	}
 
 	for _, test := range []struct {
@@ -104,8 +110,8 @@ func TestStaleBrowserVersionUsesCurrentPlexVersion(t *testing.T) {
 		version      string
 		cacheControl string
 	}{
-		{"stale browser version", "100", unversionedImageCacheControl},
-		{"current browser version", "200", versionedImageCacheControl},
+		{"stale browser version", strconv.FormatInt(oldVersion, 10), unversionedImageCacheControl},
+		{"current browser version", strconv.FormatInt(currentVersion, 10), versionedImageCacheControl},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			response := httptest.NewRecorder()
@@ -120,9 +126,10 @@ func TestStaleBrowserVersionUsesCurrentPlexVersion(t *testing.T) {
 		})
 	}
 
+	wantUpstream := "/library/metadata/media-1/poster/" + strconv.FormatInt(currentVersion, 10)
 	for _, got := range upstreamVersions {
-		if got != "/library/metadata/media-1/poster/200" {
-			t.Errorf("upstream Plex image version = %q, want current version path", got)
+		if got != wantUpstream {
+			t.Errorf("upstream Plex image version = %q, want %q", got, wantUpstream)
 		}
 	}
 }

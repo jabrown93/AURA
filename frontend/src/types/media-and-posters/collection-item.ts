@@ -15,4 +15,5 @@ export interface CollectionItem {
   child_count: number;
   media_items: MediaItem[];
   library_title?: string;
+  updated_at: number;
 }

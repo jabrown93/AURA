@@ -10,16 +10,22 @@ var CollectionsStore *MediaServerCollectionsCache
 
 type MediaServerCollectionsCache struct {
 	// libraryTitle -> index -> CollectionItem
-	collections    map[string]map[string]*models.CollectionItem
-	mu             sync.RWMutex
-	LastFullUpdate int64
+	collections     map[string]map[string]*models.CollectionItem
+	mu              sync.RWMutex
+	generationFloor int64
+	LastFullUpdate  int64
 }
 
 // NewCollectionsCache creates a new CollectionsCache instance
 func Cache_NewCollectionsCache() *MediaServerCollectionsCache {
+	return newCollectionsCache(processArtworkVersionFloor)
+}
+
+func newCollectionsCache(generationFloor int64) *MediaServerCollectionsCache {
 	return &MediaServerCollectionsCache{
-		collections:    make(map[string]map[string]*models.CollectionItem),
-		LastFullUpdate: 0,
+		collections:     make(map[string]map[string]*models.CollectionItem),
+		generationFloor: generationFloor,
+		LastFullUpdate:  0,
 	}
 }
 
@@ -127,10 +133,9 @@ func (msc *MediaServerCollectionsCache) UpsertCollection(collection *models.Coll
 		lib = make(map[string]*models.CollectionItem)
 		msc.collections[collection.LibraryTitle] = lib
 	}
+	collection.UpdatedAt = hydratedVersion(collection.UpdatedAt, msc.generationFloor)
 	if existing := lib[collection.RatingKey]; existing != nil && collection.UpdatedAt < existing.UpdatedAt {
-		copy := *collection
-		copy.UpdatedAt = existing.UpdatedAt
-		collection = &copy
+		collection.UpdatedAt = existing.UpdatedAt
 	}
 	lib[collection.RatingKey] = collection
 }

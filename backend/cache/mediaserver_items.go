@@ -12,16 +12,22 @@ import (
 var LibraryStore *MediaServerLibraryCache
 
 type MediaServerLibraryCache struct {
-	sections       map[string]*models.LibrarySection // Key: Library Title
-	mu             sync.RWMutex
-	LastFullUpdate int64
+	sections        map[string]*models.LibrarySection // Key: Library Title
+	mu              sync.RWMutex
+	generationFloor int64
+	LastFullUpdate  int64
 }
 
 // NewLibraryCache creates a new LibraryCache instance
 func Cache_NewLibraryCache() *MediaServerLibraryCache {
+	return newLibraryCache(processArtworkVersionFloor)
+}
+
+func newLibraryCache(generationFloor int64) *MediaServerLibraryCache {
 	return &MediaServerLibraryCache{
-		sections:       make(map[string]*models.LibrarySection),
-		LastFullUpdate: 0,
+		sections:        make(map[string]*models.LibrarySection),
+		generationFloor: generationFloor,
+		LastFullUpdate:  0,
 	}
 }
 
@@ -48,22 +54,24 @@ func (c *MediaServerLibraryCache) UpdateSection(section *models.LibrarySection) 
 		// Create a map of existing items for O(1) lookup
 		existingItems := make(map[string]*models.MediaItem)
 		for i := range existing.MediaItems {
-			existingItems[existing.MediaItems[i].TMDB_ID] = &existing.MediaItems[i]
+			existingItems[mediaItemVersionKey(&existing.MediaItems[i])] = &existing.MediaItems[i]
 		}
 
 		// Update existing items and collect new ones
 		var newItems []models.MediaItem
-		for _, newItem := range section.MediaItems {
-			if existingItem, found := existingItems[newItem.TMDB_ID]; found {
+		for i := range section.MediaItems {
+			newItem := &section.MediaItems[i]
+			newItem.UpdatedAt = hydratedVersion(newItem.UpdatedAt, c.generationFloor)
+			if existingItem, found := existingItems[mediaItemVersionKey(newItem)]; found {
 				// Locally advanced artwork versions must not regress when Plex still reports
 				// an unchanged parent updatedAt after season or episode artwork changes.
 				if newItem.UpdatedAt < existingItem.UpdatedAt {
 					newItem.UpdatedAt = existingItem.UpdatedAt
 				}
-				*existingItem = newItem
+				*existingItem = *newItem
 			} else {
 				// Collect new item for appending
-				newItems = append(newItems, newItem)
+				newItems = append(newItems, *newItem)
 			}
 		}
 
@@ -72,8 +80,18 @@ func (c *MediaServerLibraryCache) UpdateSection(section *models.LibrarySection) 
 		existing.TotalSize = len(existing.MediaItems)
 	} else {
 		// If section does not exist, add it to the cache
+		for i := range section.MediaItems {
+			section.MediaItems[i].UpdatedAt = hydratedVersion(section.MediaItems[i].UpdatedAt, c.generationFloor)
+		}
 		c.sections[section.Title] = section
 	}
+}
+
+func mediaItemVersionKey(item *models.MediaItem) string {
+	if item.RatingKey != "" {
+		return "rating_key:" + item.RatingKey
+	}
+	return "tmdb_id:" + item.TMDB_ID
 }
 
 // UpdateMediaItem updates a specific media item in a section
@@ -86,14 +104,14 @@ func (c *MediaServerLibraryCache) UpdateMediaItem(sectionTitle string, item *mod
 		// Create a map of existing items for O(1) lookup
 		existingItems := make(map[string]*models.MediaItem)
 		for i := range section.MediaItems {
-			existingItems[section.MediaItems[i].TMDB_ID] = &section.MediaItems[i]
+			existingItems[mediaItemVersionKey(&section.MediaItems[i])] = &section.MediaItems[i]
 		}
-		if existingItem, found := existingItems[item.TMDB_ID]; found {
-			updated := *item
-			if updated.UpdatedAt < existingItem.UpdatedAt {
-				updated.UpdatedAt = existingItem.UpdatedAt
+		item.UpdatedAt = hydratedVersion(item.UpdatedAt, c.generationFloor)
+		if existingItem, found := existingItems[mediaItemVersionKey(item)]; found {
+			if item.UpdatedAt < existingItem.UpdatedAt {
+				item.UpdatedAt = existingItem.UpdatedAt
 			}
-			*existingItem = updated
+			*existingItem = *item
 		} else {
 			// Append new item
 			section.MediaItems = append(section.MediaItems, *item)
