@@ -421,7 +421,7 @@ func reApplySavedImages(item PlexRefreshedItem) {
 	logCtx, ld := logging.CreateLoggingContext(context.Background(), "Plex Event Listener")
 	logAction := ld.AddAction("Re-Apply Saved Images After Metadata Refresh", logging.LevelInfo)
 	logCtx = logging.WithCurrentAction(logCtx, logAction)
-	//defer ld.Log()
+	defer ld.Log()
 
 	savedItems, Err := database.GetAllSavedSets(logCtx, models.DBFilter{
 		ItemTMDB_ID:      item.MediaItem.TMDB_ID,
