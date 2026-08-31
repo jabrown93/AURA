@@ -1,1 +1,1 @@
-swag init -g main.go -o api-docs --parseDependency --parseInternal --parseDepth 3
+swag init -g main.go -o api-docs --parseInternal --parseDepth 3

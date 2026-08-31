@@ -64,6 +64,9 @@ type DB interface {
 	// Get All Media Items with info on whether they have saved sets or are ignored
 	GetAllMediaItemsWithFlags(ctx context.Context) (items []MediaItemWithFlags, logErr logging.LogErrorInfo)
 
+	// Get saved-set and ignore state for all media items in one query
+	GetAllMediaItemStates(ctx context.Context) (states map[MediaItemKey]MediaItemState, logErr logging.LogErrorInfo)
+
 	// Update Media Item
 	UpdateMediaItem(ctx context.Context, updatedItem models.MediaItem) (Err logging.LogErrorInfo)
 
@@ -96,6 +99,9 @@ type DB interface {
 
 	// Update Media Item on_server flag
 	UpdateMediaItemOnServer(ctx context.Context, tmdbID string, libraryTitle string, onServer bool) (logErr logging.LogErrorInfo)
+
+	// Update on_server for one page of media items in one statement
+	UpdateMediaItemsOnServer(ctx context.Context, libraryTitle string, tmdbIDs []string, onServer bool) (logErr logging.LogErrorInfo)
 }
 
 func NewDatabaseClient() (DB, logging.LogErrorInfo) {
@@ -235,6 +241,13 @@ func GetAllMediaItemsWithFlags(ctx context.Context) (items []MediaItemWithFlags,
 	return Client.GetAllMediaItemsWithFlags(ctx)
 }
 
+func GetAllMediaItemStates(ctx context.Context) (states map[MediaItemKey]MediaItemState, logErr logging.LogErrorInfo) {
+	if Client == nil {
+		return map[MediaItemKey]MediaItemState{}, logging.Error_DBClientNotInitialized()
+	}
+	return Client.GetAllMediaItemStates(ctx)
+}
+
 func UpdateMediaItem(ctx context.Context, updatedItem models.MediaItem) (Err logging.LogErrorInfo) {
 	if Client == nil {
 		return logging.Error_DBClientNotInitialized()
@@ -310,4 +323,11 @@ func UpdateMediaItemOnServer(ctx context.Context, tmdbID string, libraryTitle st
 		return logging.Error_DBClientNotInitialized()
 	}
 	return Client.UpdateMediaItemOnServer(ctx, tmdbID, libraryTitle, onServer)
+}
+
+func UpdateMediaItemsOnServer(ctx context.Context, libraryTitle string, tmdbIDs []string, onServer bool) (logErr logging.LogErrorInfo) {
+	if Client == nil {
+		return logging.Error_DBClientNotInitialized()
+	}
+	return Client.UpdateMediaItemsOnServer(ctx, libraryTitle, tmdbIDs, onServer)
 }

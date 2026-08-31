@@ -2586,7 +2586,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Retrieve items from a specific library section in the media server. This endpoint accepts query parameters to identify the library section and pagination options, and returns the items contained within that library section, allowing clients to display the media items available in the selected library section.",
+                "description": "Retrieve one filtered, sorted page from the warmed media-server library cache.",
                 "consumes": [
                     "application/json"
                 ],
@@ -2596,35 +2596,85 @@
                 "tags": [
                     "MediaServer"
                 ],
-                "summary": "Get Library Section Items",
+                "summary": "Get Library Items",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Library Section ID",
-                        "name": "section_id",
-                        "in": "query",
-                        "required": true
+                        "description": "Library Title (repeat for multiple)",
+                        "name": "library_titles",
+                        "in": "query"
                     },
                     {
                         "type": "string",
-                        "description": "Library Section Title",
-                        "name": "section_title",
-                        "in": "query",
-                        "required": true
+                        "description": "Title search",
+                        "name": "search_title",
+                        "in": "query"
                     },
                     {
                         "type": "string",
-                        "description": "Library Section Type",
-                        "name": "section_type",
-                        "in": "query",
-                        "required": true
+                        "description": "Library search",
+                        "name": "search_library",
+                        "in": "query"
                     },
                     {
                         "type": "string",
-                        "description": "Start Index for Pagination",
-                        "name": "section_start_index",
-                        "in": "query",
-                        "required": true
+                        "description": "Exact TMDB ID search",
+                        "name": "search_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Release year",
+                        "name": "search_year",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Database filter (inDB or notInDB)",
+                        "name": "filter_in_db",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Ignore status or mode",
+                        "name": "filter_ignored",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "MediUX set availability",
+                        "name": "filter_has_sets",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sort option",
+                        "name": "sort_option",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sort order (asc or desc)",
+                        "name": "sort_order",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page number",
+                        "name": "page_number",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Items per page (maximum 1000)",
+                        "name": "items_per_page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Refresh server cache before reading",
+                        "name": "refresh",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -6033,8 +6083,20 @@
         "routes_ms.GetLibrarySectionItems_Response": {
             "type": "object",
             "properties": {
-                "library_section": {
-                    "$ref": "#/definitions/models.LibrarySection"
+                "has_episode_added_at": {
+                    "type": "boolean"
+                },
+                "has_updated_at": {
+                    "type": "boolean"
+                },
+                "media_items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.MediaItem"
+                    }
+                },
+                "total_items": {
+                    "type": "integer"
                 }
             }
         },

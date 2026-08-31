@@ -3,7 +3,6 @@ package ej
 import (
 	"aura/cache"
 	"aura/config"
-	"aura/database"
 	"aura/logging"
 	"aura/mediux"
 	"aura/models"
@@ -136,25 +135,6 @@ func (e *EJ) GetLibrarySectionItems(ctx context.Context, section models.LibraryS
 			logging.LOGGER.Warn().Timestamp().Str("item_title", item.Title).Str("library_section", section.Title).Msgf("Skipping item in '%s' as no TMDB ID could be found", section.Title)
 			totalSize-- // Decrement total size as this item will be skipped
 			continue    // Skip items without TMDB ID
-		}
-
-		// Check if Media Item exists in DB
-		ignored, ignoredMode, sets, logErr := database.CheckIfMediaItemExists(ctx, item.TMDB_ID, item.LibraryTitle)
-		if logErr.Message != "" {
-			logAction.AppendWarning("message", "Failed to check if media item exists in database")
-			logAction.AppendWarning("error", Err)
-		}
-		if !ignored {
-			item.DBSavedSets = sets
-		} else {
-			item.IgnoredInDB = true
-			item.IgnoredMode = ignoredMode
-		}
-
-		// Update the Media Item on Server in the DB
-		updateErr := database.UpdateMediaItemOnServer(ctx, item.TMDB_ID, item.LibraryTitle, true)
-		if updateErr.Message != "" {
-			logAction.AppendWarning("update_on_server_error", updateErr.Message)
 		}
 
 		// Check if Media Item exists in MediUX with a set
@@ -292,19 +272,6 @@ func splitCollectionIntoIndividualItems(ctx context.Context, collectionName, par
 		if itemInfo.TMDB_ID == "" {
 			logging.LOGGER.Warn().Timestamp().Str("item_title", itemInfo.Title).Str("library_section", sectionTitle).Msg("Skipping item in BoxSet collection because it does not have a TMDB ID")
 			continue // Skip items without TMDB ID
-		}
-
-		// Check if Media Item exists in DB
-		ignored, ignoredMode, sets, logErr := database.CheckIfMediaItemExists(ctx, itemInfo.TMDB_ID, itemInfo.LibraryTitle)
-		if logErr.Message != "" {
-			logAction.AppendWarning("message", "Failed to check if media item exists in database")
-			logAction.AppendWarning("error", logErr)
-		}
-		if !ignored {
-			itemInfo.DBSavedSets = sets
-		} else {
-			itemInfo.IgnoredInDB = true
-			itemInfo.IgnoredMode = ignoredMode
 		}
 
 		// Check if Media Item exists in MediUX with a set

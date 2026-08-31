@@ -3,7 +3,6 @@ package plex
 import (
 	"aura/cache"
 	"aura/config"
-	"aura/database"
 	"aura/logging"
 	"aura/models"
 	"aura/utils/httpx"
@@ -11,9 +10,22 @@ import (
 	"fmt"
 	"net/url"
 	"path"
+	"strconv"
 	"strings"
 	"time"
 )
+
+func (p *Plex) PrepareLatestEpisodeAddedAt(ctx context.Context, section models.LibrarySection) logging.LogErrorInfo {
+	p.latestEpisodeAddedAtByShow = nil
+	if section.Type != "show" || !config.Current.MediaServer.EnableSortByEpisodeAddedDate {
+		return logging.LogErrorInfo{}
+	}
+	latest, Err := fetchLatestEpisodeAddedAtByShow(ctx, section.ID)
+	if Err.Message == "" {
+		p.latestEpisodeAddedAtByShow = latest
+	}
+	return Err
+}
 
 func (p *Plex) GetLibrarySectionItems(ctx context.Context, section models.LibrarySection, sectionStartIndex string, limit string) (items []models.MediaItem, totalSize int, Err logging.LogErrorInfo) {
 	ctx, logAction := logging.AddSubActionToContext(ctx, fmt.Sprintf(
@@ -127,25 +139,6 @@ func (p *Plex) GetLibrarySectionItems(ctx context.Context, section models.Librar
 			continue    // Skip items without TMDB ID
 		}
 
-		// Check if Media Item exists in DB
-		ignored, ignoredMode, sets, logErr := database.CheckIfMediaItemExists(ctx, item.TMDB_ID, item.LibraryTitle)
-		if logErr.Message != "" {
-			logAction.AppendWarning("message", "Failed to check if media item exists in database")
-			logAction.AppendWarning("error", Err)
-		}
-		if !ignored {
-			item.DBSavedSets = sets
-		} else {
-			item.IgnoredInDB = true
-			item.IgnoredMode = ignoredMode
-		}
-
-		// Update the Media Item on Server in the DB
-		updateErr := database.UpdateMediaItemOnServer(ctx, item.TMDB_ID, item.LibraryTitle, true)
-		if updateErr.Message != "" {
-			logAction.AppendWarning("update_on_server_error", updateErr.Message)
-		}
-
 		// Check if Media Item exists in MediUX with a set
 		if cache.MediuxItems.CheckItemExists(item.Type, item.TMDB_ID) {
 			item.HasMediuxSets = true
@@ -160,20 +153,11 @@ func (p *Plex) GetLibrarySectionItems(ctx context.Context, section models.Librar
 			}
 		}
 
-		cache.LibraryStore.UpdateMediaItem(section.Title, &item)
 		items = append(items, item)
 	}
 
-	// For show sections, bulk-fetch all episodes to compute LatestEpisodeAddedAt per show.
-	if section.Type == "show" && config.Current.MediaServer.EnableSortByEpisodeAddedDate {
-		latestEpAdded, fetchErr := fetchLatestEpisodeAddedAtByShow(ctx, section.ID)
-		if fetchErr.Message != "" {
-			logAction.AppendWarning("latest_episode_added_at", "Failed to bulk-fetch latest episode addedAt for shows")
-		} else {
-			for i := range items {
-				items[i].LatestEpisodeAddedAt = latestEpAdded[items[i].RatingKey]
-			}
-		}
+	for i := range items {
+		items[i].LatestEpisodeAddedAt = p.latestEpisodeAddedAtByShow[items[i].RatingKey]
 	}
 
 	return items, totalSize, logging.LogErrorInfo{}
@@ -220,30 +204,35 @@ func fetchLatestEpisodeAddedAtByShow(ctx context.Context, sectionID string) (map
 		return map[string]int64{}, logging.LogErrorInfo{}
 	}
 
-	// Second pass: fetch all episodes in one shot
-	query.Set("X-Plex-Container-Size", fmt.Sprintf("%d", totalEpisodes))
-	u.RawQuery = query.Encode()
-
-	resp, respBody, Err = makeRequest(ctx, config.Current.MediaServer, u.String(), "GET", nil)
-	if Err.Message != "" {
-		logAction.SetErrorFromInfo(Err)
-		return nil, *logAction.Error
-	}
-	resp.Body.Close()
-
-	var episodesResp PlexLibraryItemsWrapper
-	Err = httpx.DecodeResponseToJSON(ctx, respBody, &episodesResp, "Plex All Episodes Response")
-	if Err.Message != "" {
-		return nil, *logAction.Error
-	}
-
+	const pageSize = 1000
 	latest := make(map[string]int64)
-	for _, ep := range episodesResp.MediaContainer.Metadata {
-		showKey := ep.GrandParentRatingKey
-		if ep.AddedAt > latest[showKey] {
-			latest[showKey] = ep.AddedAt
-		}
-	}
+	for start := 0; start < totalEpisodes; {
+		query.Set("X-Plex-Container-Start", strconv.Itoa(start))
+		query.Set("X-Plex-Container-Size", strconv.Itoa(min(pageSize, totalEpisodes-start)))
+		u.RawQuery = query.Encode()
 
+		resp, respBody, Err = makeRequest(ctx, config.Current.MediaServer, u.String(), "GET", nil)
+		if Err.Message != "" {
+			logAction.SetErrorFromInfo(Err)
+			return nil, *logAction.Error
+		}
+		resp.Body.Close()
+
+		var episodesResp PlexLibraryItemsWrapper
+		Err = httpx.DecodeResponseToJSON(ctx, respBody, &episodesResp, "Plex Episodes Page Response")
+		if Err.Message != "" {
+			return nil, *logAction.Error
+		}
+		if len(episodesResp.MediaContainer.Metadata) == 0 {
+			break
+		}
+		for _, ep := range episodesResp.MediaContainer.Metadata {
+			showKey := ep.GrandParentRatingKey
+			if ep.AddedAt > latest[showKey] {
+				latest[showKey] = ep.AddedAt
+			}
+		}
+		start += len(episodesResp.MediaContainer.Metadata)
+	}
 	return latest, logging.LogErrorInfo{}
 }

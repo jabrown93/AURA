@@ -3,7 +3,9 @@ package mediaserver
 import (
 	"aura/cache"
 	"aura/config"
+	"aura/database"
 	"aura/logging"
+	"aura/mediaserver/plex"
 	"aura/models"
 	"context"
 	"fmt"
@@ -100,14 +102,43 @@ func RefreshSectionItems(ctx context.Context, sectionTitle string) (success bool
 // fetchAndCacheSectionItems pages through a library section's items and upserts them into
 // the library cache. Returns false if a page fetch fails.
 func fetchAndCacheSectionItems(ctx context.Context, section models.LibrarySection) bool {
+	msClient, Err := NewMediaServerClient(&config.Current.MediaServer)
+	if Err.Message != "" {
+		return false
+	}
+
+	states, stateErr := database.GetAllMediaItemStates(ctx)
+	if stateErr.Message != "" {
+		logging.LOGGER.Warn().Timestamp().Str("section_title", section.Title).Str("error", stateErr.Message).Msg("Failed to bulk-fetch media item database state")
+		states = map[database.MediaItemKey]database.MediaItemState{}
+	}
+	if plexClient, ok := msClient.(*plex.Plex); ok {
+		if prepareErr := plexClient.PrepareLatestEpisodeAddedAt(ctx, section); prepareErr.Message != "" {
+			logging.LOGGER.Warn().Timestamp().Str("section_title", section.Title).Str("error", prepareErr.Message).Msg("Failed to fetch latest episode dates")
+		}
+	}
+
 	pageSize := 1000
 	start := 0
 	expectedTotal := 0
-
 	for {
-		items, totalSize, Err := GetLibrarySectionItems(ctx, section, strconv.Itoa(start), strconv.Itoa(pageSize))
+		items, totalSize, Err := msClient.GetLibrarySectionItems(ctx, section, strconv.Itoa(start), strconv.Itoa(pageSize))
 		if Err.Message != "" {
 			return false
+		}
+		tmdbIDs := make([]string, 0, len(items))
+		for i := range items {
+			state := states[database.MediaItemKey{TMDBID: items[i].TMDB_ID, LibraryTitle: items[i].LibraryTitle}]
+			items[i].DBSavedSets = []models.DBSavedSet{}
+			items[i].IgnoredInDB = state.Ignored
+			items[i].IgnoredMode = state.IgnoreMode
+			if !state.Ignored && len(state.SavedSets) > 0 {
+				items[i].DBSavedSets = state.SavedSets
+			}
+			tmdbIDs = append(tmdbIDs, items[i].TMDB_ID)
+		}
+		if updateErr := database.UpdateMediaItemsOnServer(ctx, section.Title, tmdbIDs, true); updateErr.Message != "" {
+			logging.LOGGER.Warn().Timestamp().Str("section_title", section.Title).Str("error", updateErr.Message).Msg("Failed to bulk-update media item server flags")
 		}
 		logging.LOGGER.Info().Timestamp().
 			Str("section_title", section.Title).
