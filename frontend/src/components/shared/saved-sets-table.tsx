@@ -153,7 +153,7 @@ const SavedSetsTableRow: React.FC<{
         </TableCell>
         <TableCell>
           <div>
-            {savedSet.poster_sets.some((set) => set.auto_download) ? (
+            {posterSets.some((set) => set.auto_download) ? (
               <Popover>
                 <PopoverTrigger asChild>
                   <RefreshCcw className="text-green-500 cursor-help" size={24} />
@@ -178,7 +178,7 @@ const SavedSetsTableRow: React.FC<{
                 </PopoverContent>
               </Popover>
             )}
-            {hasSelectedTypesOverlapOnAutoDownload(savedSet.poster_sets) && (
+            {hasSelectedTypesOverlapOnAutoDownload(posterSets) && (
               <Popover>
                 <PopoverTrigger asChild>
                   <AlertTriangle className="text-yellow-500 cursor-help" size={24} />
@@ -274,11 +274,11 @@ const SavedSetsTableRow: React.FC<{
                 {isRefreshing ? "Refreshing..." : "Edit"}
               </DropdownMenuItem>
 
-              {savedSet.poster_sets.some((set) => set.auto_download || savedSet.media_item.type === "movie") && (
+              {posterSets.some((set) => set.auto_download || normalizedSavedSet.media_item.type === "movie") && (
                 <DropdownMenuItem
                   className="cursor-pointer"
                   onClick={() => {
-                    handleRecheckItem(savedSet.media_item.title, savedSet);
+                    handleRecheckItem(normalizedSavedSet.media_item.title, normalizedSavedSet);
                   }}
                 >
                   <RefreshCcw className="ml-2" />
@@ -350,10 +350,10 @@ const SavedSetsTableRow: React.FC<{
             setIsMounted,
           })
         }
-        title={savedSet.media_item.title}
+        title={normalizedSavedSet.media_item.title}
         confirmDelete={() =>
           savedSetsConfirmDelete({
-            savedSet,
+            savedSet: normalizedSavedSet,
             onUpdate,
             isMounted,
             setIsMounted,
