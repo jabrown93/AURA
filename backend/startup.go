@@ -109,10 +109,7 @@ func runPreFlight() (success bool) {
 	// Validate MediUX Token
 	config.AppLoadingStep = "Validating MediUX Token"
 	mediuxTokenValid, mediuxErr := mediux.ValidateToken(ctx, config.Current.Mediux.ApiToken)
-	if mediuxErr.Message != "" || !mediuxTokenValid {
-		config.MediuxValid = false
-		return success
-	}
+	config.MediuxValid = mediuxErr.Message == "" && mediuxTokenValid
 
 	if config.MediaServerValid || config.MediuxValid {
 		success = true
