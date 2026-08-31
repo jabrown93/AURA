@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.1.10](https://github.com/jabrown93/AURA/compare/v2.1.9...v2.1.10) (2026-08-31)
+
+
+### Bug Fixes
+
+* **database:** fail startup on migration error and on a newer schema ([#146](https://github.com/jabrown93/AURA/issues/146)) ([fa98d0d](https://github.com/jabrown93/AURA/commit/fa98d0d6bf576400f48f072d43b54caaf78e4cc4)), closes [#130](https://github.com/jabrown93/AURA/issues/130) [#131](https://github.com/jabrown93/AURA/issues/131)
+* **download-queue:** guard LatestInfo with a mutex ([#147](https://github.com/jabrown93/AURA/issues/147)) ([014941c](https://github.com/jabrown93/AURA/commit/014941c6b12f5956de5646bfa934ccbab28bfbf3)), closes [#123](https://github.com/jabrown93/AURA/issues/123)
+
 ## [2.1.9](https://github.com/jabrown93/AURA/compare/v2.1.8...v2.1.9) (2026-08-31)
 
 
