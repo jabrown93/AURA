@@ -16,9 +16,7 @@ From a fresh clone:
 
 ```sh
 git clone https://github.com/jabrown93/AURA.git aura
-cd aura
-
-cd backend
+cd aura/backend
 go mod download
 cd ../frontend
 npm ci
@@ -35,37 +33,51 @@ local runs. AURA uses SQLite through `mattn/go-sqlite3`, so backend builds and
 tests require cgo and a working C compiler.
 
 ```sh
-cd backend
-mkdir -p /tmp/aura-config
-CONFIG_PATH=/tmp/aura-config CGO_ENABLED=1 go test ./...
-CGO_ENABLED=1 go vet ./...
-CGO_ENABLED=1 go build ./...
+REPO_ROOT=$(git rev-parse --show-toplevel)
+cd "$REPO_ROOT/backend"
+CONFIG_PATH=$(mktemp -d)
+export CONFIG_PATH CGO_ENABLED=1
+gofmt -l .
+go test ./...
+go vet ./...
+go build ./...
 ```
+
+`gofmt -l .` must print nothing. Format every file it lists before opening a
+pull request.
 
 Frontend has no test runner. Its focused checks are:
 
 ```sh
-cd frontend
+REPO_ROOT=$(git rev-parse --show-toplevel)
+cd "$REPO_ROOT/frontend"
 npm run lint
 npm run typecheck
 npm run build
 ```
 
-After dependencies are installed, these build, unit-test, and static-validation
-commands do not require MediUX or Plex, Emby, or Jellyfin access.
+After dependencies are installed, contributors can validate these capabilities
+without MediUX or Plex, Emby, or Jellyfin access:
+
+- Backend formatting, compilation, vetting, and unit tests.
+- Frontend linting, type checking, and production builds.
+- Frontend onboarding UI through the local development servers below.
 
 ## Run local development servers
 
 Start backend and frontend in separate terminals from repository root:
 
 ```sh
-cd backend
-mkdir -p /tmp/aura-config
-CONFIG_PATH=/tmp/aura-config CGO_ENABLED=1 go run .
+REPO_ROOT=$(git rev-parse --show-toplevel)
+cd "$REPO_ROOT/backend"
+CONFIG_PATH=$(mktemp -d)
+export CONFIG_PATH CGO_ENABLED=1
+go run .
 ```
 
 ```sh
-cd frontend
+REPO_ROOT=$(git rev-parse --show-toplevel)
+cd "$REPO_ROOT/frontend"
 npm run dev
 ```
 
