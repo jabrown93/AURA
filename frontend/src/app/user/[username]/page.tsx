@@ -4,6 +4,8 @@ import { setRefsToFormItems } from "@/helper/download-modal/set-to-form-item";
 import { formatLastUpdatedDate } from "@/helper/format-date-last-updates";
 import { type TMDBLookupMap, createTMDBLookupMap, searchWithLookupMap } from "@/helper/search-idb-for-tmdb-id";
 import { ReturnErrorMessage } from "@/services/api-error-return";
+import { beginLibraryMembershipFetch } from "@/services/mediaserver/collect-library-pages";
+import { GetCompleteLibrarySection } from "@/services/mediaserver/get-library-section-items";
 import { GetAllUserSets } from "@/services/mediux/get-user-sets";
 import { ArrowDownAZ, ArrowDownZA, ClockArrowDown, ClockArrowUp, User } from "lucide-react";
 
@@ -135,6 +137,7 @@ const UserSetPage = () => {
   // Get the username from the URL
   const { username } = useParams();
   const hasFetchedInfo = useRef(false);
+  const attemptedMembershipFetches = useRef(new Set<string>());
   // Error Handling
   const [error, setError] = useState<APIResponse<unknown> | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -158,7 +161,7 @@ const UserSetPage = () => {
   // State to track the selected sorting option
   const { sortOption, setSortOption, sortOrder, setSortOrder } = useUserPageStore();
 
-  const { sections, getSectionSummaries, hasHydrated } = useLibrarySectionsStore();
+  const { sections, setSection, getSectionSummaries, hasHydrated } = useLibrarySectionsStore();
 
   // User Response From Server
   const [creatorSetsResponse, setCreatorSetsResponse] = useState<CreatorSetsResponse>({
@@ -267,14 +270,35 @@ const UserSetPage = () => {
       setIsLoading(true);
 
       const librarySection = sections[selectedLibrarySection.title];
-      if (!librarySection || !librarySection.media_items || librarySection.media_items.length === 0) {
-        log(
-          "ERROR",
-          "User Page",
-          "Fetch User Sets",
-          `No data found for library section: ${selectedLibrarySection.title}`
-        );
-        setIsLoading(false);
+      if (!librarySection?.media_items?.length) {
+        if (
+          !beginLibraryMembershipFetch(
+            attemptedMembershipFetches.current,
+            selectedLibrarySection.title,
+            librarySection?.media_items?.length ?? 0
+          )
+        ) {
+          setIsLoading(false);
+          return;
+        }
+
+        setLoadMessage(`Loading ${selectedLibrarySection.title} membership...`);
+        const response = await GetCompleteLibrarySection(selectedLibrarySection.title);
+        if (response.status === "error" || !response.data) {
+          attemptedMembershipFetches.current.delete(selectedLibrarySection.title);
+          setError(response);
+          setIsLoading(false);
+          return;
+        }
+        setSection(selectedLibrarySection.title, {
+          ...librarySection,
+          id: librarySection?.id ?? "",
+          title: selectedLibrarySection.title,
+          type: selectedLibrarySection.type,
+          total_size: response.data.total_items,
+          media_items: response.data.media_items,
+        });
+        if (response.data.media_items.length === 0) setIsLoading(false);
         return;
       }
 
@@ -380,7 +404,7 @@ const UserSetPage = () => {
     };
 
     filterOutItems();
-  }, [sections, selectedLibrarySection, creatorSetsResponse]);
+  }, [sections, setSection, selectedLibrarySection, creatorSetsResponse]);
 
   useEffect(() => {
     if (!creatorSetsResponse) return;

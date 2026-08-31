@@ -2,6 +2,7 @@
 
 import { makePlural } from "@/helper/make_plural";
 import { ReturnErrorMessage } from "@/services/api-error-return";
+import { GetCompleteLibrarySection } from "@/services/mediaserver/get-library-section-items";
 import { GetMediaItemDetails } from "@/services/mediaserver/get-media-item-details";
 import {
   ArrowDown01,
@@ -45,12 +46,14 @@ import { TYPE_MEDIA_ITEM_TYPE_OPTIONS } from "@/types/ui-options";
 const MediaItemPage = () => {
   const router = useRouter();
   const isMounted = useRef(false);
+  const membershipFetchRatingKey = useRef("");
 
   // Partial Media Item States
   const partialMediaItem = useMediaStore((state) => state.mediaItem);
 
   // Library Sections States (From Library Section Store)
   const librarySectionsMap = useLibrarySectionsStore((state) => state.sections);
+  const setLibrarySection = useLibrarySectionsStore((state) => state.setSection);
   const librarySectionsHasHydrated = useLibrarySectionsStore((state) => state.hasHydrated);
 
   // Response Loading State
@@ -164,12 +167,38 @@ const MediaItemPage = () => {
     if (mediaItem && mediaItem.rating_key === partialMediaItem.rating_key) return;
     if (hasError) return;
     if (responseLoading === true && mediaItem !== null) return;
+    if (membershipFetchRatingKey.current === partialMediaItem.rating_key) return;
+    membershipFetchRatingKey.current = partialMediaItem.rating_key;
 
     setError(null);
 
     const fetchMediaItem = async () => {
       try {
         setResponseLoading(true);
+        setLoadingMessage(`Loading ${partialMediaItem.library_title} membership...`);
+
+        const loadedSectionsMap = { ...librarySectionsMap };
+        const sectionsMissingMembership = Object.values(librarySectionsMap).filter(
+          (section) =>
+            (section.title === partialMediaItem.library_title || section.type === partialMediaItem.type) &&
+            section.media_items.length === 0
+        );
+        for (const section of sectionsMissingMembership) {
+          const membershipResponse = await GetCompleteLibrarySection(section.title);
+          if (membershipResponse.status === "error" || !membershipResponse.data) {
+            setError(membershipResponse);
+            setHasError(true);
+            return;
+          }
+          const loadedSection = {
+            ...section,
+            total_size: membershipResponse.data.total_items,
+            media_items: membershipResponse.data.media_items,
+          };
+          loadedSectionsMap[section.title] = loadedSection;
+          setLibrarySection(section.title, loadedSection);
+        }
+
         setLoadingMessage(`Loading Details for ${partialMediaItem.title}...`);
         log(
           "INFO",
@@ -234,7 +263,7 @@ const MediaItemPage = () => {
         }
 
         // Find if this item exists in other sections
-        const otherSections = Object.values(librarySectionsMap).filter(
+        const otherSections = Object.values(loadedSectionsMap).filter(
           (s) => s.type === mediaItemResponse.type && s.title !== mediaItemResponse.library_title
         );
 
@@ -309,7 +338,15 @@ const MediaItemPage = () => {
     };
 
     fetchMediaItem();
-  }, [librarySectionsHasHydrated, hasError, responseLoading, partialMediaItem, librarySectionsMap, mediaItem]);
+  }, [
+    librarySectionsHasHydrated,
+    hasError,
+    responseLoading,
+    partialMediaItem,
+    librarySectionsMap,
+    mediaItem,
+    setLibrarySection,
+  ]);
 
   // 3. Filtering logic for poster sets
   useEffect(() => {

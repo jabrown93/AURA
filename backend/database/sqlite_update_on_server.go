@@ -3,6 +3,7 @@ package database
 import (
 	"aura/logging"
 	"context"
+	"encoding/json"
 )
 
 func (s *SQliteDB) UpdateMediaItemOnServer(ctx context.Context, tmdbID string, libraryTitle string, onServer bool) (logErr logging.LogErrorInfo) {
@@ -41,4 +42,23 @@ func (s *SQliteDB) UpdateMediaItemOnServer(ctx context.Context, tmdbID string, l
 	}
 
 	return logErr
+}
+
+func (s *SQliteDB) UpdateMediaItemsOnServer(ctx context.Context, libraryTitle string, tmdbIDs []string, onServer bool) logging.LogErrorInfo {
+	if len(tmdbIDs) == 0 {
+		return logging.LogErrorInfo{}
+	}
+	encodedIDs, err := json.Marshal(tmdbIDs)
+	if err != nil {
+		return logging.LogErrorInfo{Message: "Failed to encode media item IDs", Detail: map[string]any{"error": err.Error()}}
+	}
+	if _, err := s.conn.ExecContext(ctx, `
+		UPDATE MediaItems
+		SET on_server = ?
+		WHERE library_title = ?
+		  AND tmdb_id IN (SELECT value FROM json_each(?))
+	`, onServer, libraryTitle, string(encodedIDs)); err != nil {
+		return logging.LogErrorInfo{Message: "Failed to bulk-update MediaItem on_server flags", Detail: map[string]any{"error": err.Error()}}
+	}
+	return logging.LogErrorInfo{}
 }

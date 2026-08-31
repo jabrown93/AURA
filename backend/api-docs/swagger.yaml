@@ -1,4 +1,6 @@
 basePath: /
+# yamllint disable rule:indentation
+# yamllint disable rule:line-length
 definitions:
   autodownload.AutoDownloadResult:
     properties:
@@ -1658,8 +1660,16 @@ definitions:
     type: object
   routes_ms.GetLibrarySectionItems_Response:
     properties:
-      library_section:
-        $ref: '#/definitions/models.LibrarySection'
+      has_episode_added_at:
+        type: boolean
+      has_updated_at:
+        type: boolean
+      media_items:
+        items:
+          $ref: '#/definitions/models.MediaItem'
+        type: array
+      total_items:
+        type: integer
     type: object
   routes_ms.GetLibrarySections_Response:
     properties:
@@ -3434,32 +3444,61 @@ paths:
     get:
       consumes:
       - application/json
-      description: Retrieve items from a specific library section in the media server.
-        This endpoint accepts query parameters to identify the library section and
-        pagination options, and returns the items contained within that library section,
-        allowing clients to display the media items available in the selected library
-        section.
+      description: Retrieve one filtered, sorted page from the warmed media-server
+        library cache.
       parameters:
-      - description: Library Section ID
+      - description: Library Title (repeat for multiple)
         in: query
-        name: section_id
-        required: true
+        name: library_titles
         type: string
-      - description: Library Section Title
+      - description: Title search
         in: query
-        name: section_title
-        required: true
+        name: search_title
         type: string
-      - description: Library Section Type
+      - description: Library search
         in: query
-        name: section_type
-        required: true
+        name: search_library
         type: string
-      - description: Start Index for Pagination
+      - description: Exact TMDB ID search
         in: query
-        name: section_start_index
-        required: true
+        name: search_id
         type: string
+      - description: Release year
+        in: query
+        name: search_year
+        type: integer
+      - description: Database filter (inDB or notInDB)
+        in: query
+        name: filter_in_db
+        type: string
+      - description: Ignore status or mode
+        in: query
+        name: filter_ignored
+        type: string
+      - description: MediUX set availability
+        in: query
+        name: filter_has_sets
+        type: string
+      - description: Sort option
+        in: query
+        name: sort_option
+        type: string
+      - description: Sort order (asc or desc)
+        in: query
+        name: sort_order
+        type: string
+      - description: Page number
+        in: query
+        name: page_number
+        type: integer
+      - description: Items per page (maximum 1000)
+        in: query
+        name: items_per_page
+        type: integer
+      - description: Refresh server cache before reading
+        in: query
+        name: refresh
+        type: boolean
       produces:
       - application/json
       responses:
@@ -3482,7 +3521,7 @@ paths:
             $ref: '#/definitions/httpx.JSONResponse'
       security:
       - BearerAuth: []
-      summary: Get Library Section Items
+      summary: Get Library Items
       tags:
       - MediaServer
   /api/mediaserver/rate:

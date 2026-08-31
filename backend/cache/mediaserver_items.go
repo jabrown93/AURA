@@ -249,9 +249,16 @@ func (c *MediaServerLibraryCache) GetItemsCount() int {
 func (c *MediaServerLibraryCache) GetAllMediaItems() []models.MediaItem {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
+	titles := make([]string, 0, len(c.sections))
+	for title := range c.sections {
+		titles = append(titles, title)
+	}
+	sort.Strings(titles)
+
 	var allItems []models.MediaItem
-	for _, section := range c.sections {
-		allItems = append(allItems, section.MediaItems...)
+	for _, title := range titles {
+		allItems = append(allItems, c.sections[title].MediaItems...)
 	}
 	return allItems
 }
