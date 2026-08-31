@@ -82,11 +82,28 @@ func (msc *MediaServerCollectionsCache) GetCollectionByRatingKey(ratingKey strin
 	for _, lib := range msc.collections {
 		for _, coll := range lib {
 			if coll.RatingKey == ratingKey {
-				return coll, true
+				copy := *coll
+				return &copy, true
 			}
 		}
 	}
 	return nil, false
+}
+
+// AdvanceCollectionUpdatedAt advances a cached collection image version atomically.
+func (msc *MediaServerCollectionsCache) AdvanceCollectionUpdatedAt(ratingKey string, now int64) (int64, bool) {
+	msc.mu.Lock()
+	defer msc.mu.Unlock()
+
+	for _, lib := range msc.collections {
+		for _, collection := range lib {
+			if collection.RatingKey == ratingKey {
+				collection.UpdatedAt = nextVersion(collection.UpdatedAt, now)
+				return collection.UpdatedAt, true
+			}
+		}
+	}
+	return 0, false
 }
 
 func (msc *MediaServerCollectionsCache) GetCollectionsByLibrary(libraryTitle string) []models.CollectionItem {
@@ -109,6 +126,11 @@ func (msc *MediaServerCollectionsCache) UpsertCollection(collection *models.Coll
 	if lib == nil {
 		lib = make(map[string]*models.CollectionItem)
 		msc.collections[collection.LibraryTitle] = lib
+	}
+	if existing := lib[collection.RatingKey]; existing != nil && collection.UpdatedAt < existing.UpdatedAt {
+		copy := *collection
+		copy.UpdatedAt = existing.UpdatedAt
+		collection = &copy
 	}
 	lib[collection.RatingKey] = collection
 }

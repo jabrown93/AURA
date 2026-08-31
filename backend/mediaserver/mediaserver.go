@@ -1,6 +1,7 @@
 package mediaserver
 
 import (
+	"aura/cache"
 	"aura/config"
 	"aura/logging"
 	"aura/mediaserver/ej"
@@ -9,6 +10,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"time"
 )
 
 // IsItemNotFound reports whether a media-server lookup error means the item is genuinely absent
@@ -236,7 +238,10 @@ func DownloadApplyImageToMediaItem(ctx context.Context, item *models.MediaItem, 
 	if Err.Message != "" {
 		return Err
 	}
-	return msClient.DownloadApplyImageToMediaItem(ctx, item, imageFile)
+	if Err = msClient.DownloadApplyImageToMediaItem(ctx, item, imageFile); Err.Message == "" {
+		cache.LibraryStore.AdvanceMediaItemUpdatedAt(item.RatingKey, time.Now().Unix())
+	}
+	return Err
 }
 
 func SaveImageAsKometaAssetOnly(ctx context.Context, item *models.MediaItem, imageFile models.ImageFile) (Err logging.LogErrorInfo) {
@@ -252,5 +257,8 @@ func ApplyCollectionImage(ctx context.Context, collectionItem *models.Collection
 	if Err.Message != "" {
 		return Err
 	}
-	return msClient.ApplyCollectionImage(ctx, collectionItem, imageFile)
+	if Err = msClient.ApplyCollectionImage(ctx, collectionItem, imageFile); Err.Message == "" {
+		cache.CollectionsStore.AdvanceCollectionUpdatedAt(collectionItem.RatingKey, time.Now().Unix())
+	}
+	return Err
 }

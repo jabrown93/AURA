@@ -74,6 +74,59 @@ func TestSuccessfulImageResponsesUseSafeCachePolicies(t *testing.T) {
 	}
 }
 
+func TestStaleBrowserVersionUsesCurrentPlexVersion(t *testing.T) {
+	var upstreamVersions []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstreamVersions = append(upstreamVersions, r.URL.Query().Get("url"))
+		_, _ = w.Write([]byte("image"))
+	}))
+	defer server.Close()
+
+	previousConfig := config.Current
+	previousLibraryStore := cache.LibraryStore
+	t.Cleanup(func() {
+		config.Current = previousConfig
+		cache.LibraryStore = previousLibraryStore
+	})
+	config.Current.MediaServer = config.Config_MediaServer{Type: "Plex", URL: server.URL, ApiToken: "plex-secret"}
+	config.Current.Images.CacheImages.Enabled = false
+	cache.LibraryStore = cache.Cache_NewLibraryCache()
+	cache.LibraryStore.UpdateSection(&models.LibrarySection{
+		LibrarySectionBase: models.LibrarySectionBase{Title: "Movies"},
+		MediaItems:         []models.MediaItem{{RatingKey: "media-1", UpdatedAt: 100}},
+	})
+	if version, ok := cache.LibraryStore.AdvanceMediaItemUpdatedAt("media-1", 200); !ok || version != 200 {
+		t.Fatalf("advanced version = %d, found = %v; want 200, true", version, ok)
+	}
+
+	for _, test := range []struct {
+		name         string
+		version      string
+		cacheControl string
+	}{
+		{"stale browser version", "100", unversionedImageCacheControl},
+		{"current browser version", "200", versionedImageCacheControl},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			response := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodGet, "/api/images/media/item?rating_key=media-1&image_type=poster&v="+test.version, nil)
+			GetMediaItemImage(response, request)
+			if response.Code != http.StatusOK {
+				t.Fatalf("status = %d, want %d", response.Code, http.StatusOK)
+			}
+			if got := response.Header().Get("Cache-Control"); got != test.cacheControl {
+				t.Fatalf("Cache-Control = %q, want %q", got, test.cacheControl)
+			}
+		})
+	}
+
+	for _, got := range upstreamVersions {
+		if got != "/library/metadata/media-1/poster/200" {
+			t.Errorf("upstream Plex image version = %q, want current version path", got)
+		}
+	}
+}
+
 func TestImageErrorResponsesAreNotCacheable(t *testing.T) {
 	tests := []struct {
 		name       string

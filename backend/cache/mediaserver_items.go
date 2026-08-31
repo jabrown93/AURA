@@ -55,7 +55,11 @@ func (c *MediaServerLibraryCache) UpdateSection(section *models.LibrarySection) 
 		var newItems []models.MediaItem
 		for _, newItem := range section.MediaItems {
 			if existingItem, found := existingItems[newItem.TMDB_ID]; found {
-				// Update existing item
+				// Locally advanced artwork versions must not regress when Plex still reports
+				// an unchanged parent updatedAt after season or episode artwork changes.
+				if newItem.UpdatedAt < existingItem.UpdatedAt {
+					newItem.UpdatedAt = existingItem.UpdatedAt
+				}
 				*existingItem = newItem
 			} else {
 				// Collect new item for appending
@@ -85,14 +89,34 @@ func (c *MediaServerLibraryCache) UpdateMediaItem(sectionTitle string, item *mod
 			existingItems[section.MediaItems[i].TMDB_ID] = &section.MediaItems[i]
 		}
 		if existingItem, found := existingItems[item.TMDB_ID]; found {
-			// Update existing item
-			*existingItem = *item
+			updated := *item
+			if updated.UpdatedAt < existingItem.UpdatedAt {
+				updated.UpdatedAt = existingItem.UpdatedAt
+			}
+			*existingItem = updated
 		} else {
 			// Append new item
 			section.MediaItems = append(section.MediaItems, *item)
 			section.TotalSize = len(section.MediaItems)
 		}
 	}
+}
+
+// AdvanceMediaItemUpdatedAt advances the cached parent image version atomically.
+// ratingKey is the parent key even when Plex applies artwork to a season or episode.
+func (c *MediaServerLibraryCache) AdvanceMediaItemUpdatedAt(ratingKey string, now int64) (int64, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for _, section := range c.sections {
+		for i := range section.MediaItems {
+			if section.MediaItems[i].RatingKey == ratingKey {
+				section.MediaItems[i].UpdatedAt = nextVersion(section.MediaItems[i].UpdatedAt, now)
+				return section.MediaItems[i].UpdatedAt, true
+			}
+		}
+	}
+	return 0, false
 }
 
 func (c *MediaServerLibraryCache) UpdateMediaItemDBSavedSets(sectionTitle string, item *models.MediaItem, dbSavedSets []models.DBSavedSet) {
