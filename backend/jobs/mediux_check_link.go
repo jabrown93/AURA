@@ -29,7 +29,7 @@ func StartCheckMediuxSiteLinkJob() error {
 	spec := "*/60 * * * *"
 	job, err := sched.NewJob(
 		gocron.CronJob(spec, false),
-		gocron.NewTask(func() {
+		gocron.NewTask(configureJobRunner("Check Mediux Site Link Availability Job", func() {
 			defer func() {
 				if r := recover(); r != nil {
 					logging.LOGGER.Error().Timestamp().Interface("recover", r).Msg("PANIC: in scheduled CheckMediuxSiteLinkJob")
@@ -40,8 +40,9 @@ func StartCheckMediuxSiteLinkJob() error {
 			ctx = logging.WithCurrentAction(ctx, action)
 			mediux.CheckSiteLinkAvailability()
 			ld.Log()
-		}),
+		}).runScheduled),
 		gocron.WithName("Check Mediux Site Link Availability Job"),
+		gocron.WithSingletonMode(gocron.LimitModeReschedule),
 	)
 	if err != nil {
 		return err
@@ -55,31 +56,4 @@ func StartCheckMediuxSiteLinkJob() error {
 		Str("interval", "every 60 minutes").
 		Msg("Check Mediux Site Link Availability Job Started")
 	return nil
-}
-
-func RunCheckMediuxSiteLinkJobNow() {
-	mu.Lock()
-	defer mu.Unlock()
-
-	if sched == nil {
-		logging.LOGGER.Error().Timestamp().Msg("Cron Jobs Scheduler is not initialized")
-		return
-	}
-
-	if checkMediuxSiteLinkJobID == uuid.Nil {
-		logging.LOGGER.Error().Timestamp().Msg("Check Mediux Site Link Availability Job is not scheduled")
-		return
-	}
-
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				logging.LOGGER.Error().Timestamp().Interface("recover", r).Msg("PANIC: in CheckMediuxSiteLinkJob")
-			}
-		}()
-		ctx, ld := logging.CreateLoggingContext(context.Background(), "Manual Job Run")
-		action := ld.AddAction("Check Mediux Site Link Availability", logging.LevelInfo)
-		ctx = logging.WithCurrentAction(ctx, action)
-		mediux.CheckSiteLinkAvailability()
-	}()
 }

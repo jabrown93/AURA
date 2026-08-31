@@ -29,7 +29,7 @@ func StartCheckForMediaItemChangesJob() error {
 	spec := "0 */6 * * *"
 	job, err := sched.NewJob(
 		gocron.CronJob(spec, false),
-		gocron.NewTask(func() {
+		gocron.NewTask(configureJobRunner("Check for Media Item Changes Job", func() {
 			defer func() {
 				if r := recover(); r != nil {
 					logging.LOGGER.Error().Timestamp().Interface("recover", r).Msg("PANIC: in scheduled CheckForMediaItemChangesJob")
@@ -49,8 +49,9 @@ func StartCheckForMediaItemChangesJob() error {
 					Msg("Check for Media Item Changes Job Completed")
 			}
 			ld.Log()
-		}),
+		}).runScheduled),
 		gocron.WithName("Check for Media Item Changes Job"),
+		gocron.WithSingletonMode(gocron.LimitModeReschedule),
 	)
 	if err != nil {
 		return err
@@ -64,31 +65,4 @@ func StartCheckForMediaItemChangesJob() error {
 		Str("interval", "every 6 hours").
 		Msg("Check for Media Item Changes Job Started")
 	return nil
-}
-
-func RunCheckForMediaItemChangesJobNow() {
-	mu.Lock()
-	defer mu.Unlock()
-
-	if sched == nil {
-		logging.LOGGER.Error().Timestamp().Msg("Cron Jobs Scheduler is not initialized")
-		return
-	}
-
-	if checkForMediaItemChangesJobID == uuid.Nil || checkForMediaItemChangesJob == nil {
-		logging.LOGGER.Error().Timestamp().Msg("Check for Media Item Changes Job is not scheduled")
-		return
-	}
-
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				logging.LOGGER.Error().Timestamp().Interface("recover", r).Msg("PANIC: in CheckForMediaItemChangesJob")
-			}
-		}()
-		logging.LOGGER.Info().Timestamp().Msg("Manually triggering Check for Media Item Changes Job")
-		if err := checkForMediaItemChangesJob.RunNow(); err != nil {
-			logging.LOGGER.Error().Timestamp().Err(err).Msg("Failed to run Check for Media Item Changes Job")
-		}
-	}()
 }

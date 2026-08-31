@@ -1894,6 +1894,12 @@ const docTemplate = `{
                             "$ref": "#/definitions/httpx.UnauthorizedResponse"
                         }
                     },
+                    "409": {
+                        "description": "Job is already running",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.JSONResponse"
+                        }
+                    },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {

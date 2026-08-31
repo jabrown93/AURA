@@ -29,7 +29,7 @@ func StartDownloadQueueJob() error {
 	spec := "* * * * *"
 	job, err := sched.NewJob(
 		gocron.CronJob(spec, false),
-		gocron.NewTask(func() {
+		gocron.NewTask(configureJobRunner("Download Queue Processing Job", func() {
 			defer func() {
 				if r := recover(); r != nil {
 					logging.LOGGER.Error().Timestamp().Interface("recover", r).Msg("PANIC: in scheduled Download Queue Job")
@@ -37,8 +37,9 @@ func StartDownloadQueueJob() error {
 			}()
 			downloadqueue.ProcessQueueItems()
 			downloadqueue.ProcessCollectionQueueItems()
-		}),
+		}).runScheduled),
 		gocron.WithName("Download Queue Processing Job"),
+		gocron.WithSingletonMode(gocron.LimitModeReschedule),
 	)
 	if err != nil {
 		return err
