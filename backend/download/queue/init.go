@@ -7,6 +7,8 @@ import (
 	"context"
 	"os"
 	"path"
+	"slices"
+	"sync"
 	"time"
 )
 
@@ -20,14 +22,20 @@ const (
 	LAST_STATUS_PROCESSING Status = "Processing"
 )
 
+// LatestInfo is the most recent download queue processing status. The queue
+// cron goroutines write it while the status handler reads it (the UI polls
+// every 2s), so all access goes through GetLatestInfo/UpdateLatestInfo.
+type LatestInfo struct {
+	Time     time.Time
+	Status   Status
+	Message  string
+	Errors   []string
+	Warnings []string
+}
+
 var (
-	LatestInfo = struct {
-		Time     time.Time
-		Status   Status
-		Message  string
-		Errors   []string
-		Warnings []string
-	}{}
+	latestInfoMu sync.RWMutex
+	latestInfo   LatestInfo
 
 	FolderPath string = ""
 
@@ -42,6 +50,23 @@ var (
 type FileIssues struct {
 	Errors   []string
 	Warnings []string
+}
+
+func GetLatestInfo() LatestInfo {
+	latestInfoMu.RLock()
+	defer latestInfoMu.RUnlock()
+	return latestInfo
+}
+
+// UpdateLatestInfo applies mutate under the write lock. Errors and Warnings are
+// cloned because callers keep appending to the slices they hand over, which
+// would otherwise mutate the published backing array from another goroutine.
+func UpdateLatestInfo(mutate func(info *LatestInfo)) {
+	latestInfoMu.Lock()
+	defer latestInfoMu.Unlock()
+	mutate(&latestInfo)
+	latestInfo.Errors = slices.Clone(latestInfo.Errors)
+	latestInfo.Warnings = slices.Clone(latestInfo.Warnings)
 }
 
 // setLatestInfoTerminal records the terminal status of a processed queue entry on
@@ -60,11 +85,13 @@ func setLatestInfoTerminal(message string, fileErrors, fileWarnings []string) {
 	if message == "" {
 		message = "Unknown"
 	}
-	LatestInfo.Time = time.Now()
-	LatestInfo.Status = status
-	LatestInfo.Message = message
-	LatestInfo.Errors = fileErrors
-	LatestInfo.Warnings = fileWarnings
+	UpdateLatestInfo(func(info *LatestInfo) {
+		info.Time = time.Now()
+		info.Status = status
+		info.Message = message
+		info.Errors = fileErrors
+		info.Warnings = fileWarnings
+	})
 }
 
 func init() {

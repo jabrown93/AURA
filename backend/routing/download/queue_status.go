@@ -32,12 +32,14 @@ func GetDownloadQueueStatus(w http.ResponseWriter, r *http.Request) {
 	logAction := ld.AddAction("Download Queue - Get Status", logging.LevelInfo)
 	ctx = logging.WithCurrentAction(ctx, logAction)
 
+	latestInfo := downloadqueue.GetLatestInfo()
+
 	var response GetDownloadQueueStatus_Response
-	response.Time = downloadqueue.LatestInfo.Time
-	response.Status = downloadqueue.LatestInfo.Status
-	response.Message = downloadqueue.LatestInfo.Message
-	response.Warnings = downloadqueue.LatestInfo.Warnings
-	response.Errors = downloadqueue.LatestInfo.Errors
+	response.Time = latestInfo.Time
+	response.Status = latestInfo.Status
+	response.Message = latestInfo.Message
+	response.Warnings = latestInfo.Warnings
+	response.Errors = latestInfo.Errors
 
 	httpx.SendResponse(w, ld, response)
 }
