@@ -13,6 +13,7 @@ import {
   Logs,
   MenuIcon,
   Sparkles,
+  TriangleAlert,
 } from "lucide-react";
 
 import { useEffect, useRef, useState } from "react";
@@ -128,6 +129,11 @@ export function Navbar({ version = "dev" }: AppNavbarProps) {
     // Reset redirect lock once app is ready
     hasRedirectedToLoadingRef.current = false;
   }, [hasHydrated, status, isAppLoadingPage, router]);
+
+  // A dependency that is merely unreachable is a degraded runtime state, not a
+  // setup problem, so it gets an indicator rather than an onboarding redirect.
+  const unreachableDependency =
+    status?.media_server_reachable === false ? "Media server" : status?.mediux_reachable === false ? "MediUX" : null;
 
   // Onboarding Redirect Logic
   useEffect(() => {
@@ -261,6 +267,15 @@ export function Navbar({ version = "dev" }: AppNavbarProps) {
 
       {/* Right: Arrows and/or Settings */}
       <div className="flex items-center gap-2 flex-shrink-0">
+        {unreachableDependency && (
+          <span
+            role="status"
+            aria-label={`${unreachableDependency} is unreachable`}
+            title={`${unreachableDependency} is unreachable. aura is running with reduced functionality and will reconnect automatically.`}
+          >
+            <TriangleAlert className="h-6 w-6 text-yellow-500" />
+          </span>
+        )}
         {isMediaPage && (
           <>
             <ArrowLeftCircle
