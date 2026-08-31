@@ -44,6 +44,7 @@ func StartRefreshAnidbMappingsJob() error {
 			ld.Log()
 		}),
 		gocron.WithName("Refresh AniDB Mappings Job"),
+		gocron.WithSingletonMode(gocron.LimitModeReschedule),
 	)
 	if err != nil {
 		return err

@@ -39,6 +39,7 @@ func StartDownloadQueueJob() error {
 			downloadqueue.ProcessCollectionQueueItems()
 		}),
 		gocron.WithName("Download Queue Processing Job"),
+		gocron.WithSingletonMode(gocron.LimitModeReschedule),
 	)
 	if err != nil {
 		return err

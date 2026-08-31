@@ -51,6 +51,7 @@ func StartCheckForMediaItemChangesJob() error {
 			ld.Log()
 		}),
 		gocron.WithName("Check for Media Item Changes Job"),
+		gocron.WithSingletonMode(gocron.LimitModeReschedule),
 	)
 	if err != nil {
 		return err

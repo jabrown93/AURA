@@ -55,6 +55,7 @@ func StartKometaImportJob() error {
 			}
 		}),
 		gocron.WithName("Kometa Asset Import Job"),
+		gocron.WithSingletonMode(gocron.LimitModeReschedule),
 	)
 	if err != nil {
 		return err

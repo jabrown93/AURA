@@ -42,6 +42,7 @@ func StartRefreshMediaItemsAndCollectionsJob() error {
 			ld.Log()
 		}),
 		gocron.WithName("Refresh Media Items and Collections Job"),
+		gocron.WithSingletonMode(gocron.LimitModeReschedule),
 	)
 	if err != nil {
 		return err

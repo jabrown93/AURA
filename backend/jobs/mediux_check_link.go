@@ -42,6 +42,7 @@ func StartCheckMediuxSiteLinkJob() error {
 			ld.Log()
 		}),
 		gocron.WithName("Check Mediux Site Link Availability Job"),
+		gocron.WithSingletonMode(gocron.LimitModeReschedule),
 	)
 	if err != nil {
 		return err

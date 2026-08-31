@@ -66,6 +66,7 @@ func StartAutoDownloadJob() error {
 			}
 		}),
 		gocron.WithName("AutoDownload Job"),
+		gocron.WithSingletonMode(gocron.LimitModeReschedule),
 	)
 	if err != nil {
 		return err

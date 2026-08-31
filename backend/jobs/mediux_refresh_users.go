@@ -51,6 +51,7 @@ func StartRefreshMediuxUsersJob() error {
 			ld.Log()
 		}),
 		gocron.WithName("Refresh Mediux Users Job"),
+		gocron.WithSingletonMode(gocron.LimitModeReschedule),
 	)
 	if err != nil {
 		return err

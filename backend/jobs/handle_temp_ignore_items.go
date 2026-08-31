@@ -51,6 +51,7 @@ func StartHandleTempIgnoredItemsJob() error {
 			ld.Log()
 		}),
 		gocron.WithName("Handle Temp Ignored Items Job"),
+		gocron.WithSingletonMode(gocron.LimitModeReschedule),
 	)
 	if err != nil {
 		return err
