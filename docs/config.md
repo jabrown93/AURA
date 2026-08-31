@@ -32,7 +32,7 @@ aura uses a `config.yaml` file for configuration. You can setup the configuratio
 
 ```yaml
 Auth:
-  Enable: true
+  Enabled: true
   Password: YOUR_ARGON2ID_HASH_HERE
 ```
 
@@ -41,7 +41,7 @@ aura can also sign users in through an OpenID Connect provider such as [Authenti
 While this password authentication method is effective, it is important to keep your password secure and not share it with others. For enhanced security, consider using solutions like [Authentik](https://goauthentik.io/), [Authelia](https://www.authelia.com/) or [Tinyauth](https://tinyauth.app/).  
 **I am not a security expert** 😅
 
-### Enable
+### Enabled
 
 - **Default**: `false`
 - **Options**: `true` or `false`
