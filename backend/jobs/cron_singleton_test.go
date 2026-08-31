@@ -93,3 +93,38 @@ func TestSingletonModeBlocksOverlappingRunNow(t *testing.T) {
 		})
 	}
 }
+
+func TestAutoDownloadRunGuardSpansJobGenerations(t *testing.T) {
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	firstDone := make(chan bool, 1)
+
+	go func() {
+		firstDone <- runAutoDownloadIfIdle(func() {
+			close(entered)
+			<-release
+		})
+	}()
+
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("first AutoDownload run never started")
+	}
+
+	secondEntered := false
+	if runAutoDownloadIfIdle(func() { secondEntered = true }) {
+		t.Error("replacement AutoDownload job ran while prior generation was active")
+	}
+	if secondEntered {
+		t.Error("replacement AutoDownload job entered guarded task")
+	}
+
+	close(release)
+	if !<-firstDone {
+		t.Error("first AutoDownload run did not acquire guard")
+	}
+	if !runAutoDownloadIfIdle(func() {}) {
+		t.Error("AutoDownload guard was not released after run completed")
+	}
+}

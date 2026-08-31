@@ -6,10 +6,23 @@ import (
 	"aura/logging"
 	"context"
 	"runtime/debug"
+	"sync"
 
 	"github.com/go-co-op/gocron/v2"
 	"github.com/google/uuid"
 )
+
+// Spans scheduler job IDs so config reschedules cannot overlap an in-flight run.
+var autodownloadRunMu sync.Mutex
+
+func runAutoDownloadIfIdle(run func()) bool {
+	if !autodownloadRunMu.TryLock() {
+		return false
+	}
+	defer autodownloadRunMu.Unlock()
+	run()
+	return true
+}
 
 func StartAutoDownloadJob() error {
 	mu.Lock()
@@ -51,18 +64,22 @@ func StartAutoDownloadJob() error {
 						Msg("PANIC: in scheduled AutoDownload Job")
 				}
 			}()
-			ctx, ld := logging.CreateLoggingContext(context.Background(), "Cron Job")
-			action := ld.AddAction("AutoDownload Check", logging.LevelInfo)
-			ctx = logging.WithCurrentAction(ctx, action)
-			Err := autodownload.CheckAllItems(ctx)
-			if Err.Message != "" {
-				logging.LOGGER.Error().Timestamp().Str("error", Err.Message).
-					Str("next_run", formatNextRun(autodownloadJob)).
-					Msg("Error running AutoDownload Job")
-			} else {
-				logging.LOGGER.Info().Timestamp().
-					Str("next_run", formatNextRun(autodownloadJob)).
-					Msg("AutoDownload Job Completed")
+			if !runAutoDownloadIfIdle(func() {
+				ctx, ld := logging.CreateLoggingContext(context.Background(), "Cron Job")
+				action := ld.AddAction("AutoDownload Check", logging.LevelInfo)
+				ctx = logging.WithCurrentAction(ctx, action)
+				Err := autodownload.CheckAllItems(ctx)
+				if Err.Message != "" {
+					logging.LOGGER.Error().Timestamp().Str("error", Err.Message).
+						Str("next_run", formatNextRun(autodownloadJob)).
+						Msg("Error running AutoDownload Job")
+				} else {
+					logging.LOGGER.Info().Timestamp().
+						Str("next_run", formatNextRun(autodownloadJob)).
+						Msg("AutoDownload Job Completed")
+				}
+			}) {
+				logging.LOGGER.Warn().Timestamp().Msg("AutoDownload Job skipped because another run is in progress")
 			}
 		}),
 		gocron.WithName("AutoDownload Job"),
