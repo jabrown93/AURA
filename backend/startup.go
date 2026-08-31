@@ -195,14 +195,18 @@ func runWarmup() (success bool) {
 	err := jobs.StartDownloadQueueJob()
 	if err != nil {
 		logging.LOGGER.Error().Timestamp().Err(err).Msg("Failed to schedule Download Queue Processing cron job")
-		downloadqueue.LatestInfo.Time = time.Now()
-		downloadqueue.LatestInfo.Status = downloadqueue.LAST_STATUS_ERROR
-		downloadqueue.LatestInfo.Message = "Failed to schedule Download Queue Processing"
-		downloadqueue.LatestInfo.Errors = []string{err.Error()}
-		downloadqueue.LatestInfo.Warnings = []string{}
+		downloadqueue.UpdateLatestInfo(func(info *downloadqueue.LatestInfo) {
+			info.Time = time.Now()
+			info.Status = downloadqueue.LAST_STATUS_ERROR
+			info.Message = "Failed to schedule Download Queue Processing"
+			info.Errors = []string{err.Error()}
+			info.Warnings = []string{}
+		})
 	} else {
-		downloadqueue.LatestInfo.Time = time.Now()
-		downloadqueue.LatestInfo.Status = downloadqueue.LAST_STATUS_IDLE
+		downloadqueue.UpdateLatestInfo(func(info *downloadqueue.LatestInfo) {
+			info.Time = time.Now()
+			info.Status = downloadqueue.LAST_STATUS_IDLE
+		})
 	}
 
 	// Cronjob: Refresh Media Items and Collections

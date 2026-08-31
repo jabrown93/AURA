@@ -133,10 +133,12 @@ func ProcessQueueItems() {
 		ctx = logging.WithCurrentAction(ctx, subAction)
 
 		// Reset the Latest Info for this file
-		LatestInfo.Status = LAST_STATUS_PROCESSING
-		LatestInfo.Message = fmt.Sprintf("Processing file: %s", file.Name())
-		LatestInfo.Errors = []string{}
-		LatestInfo.Warnings = []string{}
+		UpdateLatestInfo(func(info *LatestInfo) {
+			info.Status = LAST_STATUS_PROCESSING
+			info.Message = fmt.Sprintf("Processing file: %s", file.Name())
+			info.Errors = []string{}
+			info.Warnings = []string{}
+		})
 
 		// Create an array of errors and warnings for this file
 		fileErrors := []string{}
@@ -289,7 +291,9 @@ func ProcessQueueItems() {
 				continue
 			}
 
-			LatestInfo.Message = fmt.Sprintf("%s (Set: %s)", queueItem.MediaItem.Title, posterSet.ID)
+			UpdateLatestInfo(func(info *LatestInfo) {
+				info.Message = fmt.Sprintf("%s (Set: %s)", queueItem.MediaItem.Title, posterSet.ID)
+			})
 
 			// When the set is flagged to force-preload missing seasons/episodes, Kometa asset
 			// mode is enabled, and the show exists on the server with at least one episode, we

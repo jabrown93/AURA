@@ -74,11 +74,13 @@ func SendNotification(
 	}
 
 	// Update the Global LatestInfo
-	LatestInfo.Time = time.Now()
-	LatestInfo.Status = result
-	LatestInfo.Message = fmt.Sprintf("%s (Set: %s)", mediaItem.Title, posterSet.ID)
-	LatestInfo.Errors = fileIssues.Errors
-	LatestInfo.Warnings = fileIssues.Warnings
+	UpdateLatestInfo(func(info *LatestInfo) {
+		info.Time = time.Now()
+		info.Status = result
+		info.Message = fmt.Sprintf("%s (Set: %s)", mediaItem.Title, posterSet.ID)
+		info.Errors = fileIssues.Errors
+		info.Warnings = fileIssues.Warnings
+	})
 
 	ctx, ld := logging.CreateLoggingContext(context.Background(), "Notification - Send Download Queue Update")
 	logAction := ld.AddAction("Sending Download Queue Notification", logging.LevelInfo)

@@ -103,10 +103,12 @@ func ProcessCollectionQueueItems() {
 		subAction := ld.AddAction(fmt.Sprintf("Processing file: %s", file.Name()), logging.LevelInfo)
 		ctx = logging.WithCurrentAction(ctx, subAction)
 
-		LatestInfo.Status = LAST_STATUS_PROCESSING
-		LatestInfo.Message = fmt.Sprintf("Processing collection file: %s", file.Name())
-		LatestInfo.Errors = []string{}
-		LatestInfo.Warnings = []string{}
+		UpdateLatestInfo(func(info *LatestInfo) {
+			info.Status = LAST_STATUS_PROCESSING
+			info.Message = fmt.Sprintf("Processing collection file: %s", file.Name())
+			info.Errors = []string{}
+			info.Warnings = []string{}
+		})
 
 		fileErrors := []string{}
 		fileWarnings := []string{}
@@ -157,7 +159,9 @@ func ProcessCollectionQueueItems() {
 			continue
 		}
 
-		LatestInfo.Message = fmt.Sprintf("Collection: %s", queueItem.CollectionItem.Title)
+		UpdateLatestInfo(func(info *LatestInfo) {
+			info.Message = fmt.Sprintf("Collection: %s", queueItem.CollectionItem.Title)
+		})
 
 		collectionItem := queueItem.CollectionItem
 		for _, image := range queueItem.Images {
