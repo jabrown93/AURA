@@ -141,10 +141,19 @@ func AddNewItemToDB(w http.ResponseWriter, r *http.Request) {
 
 	// If this is the first time adding the item, we need to update the cache
 	// Run this asynchronously
+	cachedItem := saveItem.MediaItem
 	go func() {
-		_, _, dbSets, _ := database.CheckIfMediaItemExists(ctx, saveItem.MediaItem.TMDB_ID, saveItem.MediaItem.LibraryTitle)
-		saveItem.MediaItem.DBSavedSets = dbSets
-		cache.LibraryStore.UpdateMediaItem(saveItem.MediaItem.LibraryTitle, &saveItem.MediaItem)
+		ctx, ld := logging.CreateLoggingContext(context.Background(), "Saved Sets Cache Refresh")
+		logAction := ld.AddAction("Refresh Cached DB Saved Sets for Added Item", logging.LevelInfo)
+		ctx = logging.WithCurrentAction(ctx, logAction)
+		defer ld.Log()
+
+		_, _, dbSets, Err := database.CheckIfMediaItemExists(ctx, cachedItem.TMDB_ID, cachedItem.LibraryTitle)
+		if Err.Message != "" {
+			logAction.SetErrorFromInfo(Err)
+			return
+		}
+		cache.LibraryStore.UpdateMediaItemDBSavedSets(cachedItem.LibraryTitle, &cachedItem, dbSets)
 	}()
 	response.SavedItem = saveItem
 
