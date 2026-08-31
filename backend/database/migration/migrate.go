@@ -4,7 +4,29 @@ import (
 	"aura/database"
 	"aura/logging"
 	"context"
+	"fmt"
 )
+
+// checkSchemaSupported rejects an on-disk schema newer than this binary understands.
+// Migrations are one-way and destructive (v4_v5 rewrites IgnoredItems.mode values under a new
+// CHECK constraint, then drops the old table), so a downgraded binary that boots against a newer
+// schema writes rows the schema rejects. Refusing to start keeps the per-migration backup usable.
+func checkSchemaSupported(currentVersion, latestVersion int) logging.LogErrorInfo {
+	if currentVersion <= latestVersion {
+		return logging.LogErrorInfo{}
+	}
+	return logging.LogErrorInfo{
+		Message: fmt.Sprintf("Database schema version %d is newer than this build supports (%d)", currentVersion, latestVersion),
+		Help: fmt.Sprintf(
+			"This build was started against a database written by a newer version of aura. Redeploy the newer image, or restore the backup taken before that upgrade (*_backup_v%d_to_v%d_*.db in the config directory) before running this version.",
+			latestVersion, latestVersion+1,
+		),
+		Detail: map[string]any{
+			"database_version":  currentVersion,
+			"supported_version": latestVersion,
+		},
+	}
+}
 
 func RunMigrations() (migrationsPerformed int, Err logging.LogErrorInfo) {
 	ctx, ld := logging.CreateLoggingContext(context.Background(), "Database Migration")
@@ -20,6 +42,12 @@ func RunMigrations() (migrationsPerformed int, Err logging.LogErrorInfo) {
 	currentVersion, getCurrentVersionErr := database.GetCurrentVersion(ctx)
 	if getCurrentVersionErr.Message != "" {
 		return migrationsPerformed, getCurrentVersionErr
+	}
+
+	// Refuse to run against a database newer than this binary (accidental downgrade)
+	if unsupportedErr := checkSchemaSupported(currentVersion, database.LATEST_DB_VERSION); unsupportedErr.Message != "" {
+		logAction.SetErrorFromInfo(unsupportedErr)
+		return migrationsPerformed, unsupportedErr
 	}
 
 	// If the current version is already the latest, nothing to do
