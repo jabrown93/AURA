@@ -40,7 +40,7 @@ func StartKometaImportJob() error {
 
 	job, err := sched.NewJob(
 		gocron.CronJob(spec, false),
-		gocron.NewTask(func() {
+		gocron.NewTask(configureJobRunner("Kometa Asset Import Job", func() {
 			defer func() {
 				if r := recover(); r != nil {
 					logging.LOGGER.Error().
@@ -50,11 +50,12 @@ func StartKometaImportJob() error {
 						Msg("PANIC: in scheduled Kometa Asset Import Job")
 				}
 			}()
-			if started := kometa.StartImport(); !started {
+			if started := kometa.RunImport(); !started {
 				logging.LOGGER.Warn().Timestamp().Msg("Kometa Asset Import skipped (already running or not enabled)")
 			}
-		}),
+		}).runScheduled),
 		gocron.WithName("Kometa Asset Import Job"),
+		gocron.WithSingletonMode(gocron.LimitModeReschedule),
 	)
 	if err != nil {
 		return err

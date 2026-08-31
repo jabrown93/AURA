@@ -258,12 +258,13 @@ func runWarmup() (success bool) {
 		logging.LOGGER.Error().Timestamp().Err(err).Msg("Failed to schedule Handle Temp Ignored Items cron job")
 	}
 
-	// Cron: Start Jobs Scheduler
-	jobs.StartJobs()
-
-	// Check MediUX Site Link Availability immediately on startup
+	// Check MediUX Site Link Availability before starting the scheduler so the
+	// immediate check cannot overlap its scheduled counterpart.
 	config.AppLoadingStep = "Checking MediUX Site Link Availability"
 	mediux.CheckSiteLinkAvailability()
+
+	// Cron: Start Jobs Scheduler
+	jobs.StartJobs()
 
 	// Initialize MediUX WebSocket Listener
 	//go autodownload.StartMediuxWebSocketClient()

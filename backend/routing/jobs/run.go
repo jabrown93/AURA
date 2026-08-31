@@ -4,6 +4,7 @@ import (
 	"aura/jobs"
 	"aura/logging"
 	"aura/utils/httpx"
+	"errors"
 	"fmt"
 	"net/http"
 )
@@ -11,6 +12,8 @@ import (
 type runJobResponse struct {
 	Message string `json:"message"`
 }
+
+var triggerJob = jobs.TriggerJob
 
 // RunJob godoc
 // @Summary      Run Job
@@ -23,6 +26,7 @@ type runJobResponse struct {
 // @Security 	 BearerAuth
 // @Failure      401  {object}  httpx.UnauthorizedResponse "Unauthorized (only when Auth.Enabled=true)"
 // @Success      200       {object}  httpx.JSONResponse{data=runJobResponse}
+// @Failure      409       {object}  httpx.JSONResponse "Job is already running"
 // @Failure      500       {object}  httpx.JSONResponse "Internal Server Error"
 // @Router       /api/jobs [post]
 func RunJob(w http.ResponseWriter, r *http.Request) {
@@ -50,7 +54,16 @@ func RunJob(w http.ResponseWriter, r *http.Request) {
 
 	// Trigger the Job
 	actionTriggerJob := ld.AddAction("Trigger Job", logging.LevelInfo)
-	err := jobs.TriggerJob(jobName, jobID)
+	err := triggerJob(jobName, jobID)
+	if errors.Is(err, jobs.ErrJobBusy) {
+		actionTriggerJob.SetError("Job is already running", "Wait for the current run to finish, then try again",
+			map[string]any{
+				"job_name": jobName,
+				"job_id":   jobID,
+			})
+		httpx.SendResponseWithStatus(w, ld, response, http.StatusConflict)
+		return
+	}
 	if err != nil {
 		actionTriggerJob.SetError("Failed to Trigger Job", "An error occurred while trying to trigger the job",
 			map[string]any{

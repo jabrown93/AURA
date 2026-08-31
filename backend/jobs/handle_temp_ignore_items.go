@@ -29,7 +29,7 @@ func StartHandleTempIgnoredItemsJob() error {
 	spec := "0 */1 * * *"
 	job, err := sched.NewJob(
 		gocron.CronJob(spec, false),
-		gocron.NewTask(func() {
+		gocron.NewTask(configureJobRunner("Handle Temp Ignored Items Job", func() {
 			defer func() {
 				if r := recover(); r != nil {
 					logging.LOGGER.Error().Timestamp().Interface("recover", r).Msg("PANIC: in scheduled HandleTempIgnoredItemsJob")
@@ -49,8 +49,9 @@ func StartHandleTempIgnoredItemsJob() error {
 					Msg("Handle Temp Ignored Items Job Completed")
 			}
 			ld.Log()
-		}),
+		}).runScheduled),
 		gocron.WithName("Handle Temp Ignored Items Job"),
+		gocron.WithSingletonMode(gocron.LimitModeReschedule),
 	)
 	if err != nil {
 		return err
@@ -64,25 +65,4 @@ func StartHandleTempIgnoredItemsJob() error {
 		Str("interval", "every 1 hour").
 		Msg("Handle Temp Ignored Items Job Started")
 	return nil
-}
-
-func RunHandleTempIgnoredItemsJobNow() {
-	mu.Lock()
-	defer mu.Unlock()
-
-	if sched == nil {
-		logging.LOGGER.Error().Timestamp().Msg("Cron Jobs Scheduler is not initialized")
-		return
-	}
-
-	if handleTempIgnoredItemsJobID == uuid.Nil || handleTempIgnoredItemsJob == nil {
-		logging.LOGGER.Error().Timestamp().Msg("Handle Temp Ignored Items Job is not scheduled")
-		return
-	}
-
-	go func() {
-		if err := handleTempIgnoredItemsJob.RunNow(); err != nil {
-			logging.LOGGER.Error().Timestamp().Err(err).Msg("Failed to run Handle Temp Ignored Items Job")
-		}
-	}()
 }

@@ -2,6 +2,7 @@ package jobs
 
 import (
 	"aura/logging"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -43,7 +44,10 @@ var (
 	kometaImportJob                    gocron.Job
 )
 
-var manualPrevRun = map[uuid.UUID]string{}
+var (
+	manualPrevRun = map[uuid.UUID]string{}
+	ErrJobBusy    = errors.New("job is already running")
+)
 
 func init() {
 	var err error
@@ -193,18 +197,14 @@ func TriggerJob(jobName string, jobID string) error {
 		return fmt.Errorf("unknown job name: %s", jobName)
 	}
 
-	if entryID == uuid.Nil || job == nil {
+	runner := jobRunners[jobName]
+	if entryID == uuid.Nil || job == nil || runner == nil {
 		return fmt.Errorf("job not found or not scheduled: %s", jobName)
+	}
+	if !runner.trigger() {
+		return fmt.Errorf("%w: %s", ErrJobBusy, jobName)
 	}
 
 	manualPrevRun[entryID] = time.Now().Format("2006-01-02 15:04:05")
-
-	go func() {
-		if err := job.RunNow(); err != nil {
-			logging.LOGGER.Error().Timestamp().Err(err).Str("job_name", jobName).
-				Msg("Failed to trigger job")
-		}
-	}()
-
 	return nil
 }

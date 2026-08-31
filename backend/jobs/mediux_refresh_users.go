@@ -29,7 +29,7 @@ func StartRefreshMediuxUsersJob() error {
 	spec := "*/90 * * * *"
 	job, err := sched.NewJob(
 		gocron.CronJob(spec, false),
-		gocron.NewTask(func() {
+		gocron.NewTask(configureJobRunner("Refresh Mediux Users Job", func() {
 			defer func() {
 				if r := recover(); r != nil {
 					logging.LOGGER.Error().Timestamp().Interface("recover", r).Msg("PANIC: in scheduled RefreshMediuxUsersJob")
@@ -49,8 +49,9 @@ func StartRefreshMediuxUsersJob() error {
 					Msg("Refresh Mediux Users Job Completed")
 			}
 			ld.Log()
-		}),
+		}).runScheduled),
 		gocron.WithName("Refresh Mediux Users Job"),
+		gocron.WithSingletonMode(gocron.LimitModeReschedule),
 	)
 	if err != nil {
 		return err
@@ -64,34 +65,4 @@ func StartRefreshMediuxUsersJob() error {
 		Str("interval", "every 90 minutes").
 		Msg("Refresh Mediux Users Job Started")
 	return nil
-}
-
-func RunRefreshMediuxUsersJobNow() {
-	mu.Lock()
-	defer mu.Unlock()
-
-	if sched == nil {
-		logging.LOGGER.Error().Timestamp().Msg("Cron Jobs Scheduler is not initialized")
-		return
-	}
-
-	if refreshMediuxUsersJobID == uuid.Nil {
-		logging.LOGGER.Error().Timestamp().Msg("Refresh Mediux Users Job is not scheduled")
-		return
-	}
-
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				logging.LOGGER.Error().Timestamp().Interface("recover", r).Msg("PANIC: in RefreshMediuxUsersJob")
-			}
-		}()
-		ctx, ld := logging.CreateLoggingContext(context.Background(), "Manual Job Run")
-		action := ld.AddAction("Refresh Mediux Users", logging.LevelInfo)
-		ctx = logging.WithCurrentAction(ctx, action)
-		mediux.GetAllUsers(ctx)
-		logging.LOGGER.Info().Timestamp().
-			Str("next_run", formatNextRun(refreshMediuxUsersJob)).
-			Msg("Manual Refresh Mediux Users Job Completed")
-	}()
 }

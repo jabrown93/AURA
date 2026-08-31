@@ -1,6 +1,7 @@
 package jobs
 
 import (
+	"errors"
 	"sync"
 	"testing"
 
@@ -17,9 +18,9 @@ import (
 func TestTriggerJob_ManualPrevRunGuardedAgainstGetListOfJobs(t *testing.T) {
 	const jobName = "Download Queue Processing Job"
 
-	prevSched, prevJob, prevID, prevRuns := sched, downloadQueueJob, downloadQueueJobID, manualPrevRun
+	prevSched, prevJob, prevID, prevRuns, prevRunners := sched, downloadQueueJob, downloadQueueJobID, manualPrevRun, jobRunners
 	t.Cleanup(func() {
-		sched, downloadQueueJob, downloadQueueJobID, manualPrevRun = prevSched, prevJob, prevID, prevRuns
+		sched, downloadQueueJob, downloadQueueJobID, manualPrevRun, jobRunners = prevSched, prevJob, prevID, prevRuns, prevRunners
 	})
 
 	s, err := gocron.NewScheduler()
@@ -44,13 +45,15 @@ func TestTriggerJob_ManualPrevRunGuardedAgainstGetListOfJobs(t *testing.T) {
 
 	sched, downloadQueueJob, downloadQueueJobID = s, job, job.ID()
 	manualPrevRun = map[uuid.UUID]string{}
+	jobRunners = map[string]*jobRunner{}
+	configureJobRunner(jobName, func() {})
 
 	var wg sync.WaitGroup
 	for range 50 {
 		wg.Add(2)
 		go func() {
 			defer wg.Done()
-			if err := TriggerJob(jobName, ""); err != nil {
+			if err := TriggerJob(jobName, ""); err != nil && !errors.Is(err, ErrJobBusy) {
 				t.Errorf("TriggerJob() error: %v", err)
 			}
 		}()
