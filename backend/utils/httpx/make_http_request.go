@@ -109,9 +109,11 @@ func MakeHTTPRequest(ctx context.Context, url, method string, headers map[string
 	// Webhook endpoints are configured by the user and may carry their secret in the path.
 	redactAll := siteName == WebhookSiteName
 
-	// Create a context with a timeout
+	// Bound the request by the timeout while still honoring the caller's context, so an
+	// abandoned caller (cancelled request, shutdown) cancels the outbound call instead of
+	// leaving it to run out its full timeout.
 	timeoutInterval := time.Duration(timeout) * time.Second
-	ctx, cancel := context.WithTimeout(context.Background(), timeoutInterval)
+	ctx, cancel := context.WithTimeout(ctx, timeoutInterval)
 	defer cancel()
 
 	// Create a new request with context
