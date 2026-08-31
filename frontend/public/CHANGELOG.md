@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.1.11-beta.1](https://github.com/jabrown93/AURA/compare/v2.1.10...v2.1.11-beta.1) (2026-08-31)
+
+
+### Bug Fixes
+
+* **deps:** update dependency zod to v4.5.1 ([dbb5cd1](https://github.com/jabrown93/AURA/commit/dbb5cd1eff8ca9ae2e5b87526e546ac44774273a))
+* **jobs:** prevent a job from overlapping with itself ([#148](https://github.com/jabrown93/AURA/issues/148)) ([6f924a9](https://github.com/jabrown93/AURA/commit/6f924a93e53f3498d6f53a794a4f2d2f6b974078)), closes [#122](https://github.com/jabrown93/AURA/issues/122)
+
 ## [2.1.10](https://github.com/jabrown93/AURA/compare/v2.1.9...v2.1.10) (2026-08-31)
 
 
