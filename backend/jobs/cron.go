@@ -197,8 +197,9 @@ func TriggerJob(jobName string, jobID string) error {
 		return fmt.Errorf("job not found or not scheduled: %s", jobName)
 	}
 
+	manualPrevRun[entryID] = time.Now().Format("2006-01-02 15:04:05")
+
 	go func() {
-		manualPrevRun[entryID] = time.Now().Format("2006-01-02 15:04:05")
 		if err := job.RunNow(); err != nil {
 			logging.LOGGER.Error().Timestamp().Err(err).Str("job_name", jobName).
 				Msg("Failed to trigger job")
