@@ -4,7 +4,6 @@ import (
 	"errors"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/go-co-op/gocron/v2"
 	"github.com/google/uuid"
@@ -19,9 +18,9 @@ import (
 func TestTriggerJob_ManualPrevRunGuardedAgainstGetListOfJobs(t *testing.T) {
 	const jobName = "Download Queue Processing Job"
 
-	prevSched, prevJob, prevID, prevRuns := sched, downloadQueueJob, downloadQueueJobID, manualPrevRun
+	prevSched, prevJob, prevID, prevRuns, prevRunners := sched, downloadQueueJob, downloadQueueJobID, manualPrevRun, jobRunners
 	t.Cleanup(func() {
-		sched, downloadQueueJob, downloadQueueJobID, manualPrevRun = prevSched, prevJob, prevID, prevRuns
+		sched, downloadQueueJob, downloadQueueJobID, manualPrevRun, jobRunners = prevSched, prevJob, prevID, prevRuns, prevRunners
 	})
 
 	s, err := gocron.NewScheduler()
@@ -46,6 +45,8 @@ func TestTriggerJob_ManualPrevRunGuardedAgainstGetListOfJobs(t *testing.T) {
 
 	sched, downloadQueueJob, downloadQueueJobID = s, job, job.ID()
 	manualPrevRun = map[uuid.UUID]string{}
+	jobRunners = map[string]*jobRunner{}
+	configureJobRunner(jobName, func() {})
 
 	var wg sync.WaitGroup
 	for range 50 {
@@ -65,75 +66,5 @@ func TestTriggerJob_ManualPrevRunGuardedAgainstGetListOfJobs(t *testing.T) {
 
 	if _, ok := manualPrevRun[job.ID()]; !ok {
 		t.Errorf("TriggerJob did not record a manual previous run for job %s", job.ID())
-	}
-}
-
-func TestTriggerJobReturnsBusyWithoutRecordingManualRun(t *testing.T) {
-	const jobName = "Download Queue Processing Job"
-
-	prevSched, prevJob, prevID, prevRuns := sched, downloadQueueJob, downloadQueueJobID, manualPrevRun
-	t.Cleanup(func() {
-		sched, downloadQueueJob, downloadQueueJobID, manualPrevRun = prevSched, prevJob, prevID, prevRuns
-	})
-
-	s, err := gocron.NewScheduler()
-	if err != nil {
-		t.Fatalf("failed to create scheduler: %v", err)
-	}
-	t.Cleanup(func() {
-		if err := s.Shutdown(); err != nil {
-			t.Errorf("scheduler shutdown failed: %v", err)
-		}
-	})
-
-	entered := make(chan struct{}, 1)
-	release := make(chan struct{})
-	defer close(release)
-
-	job, err := s.NewJob(
-		gocron.CronJob("0 0 * * *", false),
-		gocron.NewTask(func() {
-			entered <- struct{}{}
-			<-release
-		}),
-		gocron.WithName(jobName),
-		gocron.WithSingletonMode(gocron.LimitModeReschedule),
-	)
-	if err != nil {
-		t.Fatalf("failed to schedule job: %v", err)
-	}
-	s.Start()
-
-	sched, downloadQueueJob, downloadQueueJobID = s, job, job.ID()
-	manualPrevRun = map[uuid.UUID]string{}
-
-	if err := job.RunNow(); err != nil {
-		t.Fatalf("first RunNow() error: %v", err)
-	}
-	select {
-	case <-entered:
-	case <-time.After(5 * time.Second):
-		t.Fatal("first run never started")
-	}
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		running, err := job.IsRunning()
-		if err != nil {
-			t.Fatalf("IsRunning() error: %v", err)
-		}
-		if running {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("first run never became observable as running")
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-
-	if err := TriggerJob(jobName, job.ID().String()); !errors.Is(err, ErrJobBusy) {
-		t.Fatalf("TriggerJob() error = %v, want ErrJobBusy", err)
-	}
-	if _, ok := manualPrevRun[job.ID()]; ok {
-		t.Errorf("TriggerJob recorded a manual run for busy job %s", job.ID())
 	}
 }

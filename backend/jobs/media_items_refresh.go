@@ -29,7 +29,7 @@ func StartRefreshMediaItemsAndCollectionsJob() error {
 	spec := "*/90 * * * *"
 	job, err := sched.NewJob(
 		gocron.CronJob(spec, false),
-		gocron.NewTask(func() {
+		gocron.NewTask(configureJobRunner("Refresh Media Items and Collections Job", func() {
 			defer func() {
 				if r := recover(); r != nil {
 					logging.LOGGER.Error().Timestamp().Interface("recover", r).Msg("PANIC: in scheduled RefreshMediaItemsAndCollectionsJob")
@@ -40,7 +40,7 @@ func StartRefreshMediaItemsAndCollectionsJob() error {
 			ctx = logging.WithCurrentAction(ctx, action)
 			mediaserver.GetAllLibrarySectionsAndItems(ctx, true)
 			ld.Log()
-		}),
+		}).runScheduled),
 		gocron.WithName("Refresh Media Items and Collections Job"),
 		gocron.WithSingletonMode(gocron.LimitModeReschedule),
 	)

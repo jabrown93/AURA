@@ -197,19 +197,12 @@ func TriggerJob(jobName string, jobID string) error {
 		return fmt.Errorf("unknown job name: %s", jobName)
 	}
 
-	if entryID == uuid.Nil || job == nil {
+	runner := jobRunners[jobName]
+	if entryID == uuid.Nil || job == nil || runner == nil {
 		return fmt.Errorf("job not found or not scheduled: %s", jobName)
 	}
-
-	running, err := job.IsRunning()
-	if err != nil {
-		return fmt.Errorf("check job status: %w", err)
-	}
-	if running {
+	if !runner.trigger() {
 		return fmt.Errorf("%w: %s", ErrJobBusy, jobName)
-	}
-	if err := job.RunNow(); err != nil {
-		return fmt.Errorf("run job: %w", err)
 	}
 
 	manualPrevRun[entryID] = time.Now().Format("2006-01-02 15:04:05")

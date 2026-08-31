@@ -29,7 +29,7 @@ func StartRefreshMediuxUsersJob() error {
 	spec := "*/90 * * * *"
 	job, err := sched.NewJob(
 		gocron.CronJob(spec, false),
-		gocron.NewTask(func() {
+		gocron.NewTask(configureJobRunner("Refresh Mediux Users Job", func() {
 			defer func() {
 				if r := recover(); r != nil {
 					logging.LOGGER.Error().Timestamp().Interface("recover", r).Msg("PANIC: in scheduled RefreshMediuxUsersJob")
@@ -49,7 +49,7 @@ func StartRefreshMediuxUsersJob() error {
 					Msg("Refresh Mediux Users Job Completed")
 			}
 			ld.Log()
-		}),
+		}).runScheduled),
 		gocron.WithName("Refresh Mediux Users Job"),
 		gocron.WithSingletonMode(gocron.LimitModeReschedule),
 	)

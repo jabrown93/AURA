@@ -31,7 +31,7 @@ func StartRefreshAnidbMappingsJob() error {
 	spec := "0 4 * * 1"
 	job, err := sched.NewJob(
 		gocron.CronJob(spec, false),
-		gocron.NewTask(func() {
+		gocron.NewTask(configureJobRunner("Refresh AniDB Mappings Job", func() {
 			defer func() {
 				if r := recover(); r != nil {
 					logging.LOGGER.Error().Timestamp().Interface("recover", r).Msg("PANIC: in scheduled RefreshAnidbMappingsJob")
@@ -42,7 +42,7 @@ func StartRefreshAnidbMappingsJob() error {
 			ctx = logging.WithCurrentAction(ctx, action)
 			anidb.PreloadAnidbMappings(ctx)
 			ld.Log()
-		}),
+		}).runScheduled),
 		gocron.WithName("Refresh AniDB Mappings Job"),
 		gocron.WithSingletonMode(gocron.LimitModeReschedule),
 	)
