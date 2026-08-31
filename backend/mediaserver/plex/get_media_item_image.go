@@ -21,7 +21,7 @@ func (p *Plex) GetMediaItemImage(ctx context.Context, item *models.MediaItem, im
 	imageData = []byte{}
 	Err = logging.LogErrorInfo{}
 
-	respBody, Err := GetImageFromPlex(ctx, imageRatingKey, imageType)
+	respBody, Err := GetImageFromPlex(ctx, imageRatingKey, imageType, item.UpdatedAt)
 	if Err.Message != "" {
 		return imageData, Err
 	}
@@ -40,7 +40,7 @@ func (p *Plex) GetCollectionItemImage(ctx context.Context, collection *models.Co
 	imageData = []byte{}
 	Err = logging.LogErrorInfo{}
 
-	respBody, Err := GetImageFromPlex(ctx, collection.RatingKey, imageType)
+	respBody, Err := GetImageFromPlex(ctx, collection.RatingKey, imageType, collection.UpdatedAt)
 	if Err.Message != "" {
 		return imageData, Err
 	}
@@ -49,7 +49,7 @@ func (p *Plex) GetCollectionItemImage(ctx context.Context, collection *models.Co
 	return imageData, Err
 }
 
-func GetImageFromPlex(ctx context.Context, ratingKey string, imageType string) (imageData []byte, Err logging.LogErrorInfo) {
+func GetImageFromPlex(ctx context.Context, ratingKey string, imageType string, updatedAt int64) (imageData []byte, Err logging.LogErrorInfo) {
 	width := "600"
 	height := "900"
 	switch imageType {
@@ -63,7 +63,7 @@ func GetImageFromPlex(ctx context.Context, ratingKey string, imageType string) (
 	}
 
 	// Construct the URL for the Plex Image request
-	photoPath := path.Join("/library/metadata", ratingKey, imageType)
+	photoPath := path.Join("/library/metadata", ratingKey, imageType, fmt.Sprintf("%d", updatedAt))
 	encodedPhotoPath := url.QueryEscape(photoPath)
 	u, err := url.Parse(config.Current.MediaServer.URL)
 	if err != nil {

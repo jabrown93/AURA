@@ -63,6 +63,7 @@ func (p *Plex) GetMovieCollections(ctx context.Context, library models.LibrarySe
 		collectionItem.Summary = collection.Summary
 		collectionItem.ChildCount = collection.ChildCount
 		collectionItem.LibraryTitle = library.Title
+		collectionItem.UpdatedAt = collection.UpdatedAt
 
 		// Update the collections cache
 		cache.CollectionsStore.UpsertCollection(&collectionItem)

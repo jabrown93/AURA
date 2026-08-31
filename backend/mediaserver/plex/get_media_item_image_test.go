@@ -9,8 +9,8 @@ import (
 	"testing"
 )
 
-func TestGetImageFromPlexUsesStableSourcePath(t *testing.T) {
-	requests := make(chan *http.Request, 2)
+func TestGetImageFromPlexVersionsSourcePathWithArtworkState(t *testing.T) {
+	requests := make(chan *http.Request, 3)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests <- r.Clone(r.Context())
 		w.Header().Set("Content-Type", "image/jpeg")
@@ -29,8 +29,8 @@ func TestGetImageFromPlexUsesStableSourcePath(t *testing.T) {
 	ctx, ld := logging.CreateLoggingContext(context.Background(), "test")
 	ctx = logging.WithCurrentAction(ctx, ld.AddAction("test", logging.LevelTrace))
 
-	for range 2 {
-		image, errInfo := GetImageFromPlex(ctx, "123", "poster")
+	for _, updatedAt := range []int64{1700000000, 1700000000, 1700000001} {
+		image, errInfo := GetImageFromPlex(ctx, "123", "poster", updatedAt)
 		if errInfo.Message != "" {
 			t.Fatalf("GetImageFromPlex() error = %q", errInfo.Message)
 		}
@@ -39,10 +39,15 @@ func TestGetImageFromPlexUsesStableSourcePath(t *testing.T) {
 		}
 	}
 
-	for range 2 {
+	wantPaths := []string{
+		"/library/metadata/123/poster/1700000000",
+		"/library/metadata/123/poster/1700000000",
+		"/library/metadata/123/poster/1700000001",
+	}
+	for _, wantPath := range wantPaths {
 		request := <-requests
-		if got := request.URL.Query().Get("url"); got != "/library/metadata/123/poster" {
-			t.Errorf("Plex source path = %q, want stable path %q", got, "/library/metadata/123/poster")
+		if got := request.URL.Query().Get("url"); got != wantPath {
+			t.Errorf("Plex source path = %q, want %q", got, wantPath)
 		}
 		if got := request.Header.Get("X-Plex-Token"); got != "plex-secret" {
 			t.Errorf("X-Plex-Token = %q, want token sent in header", got)
