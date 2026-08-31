@@ -26,7 +26,7 @@ export function CollectionItemDetails({ collectionItem }: CollectionItemDetailsP
         {/* Poster Image */}
         <div className="flex-shrink-0 mb-4 lg:mb-0 lg:mr-8 flex justify-center">
           <AssetImage
-            image={`/api/images/media/collection?rating_key=${collectionItem?.rating_key}&image_type=poster&cb=${Date.now()}`}
+            image={`/api/images/media/collection?rating_key=${collectionItem?.rating_key}&image_type=poster&v=${collectionItem?.updated_at}`}
             imageType="url"
             className="w-[200px] h-auto transition-transform hover:scale-105 select-none"
           />

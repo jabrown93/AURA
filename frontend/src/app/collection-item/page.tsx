@@ -71,9 +71,6 @@ export default function CollectionItemPage() {
   const [hasError, setHasError] = useState(false);
   const [error, setError] = useState<APIResponse<unknown> | null>(null);
 
-  // Image Version State (for forcing image reloads)
-  const imageVersion = useState(Date.now());
-
   // UI States from Store
   const { sortOrder, setSortOrder, sortOption, setSortOption, showHiddenUsers, setShowHiddenUsers } =
     useCollectionItemPageStore();
@@ -345,7 +342,7 @@ export default function CollectionItemPage() {
   return (
     <>
       <DimmedBackground
-        backdropURL={`/api/images/media/collection?rating_key=${collectionItem?.rating_key}&image_type=backdrop&cb=${imageVersion}`}
+        backdropURL={`/api/images/media/collection?rating_key=${collectionItem?.rating_key}&image_type=backdrop&v=${collectionItem?.updated_at}`}
       />
 
       <div className="p-4 lg:p-6">
