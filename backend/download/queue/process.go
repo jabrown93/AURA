@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"strings"
 	"time"
 )
 
@@ -123,7 +124,7 @@ func ProcessQueueItems() {
 		}
 
 		// If a file starts with "error_" or "warning_", skip it
-		if len(file.Name()) > 6 && (file.Name()[:6] == "error_" || file.Name()[:8] == "warning_") {
+		if strings.HasPrefix(file.Name(), "error_") || strings.HasPrefix(file.Name(), "warning_") {
 			continue
 		}
 
