@@ -166,7 +166,7 @@ jobs:
       # single architecture while buildx's SPDX is per-platform. These images differ
       # by compiled arch, not package set.
       - name: Generate CycloneDX SBOM
-        uses: anchore/sbom-action@aa80c8c5bd439a416a62804f2151ab38c671a638 # v0.24.1
+        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
         env:
           # syft's file-metadata cataloger defaults to `owned-by-package`, emitting a
           # `type: file` component -- name, sha1, sha256, no purl, no license -- per
