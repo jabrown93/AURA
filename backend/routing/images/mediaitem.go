@@ -8,6 +8,8 @@ import (
 	"net/http"
 )
 
+const imageCacheControl = "private, max-age=86400"
+
 // GetMediaItemImage godoc
 // @Summary      Get Media Item Image
 // @Description  Get a media item image (poster, backdrop or thumb) from the media server by rating key and image type
@@ -72,6 +74,7 @@ func GetMediaItemImage(w http.ResponseWriter, r *http.Request) {
 
 	// Set the content type for the response
 	w.Header().Set("Content-Type", "image/jpeg")
+	w.Header().Set("Cache-Control", imageCacheControl)
 	// Write the image data to the response
 	w.WriteHeader(http.StatusOK)
 	w.Write(imageData)
@@ -133,6 +136,7 @@ func GetCollectionItemImage(w http.ResponseWriter, r *http.Request) {
 
 	// Set the content type for the response
 	w.Header().Set("Content-Type", "image/jpeg")
+	w.Header().Set("Cache-Control", imageCacheControl)
 	// Write the image data to the response
 	w.WriteHeader(http.StatusOK)
 	w.Write(imageData)

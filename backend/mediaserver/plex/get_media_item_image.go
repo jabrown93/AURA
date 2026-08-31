@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"net/url"
 	"path"
-	"time"
 )
 
 func (p *Plex) GetMediaItemImage(ctx context.Context, item *models.MediaItem, imageRatingKey string, imageType string) (imageData []byte, Err logging.LogErrorInfo) {
@@ -64,7 +63,7 @@ func GetImageFromPlex(ctx context.Context, ratingKey string, imageType string) (
 	}
 
 	// Construct the URL for the Plex Image request
-	photoPath := path.Join("/library/metadata", ratingKey, imageType, fmt.Sprintf("%d", time.Now().Unix()))
+	photoPath := path.Join("/library/metadata", ratingKey, imageType)
 	encodedPhotoPath := url.QueryEscape(photoPath)
 	u, err := url.Parse(config.Current.MediaServer.URL)
 	if err != nil {

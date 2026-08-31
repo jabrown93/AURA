@@ -59,6 +59,7 @@ func GetMediuxImage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", imageType)
+	w.Header().Set("Cache-Control", imageCacheControl)
 	w.WriteHeader(http.StatusOK)
 	w.Write(imageData)
 }
@@ -102,6 +103,7 @@ func GetMediuxAvatarImage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", imageType)
+	w.Header().Set("Cache-Control", imageCacheControl)
 	w.WriteHeader(http.StatusOK)
 	w.Write(imageData)
 
