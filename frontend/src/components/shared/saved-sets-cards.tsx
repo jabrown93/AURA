@@ -44,15 +44,15 @@ import type { IncludedItem, SetRef } from "@/types/media-and-posters/sets";
 export function hasSelectedTypesOverlapOnAutoDownload(
   posterSets: { selected_types: SelectedTypes; auto_download: boolean }[]
 ): boolean {
-  const typeToAutoDownloadSet = new Map<string, boolean>();
+  const seenTypes = new Set<string>();
   for (const set of posterSets) {
-    if (!set.auto_download) continue;
-    if (!Array.isArray(set.selected_types)) continue;
-    for (const type of set.selected_types) {
-      if (type && typeToAutoDownloadSet.has(type)) {
+    if (!set.auto_download || !set.selected_types) continue;
+    for (const [type, isSelected] of Object.entries(set.selected_types)) {
+      if (!isSelected) continue;
+      if (seenTypes.has(type)) {
         return true;
       }
-      typeToAutoDownloadSet.set(type, true);
+      seenTypes.add(type);
     }
   }
   return false;
