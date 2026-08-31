@@ -48,6 +48,9 @@ To get started with aura:
 
 > Visit the [Docs](https://mediux-team.github.io/AURA/) for detailed steps.
 
+Developing AURA? See [CONTRIBUTING.md](CONTRIBUTING.md) for local setup,
+offline build/test commands, and external-service requirements.
+
 ---
 
 ## Join the Community
