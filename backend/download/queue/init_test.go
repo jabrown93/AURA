@@ -2,19 +2,10 @@ package downloadqueue
 
 import (
 	"fmt"
-	"os"
 	"sync"
 	"testing"
 	"time"
 )
-
-func TestMain(m *testing.M) {
-	code := m.Run()
-	// The package init() creates the queue folders relative to the (unset)
-	// config path when running under `go test`.
-	os.RemoveAll(FolderPath)
-	os.Exit(code)
-}
 
 // Queue processors keep appending to the error/warning slices after handing
 // them to UpdateLatestInfo, so the stored copy must not alias the caller's
