@@ -11,7 +11,7 @@
     "format": "prettier -l --write \"**/*.{ts,tsx,md,json,js,jsx}\"",
     "format:check": "prettier -l \"**/*.{ts,tsx,md,json,js,jsx}\"",
     "typecheck": "tsc --noEmit",
-    "test": "node --no-warnings --test --experimental-strip-types src/services/mediaserver/collect-library-pages.test.ts",
+    "test": "node --no-warnings --test --experimental-strip-types src/components/layout/app-status-warning.test.ts src/services/mediaserver/collect-library-pages.test.ts",
     "audit": "npm audit",
     "audit:fix": "npm audit fix"
   },

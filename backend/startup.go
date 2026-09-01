@@ -134,6 +134,12 @@ const (
 	mediuxUnreachable
 )
 
+var (
+	preloadMediuxUsers         = mediux.PreloadMediuxUsers
+	preloadMediuxItemsWithSets = mediux.PreLoadMediuxItemsWithSets
+	refreshLibraryItems        = mediaserver.GetAllLibrarySectionsAndItems
+)
+
 // validateMediuxToken checks the configured MediUX token and records the outcome
 // on the config package's flags. It separates "MediUX said no" from "MediUX did
 // not answer": the first is a config problem the user must fix, the second is an
@@ -175,11 +181,11 @@ func runWarmup() (success bool) {
 
 	// Cache: Add all MediUX users
 	config.AppLoadingStep = "Preloading MediUX Users into Cache"
-	mediux.PreloadMediuxUsers(ctx)
+	preloadMediuxUsers(ctx)
 
 	// Cache: Get a list of all items in MediUX that has a set
 	config.AppLoadingStep = "Preloading MediUX Items with Sets into Cache"
-	mediux.PreLoadMediuxItemsWithSets(ctx)
+	preloadMediuxItemsWithSets(ctx)
 
 	// Cache: Load AniDB -> TMDB mappings (Fribb anime-lists) so anime items that
 	// Plex matched with the HAMA agent (AniDB IDs only) resolve to TMDB instead
@@ -220,7 +226,7 @@ func runWarmup() (success bool) {
 
 	// Cache: Add all media server sections and items
 	config.AppLoadingStep = "Preloading Media Server Data into Cache"
-	_ = mediaserver.GetAllLibrarySectionsAndItems(ctx, false)
+	_ = refreshLibraryItems(ctx, false)
 	logging.LOGGER.Info().Timestamp().Int("sections", cache.LibraryStore.GetSectionsCount()).Int("items", cache.LibraryStore.GetItemsCount()).Msg("Loaded Media Server sections and items into cache")
 	logging.LOGGER.Info().Timestamp().Int("collection_items", len(cache.CollectionsStore.GetAllCollections())).
 		Msg("Loaded Media Server collections into cache")

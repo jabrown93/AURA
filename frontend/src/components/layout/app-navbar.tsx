@@ -22,6 +22,7 @@ import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 
 import { DynamicSearch } from "@/components/layout/app-search-bar";
+import { getDependencyWarning } from "@/components/layout/app-status-warning";
 import { ViewDensitySlider } from "@/components/shared/view-density-context";
 import {
   DropdownMenu,
@@ -109,10 +110,20 @@ export function Navbar({ version = "dev" }: AppNavbarProps) {
   // App Version Hook
   const { latestVersion, isNewerVersion } = useAppVersion(version);
 
-  // Fetch onboarding/status once on mount
+  const dependencyWarning = getDependencyWarning(status);
+  const shouldPollStatus = dependencyWarning !== null;
+
   useEffect(() => {
     void fetchStatus();
   }, [fetchStatus]);
+
+  // Backend retries MediUX every 30 seconds. Poll only while warning is active,
+  // then stop as soon as recovery clears it.
+  useEffect(() => {
+    if (!shouldPollStatus) return;
+    const interval = window.setInterval(() => void fetchStatus(), 30_000);
+    return () => window.clearInterval(interval);
+  }, [fetchStatus, shouldPollStatus]);
 
   // App Not Fully Loaded Redirect Logic
   useEffect(() => {
@@ -129,11 +140,6 @@ export function Navbar({ version = "dev" }: AppNavbarProps) {
     // Reset redirect lock once app is ready
     hasRedirectedToLoadingRef.current = false;
   }, [hasHydrated, status, isAppLoadingPage, router]);
-
-  // A dependency that is merely unreachable is a degraded runtime state, not a
-  // setup problem, so it gets an indicator rather than an onboarding redirect.
-  const unreachableDependency =
-    status?.media_server_reachable === false ? "Media server" : status?.mediux_reachable === false ? "MediUX" : null;
 
   // Onboarding Redirect Logic
   useEffect(() => {
@@ -267,12 +273,8 @@ export function Navbar({ version = "dev" }: AppNavbarProps) {
 
       {/* Right: Arrows and/or Settings */}
       <div className="flex items-center gap-2 flex-shrink-0">
-        {unreachableDependency && (
-          <span
-            role="status"
-            aria-label={`${unreachableDependency} is unreachable`}
-            title={`${unreachableDependency} is unreachable. aura is running with reduced functionality and will reconnect automatically.`}
-          >
+        {dependencyWarning && (
+          <span role="status" aria-label={dependencyWarning.label} title={dependencyWarning.detail}>
             <TriangleAlert className="h-6 w-6 text-yellow-500" />
           </span>
         )}

@@ -16,26 +16,24 @@ import (
 )
 
 var (
-	warmupMu   sync.Mutex
-	warmupDone bool
+	warmupMu                         sync.Mutex
+	warmupDone                       bool
+	getAllLibrarySectionsAndItemsRun = getAllLibrarySectionsAndItemsImpl
 )
 
 func GetAllLibrarySectionsAndItems(ctx context.Context, force bool) (success bool) {
-	// If we already did a run that satisfies this request, skip.
+	// Serialize full refreshes so recovery cannot rebuild the same cache while a
+	// scheduled or user-triggered refresh is already replacing it.
 	warmupMu.Lock()
-	alreadyDone := warmupDone
-	warmupMu.Unlock()
-	if alreadyDone && !force {
+	defer warmupMu.Unlock()
+	if warmupDone && !force {
 		return true
 	}
 
-	success = getAllLibrarySectionsAndItemsImpl(ctx)
+	success = getAllLibrarySectionsAndItemsRun(ctx)
 	if success {
-		warmupMu.Lock()
 		warmupDone = true
-		warmupMu.Unlock()
 	}
-
 	return success
 }
 

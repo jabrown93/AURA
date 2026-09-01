@@ -167,9 +167,9 @@ func retryPreFlightUntilReady(activateFullRoutes func(), activated <-chan struct
 }
 
 // recheckMediuxUntilReachable re-validates the MediUX token on an interval after
-// the app came up with MediUX unreachable, so its flags recover once the outage
-// ends. It re-checks MediUX alone rather than re-running preflight, which would
-// overwrite config.AppLoadingStep on an already-loaded app.
+// the app came up with MediUX unreachable, so its flags and MediUX-derived caches
+// recover once the outage ends. It re-checks MediUX alone rather than re-running
+// warmup, which would duplicate jobs and listeners on an already-loaded app.
 func recheckMediuxUntilReachable() {
 	ticker := time.NewTicker(preflightRetryInterval)
 	defer ticker.Stop()
@@ -177,11 +177,31 @@ func recheckMediuxUntilReachable() {
 		ctx, ld := logging.CreateLoggingContext(context.Background(), "MediUX Recheck")
 		action := ld.AddAction("Rechecking MediUX Availability", logging.LevelInfo)
 		ctx = logging.WithCurrentAction(ctx, action)
-		result := validateMediuxToken(ctx)
+		result := handleMediuxRecheck(ctx, validateMediuxToken, recoverMediuxRuntimeState)
 		action.Complete()
 		ld.Log()
 		if result != mediuxUnreachable {
 			return
 		}
 	}
+}
+
+func handleMediuxRecheck(
+	ctx context.Context,
+	validate func(context.Context) mediuxTokenResult,
+	recoverRuntimeState func(context.Context),
+) mediuxTokenResult {
+	result := validate(ctx)
+	if result == mediuxTokenAccepted {
+		recoverRuntimeState(ctx)
+	}
+	return result
+}
+
+// recoverMediuxRuntimeState rebuilds only state skipped during degraded warmup.
+// Full library refresh recalculates HasMediuxSets for items already in cache.
+func recoverMediuxRuntimeState(ctx context.Context) {
+	preloadMediuxUsers(ctx)
+	preloadMediuxItemsWithSets(ctx)
+	refreshLibraryItems(ctx, true)
 }

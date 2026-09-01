@@ -6,6 +6,7 @@ export interface AppStatusResponse {
   needs_setup: boolean;
   media_server_reachable: boolean;
   mediux_reachable: boolean;
+  mediux_valid: boolean;
   current_setup: AppConfig;
   media_server_name?: string;
   mediux_site_link?: string;
