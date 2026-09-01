@@ -21,7 +21,8 @@ export interface DownloadImageFileForMediaItem_Response {
 export const downloadImageFileForMediaItem = async (
   imageFile: ImageFile,
   mediaItem: MediaItem,
-  fileName: string
+  fileName: string,
+  onArtworkApplied?: (item: MediaItem) => void
 ): Promise<APIResponse<DownloadImageFileForMediaItem_Response>> => {
   try {
     const req: DownloadImageFileForMediaItem_Request = {
@@ -37,7 +38,7 @@ export const downloadImageFileForMediaItem = async (
         response.data.error?.message || "Unknown error downloading poster file and updating media server"
       );
     }
-    updateArtworkVersion(mediaItem, response.data.data?.updated_at);
+    updateArtworkVersion(mediaItem, response.data.data?.updated_at, onArtworkApplied);
     return response.data;
   } catch (error) {
     log(

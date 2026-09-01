@@ -3,11 +3,18 @@ import test from "node:test";
 
 import { updateArtworkVersion } from "./artwork-version.ts";
 
-test("updateArtworkVersion applies returned version to in-memory item", () => {
+test("updateArtworkVersion applies returned version and notifies the page", () => {
   const item = { updated_at: 10 };
+  let appliedItem: typeof item | undefined;
 
-  assert.equal(updateArtworkVersion(item, 11), item);
+  assert.equal(
+    updateArtworkVersion(item, 11, (updatedItem) => {
+      appliedItem = updatedItem;
+    }),
+    item
+  );
   assert.equal(item.updated_at, 11);
+  assert.equal(appliedItem, item);
 });
 
 test("updateArtworkVersion ignores missing and stale versions", () => {
