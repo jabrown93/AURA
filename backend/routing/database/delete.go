@@ -47,7 +47,6 @@ func DeleteItemFromDB(w http.ResponseWriter, r *http.Request) {
 		httpx.SendResponse(w, ld, response)
 		return
 	}
-
 	response.Message = "Deleted saved item and associated poster sets successfully"
 	httpx.SendResponse(w, ld, response)
 }

@@ -71,7 +71,6 @@ func IgnoreItemInDB(w http.ResponseWriter, r *http.Request) {
 		httpx.SendResponse(w, ld, response)
 		return
 	}
-
 	response.Ignored = true
 	response.TmdbID = tmdbID
 	response.LibraryTitle = libraryTitle
@@ -116,7 +115,6 @@ func StopIgnoringItemInDB(w http.ResponseWriter, r *http.Request) {
 		httpx.SendResponse(w, ld, response)
 		return
 	}
-
 	response.Ignored = false
 	response.TmdbID = tmdbID
 	response.LibraryTitle = libraryTitle

@@ -14,9 +14,10 @@ type MediaItemKey struct {
 }
 
 type MediaItemState struct {
-	Ignored    bool
-	IgnoreMode string
-	SavedSets  []models.DBSavedSet
+	Ignored     bool
+	IgnoreMode  string
+	IgnoredSets []string
+	SavedSets   []models.DBSavedSet
 }
 
 func (s *SQliteDB) GetAllMediaItemStates(ctx context.Context) (map[MediaItemKey]MediaItemState, logging.LogErrorInfo) {
@@ -28,7 +29,7 @@ func (s *SQliteDB) GetAllMediaItemStates(ctx context.Context) (map[MediaItemKey]
 		SELECT DISTINCT
 		       COALESCE(m.tmdb_id, i.tmdb_id, si.tmdb_id) AS tmdb_id,
 		       COALESCE(m.library_title, i.library_title, si.library_title) AS library_title,
-		       i.mode, ps.set_id, ps.user,
+		       i.mode, i.current_sets, ps.set_id, ps.user,
 		       si.poster_selected, si.backdrop_selected, si.season_poster_selected,
 		       si.special_season_poster_selected, si.titlecard_selected
 		FROM MediaItems m
@@ -48,10 +49,10 @@ func (s *SQliteDB) GetAllMediaItemStates(ctx context.Context) (map[MediaItemKey]
 
 	for rows.Next() {
 		var tmdbID, libraryTitle string
-		var ignoreMode, setID, user sql.NullString
+		var ignoreMode, currentSets, setID, user sql.NullString
 		var poster, backdrop, seasonPoster, specialSeasonPoster, titlecard sql.NullInt64
 		if err := rows.Scan(
-			&tmdbID, &libraryTitle, &ignoreMode, &setID, &user,
+			&tmdbID, &libraryTitle, &ignoreMode, &currentSets, &setID, &user,
 			&poster, &backdrop, &seasonPoster, &specialSeasonPoster, &titlecard,
 		); err != nil {
 			logAction.SetError("Failed to scan media item database state", "", map[string]any{"error": err.Error()})
@@ -64,8 +65,11 @@ func (s *SQliteDB) GetAllMediaItemStates(ctx context.Context) (map[MediaItemKey]
 		if ignoreMode.Valid && trimmedIgnoreMode != "" {
 			state.Ignored = true
 			state.IgnoreMode = trimmedIgnoreMode
-			state.SavedSets = nil
-		} else if setID.Valid {
+			if trimmedSets := strings.TrimSpace(currentSets.String); trimmedSets != "" {
+				state.IgnoredSets = strings.Split(trimmedSets, ",")
+			}
+		}
+		if setID.Valid {
 			state.SavedSets = append(state.SavedSets, models.DBSavedSet{
 				ID:          setID.String,
 				UserCreated: user.String,

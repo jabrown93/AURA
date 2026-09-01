@@ -74,7 +74,7 @@ func GetLibrarySectionItems(w http.ResponseWriter, r *http.Request) {
 	ctx = logging.WithCurrentAction(ctx, logAction)
 
 	forceRefresh := strings.EqualFold(r.URL.Query().Get("refresh"), "true")
-	if (forceRefresh || cache.LibraryStore.LastFullUpdate == 0) && !refreshLibraryCache(ctx, forceRefresh) {
+	if (forceRefresh || cache.LibraryStore.GetLastFullUpdate() == 0) && !refreshLibraryCache(ctx, forceRefresh) {
 		logAction.SetError("Failed to refresh library items", "Retry after the media server is available", nil)
 		httpx.SendResponse(w, ld, GetLibrarySectionItems_Response{})
 		return

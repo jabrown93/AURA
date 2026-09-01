@@ -16,26 +16,24 @@ import (
 )
 
 var (
-	warmupMu   sync.Mutex
-	warmupDone bool
+	warmupMu                         sync.Mutex
+	warmupDone                       bool
+	getAllLibrarySectionsAndItemsRun = getAllLibrarySectionsAndItemsImpl
 )
 
 func GetAllLibrarySectionsAndItems(ctx context.Context, force bool) (success bool) {
-	// If we already did a run that satisfies this request, skip.
+	// Serialize full refreshes so recovery cannot rebuild the same cache while a
+	// scheduled or user-triggered refresh is already replacing it.
 	warmupMu.Lock()
-	alreadyDone := warmupDone
-	warmupMu.Unlock()
-	if alreadyDone && !force {
+	defer warmupMu.Unlock()
+	if warmupDone && !force {
 		return true
 	}
 
-	success = getAllLibrarySectionsAndItemsImpl(ctx)
+	success = getAllLibrarySectionsAndItemsRun(ctx)
 	if success {
-		warmupMu.Lock()
 		warmupDone = true
-		warmupMu.Unlock()
 	}
-
 	return success
 }
 
@@ -43,26 +41,24 @@ func getAllLibrarySectionsAndItemsImpl(ctx context.Context) (success bool) {
 	ctx, logAction := logging.AddSubActionToContext(ctx, "Fetching All Library Sections and Items", logging.LevelDebug)
 	defer logAction.Complete()
 
-	success = true
-
-	configuredSections := config.Current.MediaServer.Libraries
-
-	// Sort sections by Title to ensure consistent order
+	configuredSections := append([]models.LibrarySection(nil), config.Current.MediaServer.Libraries...)
 	sort.SliceStable(configuredSections, func(i, j int) bool {
 		return configuredSections[i].Title < configuredSections[j].Title
 	})
 
 	logAction.AppendResult("num_sections", len(configuredSections))
 
+	success = true
 	ejRanCollections := false
-
+	dbSnapshotGeneration := cache.LibraryStore.DBMutationGeneration()
+	snapshots := make([]*models.LibrarySection, 0, len(configuredSections))
 	for _, section := range configuredSections {
 		found, Err := GetLibrarySectionDetails(ctx, &section)
 		if Err.Message != "" || !found {
+			success = false
 			continue
 		}
 
-		// Update the collections cache for this section
 		if (section.Type == "movie" || section.Type == "mixed") && !ejRanCollections {
 			GetMovieCollections(ctx, section)
 			if config.Current.MediaServer.Type == "Emby" || config.Current.MediaServer.Type == "Jellyfin" {
@@ -70,12 +66,31 @@ func getAllLibrarySectionsAndItemsImpl(ctx context.Context) (success bool) {
 			}
 		}
 
-		if !fetchAndCacheSectionItems(ctx, section) {
+		snapshot, ok := buildSectionSnapshot(ctx, section)
+		if !ok {
 			return false
 		}
+		snapshots = append(snapshots, snapshot)
 	}
-	cache.LibraryStore.LastFullUpdate = time.Now().Unix()
-	cache.CollectionsStore.LastFullUpdate = time.Now().Unix()
+	updatedAt := time.Now().Unix()
+	database.WithMediaItemStates(ctx, func(states map[database.MediaItemKey]database.MediaItemState) {
+		for _, snapshot := range snapshots {
+			applyMediaItemStates(snapshot.MediaItems, states)
+		}
+		if !success {
+			// A skipped section is absent from snapshots and full publication prunes
+			// what it does not carry, so publish only the sections that succeeded.
+			for _, snapshot := range snapshots {
+				cache.LibraryStore.UpdateSectionFromDBSnapshot(snapshot, dbSnapshotGeneration)
+			}
+			return
+		}
+		cache.LibraryStore.ReplaceAllSectionsFromDBSnapshot(snapshots, updatedAt, dbSnapshotGeneration)
+	})
+	if !success {
+		return false
+	}
+	cache.CollectionsStore.LastFullUpdate = updatedAt
 	return true
 }
 
@@ -85,6 +100,12 @@ func getAllLibrarySectionsAndItemsImpl(ctx context.Context) (success bool) {
 func RefreshSectionItems(ctx context.Context, sectionTitle string) (success bool) {
 	ctx, logAction := logging.AddSubActionToContext(ctx, fmt.Sprintf("Refreshing Library Section Items for '%s'", sectionTitle), logging.LevelDebug)
 	defer logAction.Complete()
+
+	// Share the full-refresh lock so a single-section refresh cannot publish
+	// between a full refresh's fetch and its replacement of every section.
+	// ponytail: one refresh lock; per-section locks if refresh throughput matters.
+	warmupMu.Lock()
+	defer warmupMu.Unlock()
 
 	for _, section := range config.Current.MediaServer.Libraries {
 		if section.Title != sectionTitle {
@@ -99,12 +120,46 @@ func RefreshSectionItems(ctx context.Context, sectionTitle string) (success bool
 	return false
 }
 
-// fetchAndCacheSectionItems pages through a library section's items and upserts them into
-// the library cache. Returns false if a page fetch fails.
+// fetchAndCacheSectionItems publishes only after every page succeeds.
 func fetchAndCacheSectionItems(ctx context.Context, section models.LibrarySection) bool {
+	dbSnapshotGeneration := cache.LibraryStore.DBMutationGeneration()
+	snapshot, ok := buildSectionSnapshot(ctx, section)
+	if !ok {
+		return false
+	}
+	publishSectionSnapshot(ctx, snapshot, dbSnapshotGeneration)
+	return true
+}
+
+// publishSectionSnapshot re-reads database-owned item state immediately before
+// publication so items missing from the live cache cannot publish state that a
+// mutation superseded while the snapshot was staged.
+func publishSectionSnapshot(ctx context.Context, snapshot *models.LibrarySection, dbSnapshotGeneration uint64) {
+	database.WithMediaItemStates(ctx, func(states map[database.MediaItemKey]database.MediaItemState) {
+		applyMediaItemStates(snapshot.MediaItems, states)
+		cache.LibraryStore.UpdateSectionFromDBSnapshot(snapshot, dbSnapshotGeneration)
+	})
+}
+
+// applyMediaItemStates overwrites database-owned fields from states. A nil map
+// means the state read failed, so the items keep what they already carry.
+func applyMediaItemStates(items []models.MediaItem, states map[database.MediaItemKey]database.MediaItemState) {
+	if states == nil {
+		return
+	}
+	for i := range items {
+		state := states[database.MediaItemKey{TMDBID: items[i].TMDB_ID, LibraryTitle: items[i].LibraryTitle}]
+		items[i].DBSavedSets = append([]models.DBSavedSet(nil), state.SavedSets...)
+		items[i].IgnoredInDB = state.Ignored
+		items[i].IgnoredMode = state.IgnoreMode
+		items[i].IgnoredSets = append([]string(nil), state.IgnoredSets...)
+	}
+}
+
+func buildSectionSnapshot(ctx context.Context, section models.LibrarySection) (*models.LibrarySection, bool) {
 	msClient, Err := NewMediaServerClient(&config.Current.MediaServer)
 	if Err.Message != "" {
-		return false
+		return nil, false
 	}
 
 	states, stateErr := database.GetAllMediaItemStates(ctx)
@@ -117,24 +172,22 @@ func fetchAndCacheSectionItems(ctx context.Context, section models.LibrarySectio
 			logging.LOGGER.Warn().Timestamp().Str("section_title", section.Title).Str("error", prepareErr.Message).Msg("Failed to fetch latest episode dates")
 		}
 	}
+	return fetchSectionSnapshot(ctx, msClient, section, states)
+}
 
-	pageSize := 1000
+func fetchSectionSnapshot(ctx context.Context, msClient MediaServerInterface, section models.LibrarySection, states map[database.MediaItemKey]database.MediaItemState) (*models.LibrarySection, bool) {
+	const pageSize = 1000
 	start := 0
 	expectedTotal := 0
+	allItems := make([]models.MediaItem, 0)
 	for {
-		items, totalSize, Err := msClient.GetLibrarySectionItems(ctx, section, strconv.Itoa(start), strconv.Itoa(pageSize))
+		items, rawItemCount, totalSize, Err := msClient.GetLibrarySectionItems(ctx, section, strconv.Itoa(start), strconv.Itoa(pageSize))
 		if Err.Message != "" {
-			return false
+			return nil, false
 		}
+		applyMediaItemStates(items, states)
 		tmdbIDs := make([]string, 0, len(items))
 		for i := range items {
-			state := states[database.MediaItemKey{TMDBID: items[i].TMDB_ID, LibraryTitle: items[i].LibraryTitle}]
-			items[i].DBSavedSets = []models.DBSavedSet{}
-			items[i].IgnoredInDB = state.Ignored
-			items[i].IgnoredMode = state.IgnoreMode
-			if !state.Ignored && len(state.SavedSets) > 0 {
-				items[i].DBSavedSets = state.SavedSets
-			}
 			tmdbIDs = append(tmdbIDs, items[i].TMDB_ID)
 		}
 		if updateErr := database.UpdateMediaItemsOnServer(ctx, section.Title, tmdbIDs, true); updateErr.Message != "" {
@@ -151,22 +204,20 @@ func fetchAndCacheSectionItems(ctx context.Context, section models.LibrarySectio
 		if totalSize > 0 {
 			expectedTotal = totalSize
 		}
-		if len(items) == 0 {
+		allItems = append(allItems, items...)
+		if rawItemCount == 0 {
 			break
 		}
 
-		sectionForCache := section
-		sectionForCache.TotalSize = expectedTotal
-		sectionForCache.MediaItems = items
-
-		// Update Library Cache
-		cache.LibraryStore.UpdateSection(&sectionForCache)
-
-		start += len(items)
-
+		start += rawItemCount
 		if expectedTotal > 0 && start >= expectedTotal {
 			break
 		}
+		if expectedTotal == 0 && rawItemCount < pageSize {
+			break
+		}
 	}
-	return true
+	section.MediaItems = allItems
+	section.TotalSize = len(allItems)
+	return &section, true
 }

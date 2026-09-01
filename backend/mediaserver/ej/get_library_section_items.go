@@ -15,13 +15,14 @@ import (
 	"strings"
 )
 
-func (e *EJ) GetLibrarySectionItems(ctx context.Context, section models.LibrarySection, sectionStartIndex string, limit string) (items []models.MediaItem, totalSize int, Err logging.LogErrorInfo) {
+func (e *EJ) GetLibrarySectionItems(ctx context.Context, section models.LibrarySection, sectionStartIndex string, limit string) (items []models.MediaItem, rawItemCount int, totalSize int, Err logging.LogErrorInfo) {
 	ctx, logAction := logging.AddSubActionToContext(ctx, fmt.Sprintf(
 		"%s: Fetching Items for Library Section: %s", config.Current.MediaServer.Type, section.Title,
 	), logging.LevelInfo)
 	defer logAction.Complete()
 
 	items = []models.MediaItem{}
+	rawItemCount = 0
 	totalSize = 0
 	Err = logging.LogErrorInfo{}
 
@@ -34,7 +35,7 @@ func (e *EJ) GetLibrarySectionItems(ctx context.Context, section models.LibraryS
 	u, err := url.Parse(config.Current.MediaServer.URL)
 	if err != nil {
 		logAction.SetError(logging.Error_BaseUrlParsing(err))
-		return items, totalSize, *logAction.Error
+		return items, rawItemCount, totalSize, *logAction.Error
 	}
 	u.Path = path.Join(u.Path, "Users", config.Current.MediaServer.UserID, "Items")
 	query := u.Query()
@@ -53,7 +54,7 @@ func (e *EJ) GetLibrarySectionItems(ctx context.Context, section models.LibraryS
 	resp, respBody, Err := makeRequest(ctx, config.Current.MediaServer, URL, "GET", nil)
 	if Err.Message != "" {
 		logAction.SetErrorFromInfo(Err)
-		return items, totalSize, *logAction.Error
+		return items, rawItemCount, totalSize, *logAction.Error
 	}
 	defer resp.Body.Close()
 
@@ -61,16 +62,15 @@ func (e *EJ) GetLibrarySectionItems(ctx context.Context, section models.LibraryS
 	var ejResp EmbyJellyLibraryItemsResponse
 	Err = httpx.DecodeResponseToJSON(ctx, respBody, &ejResp, fmt.Sprintf("%s Library Section Items Response", config.Current.MediaServer.Type))
 	if Err.Message != "" {
-		return items, totalSize, *logAction.Error
+		return items, rawItemCount, totalSize, *logAction.Error
 	}
 
-	// Check to see if any items were returned
-	if len(ejResp.Items) == 0 {
-		logAction.AppendWarning("message", fmt.Sprintf("Library Section '%s' is empty", section.Title))
-		return items, totalSize, Err
-	}
-
+	rawItemCount = len(ejResp.Items)
 	totalSize = ejResp.TotalRecordCount
+	if rawItemCount == 0 {
+		logAction.AppendWarning("message", fmt.Sprintf("Library Section '%s' is empty", section.Title))
+		return items, rawItemCount, totalSize, Err
+	}
 
 	for _, ejItem := range ejResp.Items {
 		var item models.MediaItem
@@ -80,7 +80,7 @@ func (e *EJ) GetLibrarySectionItems(ctx context.Context, section models.LibraryS
 			// Split the BoxSet into individual items
 			boxSetItems, boxSetErr := splitCollectionIntoIndividualItems(ctx, ejItem.Name, ejItem.ID, section.Title)
 			if boxSetErr.Message != "" {
-				return nil, 0, boxSetErr
+				return nil, rawItemCount, totalSize, boxSetErr
 			}
 			// Only include unique items from the BoxSet split (some servers may return duplicate items in the BoxSet response vs the main section items response)
 			existingRatingKeys := make(map[string]bool)
@@ -133,8 +133,7 @@ func (e *EJ) GetLibrarySectionItems(ctx context.Context, section models.LibraryS
 		}
 		if item.TMDB_ID == "" {
 			logging.LOGGER.Warn().Timestamp().Str("item_title", item.Title).Str("library_section", section.Title).Msgf("Skipping item in '%s' as no TMDB ID could be found", section.Title)
-			totalSize-- // Decrement total size as this item will be skipped
-			continue    // Skip items without TMDB ID
+			continue // Keep server total intact so subsequent page offsets remain stable.
 		}
 
 		// Check if Media Item exists in MediUX with a set
@@ -145,7 +144,7 @@ func (e *EJ) GetLibrarySectionItems(ctx context.Context, section models.LibraryS
 		items = append(items, item)
 	}
 
-	return items, totalSize, logging.LogErrorInfo{}
+	return items, rawItemCount, totalSize, logging.LogErrorInfo{}
 }
 
 func splitCollectionIntoIndividualItems(ctx context.Context, collectionName, parentID, sectionTitle string) (items []models.MediaItem, Err logging.LogErrorInfo) {

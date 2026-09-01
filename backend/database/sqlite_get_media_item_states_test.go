@@ -32,7 +32,7 @@ func TestGetAllMediaItemStatesReturnsSavedSetsAndIgnoreModesInOneBulkRead(t *tes
 
 	statements := []string{
 		`CREATE TABLE MediaItems (tmdb_id TEXT, library_title TEXT, on_server INTEGER DEFAULT 0)`,
-		`CREATE TABLE IgnoredItems (tmdb_id TEXT, library_title TEXT, mode TEXT)`,
+		`CREATE TABLE IgnoredItems (tmdb_id TEXT, library_title TEXT, mode TEXT, current_sets TEXT)`,
 		`CREATE TABLE PosterSets (id INTEGER PRIMARY KEY, set_id TEXT, user TEXT)`,
 		`CREATE TABLE SavedItems (
 			tmdb_id TEXT, library_title TEXT, poster_set_id INTEGER,
@@ -42,12 +42,13 @@ func TestGetAllMediaItemStatesReturnsSavedSetsAndIgnoreModesInOneBulkRead(t *tes
 		)`,
 		`INSERT INTO MediaItems(tmdb_id, library_title) VALUES ('1', 'Movies'), ('2', 'Movies'), ('3', 'Movies')`,
 		`INSERT INTO IgnoredItems VALUES
-			('2', 'Movies', ' until-set-available '),
-			('4', 'Movies', 'always')`,
+			('2', 'Movies', ' until-set-available ', 'set-a,set-b'),
+			('4', 'Movies', 'always', '')`,
 		`INSERT INTO PosterSets VALUES (7, 'set-7', 'creator')`,
 		`INSERT INTO SavedItems VALUES
 			('1', 'Movies', 7, 1, 0, 1, 0, 1),
 			('1', 'Movies', 7, 1, 0, 1, 0, 1),
+			('2', 'Movies', 7, 1, 0, 1, 0, 1),
 			('3', 'Movies', 99, 1, 0, 0, 0, 0)`,
 	}
 	for _, statement := range statements {
@@ -77,8 +78,8 @@ func TestGetAllMediaItemStatesReturnsSavedSetsAndIgnoreModesInOneBulkRead(t *tes
 	}
 
 	ignored := states[MediaItemKey{TMDBID: "2", LibraryTitle: "Movies"}]
-	if !ignored.Ignored || ignored.IgnoreMode != "until-set-available" || len(ignored.SavedSets) != 0 {
-		t.Fatalf("ignored state = %+v", ignored)
+	if !ignored.Ignored || ignored.IgnoreMode != "until-set-available" || len(ignored.IgnoredSets) != 2 || ignored.IgnoredSets[0] != "set-a" || ignored.IgnoredSets[1] != "set-b" || len(ignored.SavedSets) != 1 || ignored.SavedSets[0].ID != "set-7" {
+		t.Fatalf("ignored state = %+v, want ignore and saved-set state retained independently", ignored)
 	}
 
 	unresolved := states[MediaItemKey{TMDBID: "3", LibraryTitle: "Movies"}]

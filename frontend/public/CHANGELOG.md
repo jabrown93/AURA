@@ -1,5 +1,28 @@
 # Changelog
 
+## [2.1.17](https://github.com/jabrown93/AURA/compare/v2.1.16...v2.1.17) (2026-09-01)
+
+
+### Bug Fixes
+
+* **renovate:** avoid Bundler pin update failures ([#170](https://github.com/jabrown93/AURA/issues/170)) ([ec40655](https://github.com/jabrown93/AURA/commit/ec40655201e7b681f3948efad5c2f376a86593a4)), closes [#6](https://github.com/jabrown93/AURA/issues/6)
+
+## [2.1.16](https://github.com/jabrown93/AURA/compare/v2.1.15...v2.1.16) (2026-09-01)
+
+
+### Bug Fixes
+
+* **library:** make cache refreshes atomic ([#166](https://github.com/jabrown93/AURA/issues/166)) ([082d151](https://github.com/jabrown93/AURA/commit/082d151220076b4b40d5fcaadde84a76c3e1230c))
+
+## [2.1.15](https://github.com/jabrown93/AURA/compare/v2.1.14...v2.1.15) (2026-09-01)
+
+
+### Bug Fixes
+
+* **deps:** update dependency lucide-react to v1.37.0 ([a573b16](https://github.com/jabrown93/AURA/commit/a573b161096eea215c9768050772db6639eac24b))
+* **deps:** update dependency zod to v4.5.2 ([#167](https://github.com/jabrown93/AURA/issues/167)) ([4c8242c](https://github.com/jabrown93/AURA/commit/4c8242c97af3cc10d4d9f820c860e5f1854e16c3))
+* **mediux:** restore runtime state after outage ([#164](https://github.com/jabrown93/AURA/issues/164)) ([4894516](https://github.com/jabrown93/AURA/commit/4894516d9ae0ea4a5fc19b487e9b4d60c31289b7))
+
 ## [2.1.14](https://github.com/jabrown93/AURA/compare/v2.1.13...v2.1.14) (2026-09-01)
 
 

@@ -12,7 +12,7 @@ import (
 //go:embed gen_items_with_sets.graphql
 var queryItemsWithSets string
 
-func PreLoadMediuxItemsWithSets(ctx context.Context) {
+func PreLoadMediuxItemsWithSets(ctx context.Context) logging.LogErrorInfo {
 	ctx, logAction := logging.AddSubActionToContext(ctx, "Preloading MediUX Items with Sets", logging.LevelTrace)
 	defer logAction.Complete()
 
@@ -20,8 +20,9 @@ func PreLoadMediuxItemsWithSets(ctx context.Context) {
 	URL := "https://api.mediux.io/lists/content_ids"
 	resp, respBody, Err := makeRequest(ctx, URL, "GET", nil, "", false)
 	if Err.Message != "" {
+		logAction.SetErrorFromInfo(Err)
 		logging.LOGGER.Error().Timestamp().Msgf("Failed to make request to MediUX API for items with sets: %s", Err.Message)
-		return
+		return *logAction.Error
 	}
 	defer resp.Body.Close()
 
@@ -31,11 +32,12 @@ func PreLoadMediuxItemsWithSets(ctx context.Context) {
 
 	var mediuxResp models.MediuxContentIdsResponse
 
-	// Decode the response
+	// Decode the complete response before publishing the new cache snapshot.
 	Err = httpx.DecodeResponseToJSON(ctx, respBody, &mediuxResp, "MediUX Items with Sets Response Decoding")
 	if Err.Message != "" {
+		logAction.SetErrorFromInfo(Err)
 		logging.LOGGER.Error().Timestamp().Msgf("Failed to decode MediUX items with sets response: %s", Err.Message)
-		return
+		return *logAction.Error
 	}
 
 	moviesCount := len(mediuxResp.Movies)
@@ -50,4 +52,5 @@ func PreLoadMediuxItemsWithSets(ctx context.Context) {
 		logEvent = logEvent.Int("current_shows_count", currentShowsCount)
 	}
 	logEvent.Int("new_movies_count", moviesCount).Int("new_shows_count", showsCount).Msgf("Loaded %d items with sets from MediUX API", moviesCount+showsCount)
+	return logging.LogErrorInfo{}
 }
