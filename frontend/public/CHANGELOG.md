@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.16](https://github.com/jabrown93/AURA/compare/v2.1.15...v2.1.16) (2026-09-01)
+
+
+### Bug Fixes
+
+* **library:** make cache refreshes atomic ([#166](https://github.com/jabrown93/AURA/issues/166)) ([082d151](https://github.com/jabrown93/AURA/commit/082d151220076b4b40d5fcaadde84a76c3e1230c))
+
 ## [2.1.15](https://github.com/jabrown93/AURA/compare/v2.1.14...v2.1.15) (2026-09-01)
 
 
