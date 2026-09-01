@@ -57,6 +57,7 @@ func getAllLibrarySectionsAndItemsImpl(ctx context.Context) (success bool) {
 	for _, section := range configuredSections {
 		found, Err := GetLibrarySectionDetails(ctx, &section)
 		if Err.Message != "" || !found {
+			success = false
 			continue
 		}
 
@@ -71,6 +72,9 @@ func getAllLibrarySectionsAndItemsImpl(ctx context.Context) (success bool) {
 		if !fetchAndCacheSectionItems(ctx, section) {
 			return false
 		}
+	}
+	if !success {
+		return false
 	}
 	cache.LibraryStore.LastFullUpdate = time.Now().Unix()
 	cache.CollectionsStore.LastFullUpdate = time.Now().Unix()
