@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.14](https://github.com/jabrown93/AURA/compare/v2.1.13...v2.1.14) (2026-09-01)
+
+
+### Bug Fixes
+
+* return applied artwork versions ([#165](https://github.com/jabrown93/AURA/issues/165)) ([d0faf0d](https://github.com/jabrown93/AURA/commit/d0faf0d6017300fe995e3f46e653231ce397498e))
+
 ## [2.1.13](https://github.com/jabrown93/AURA/compare/v2.1.12...v2.1.13) (2026-09-01)
 
 
