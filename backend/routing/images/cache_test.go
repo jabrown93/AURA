@@ -41,11 +41,11 @@ func TestSuccessfulImageResponsesUseSafeCachePolicies(t *testing.T) {
 	cache.LibraryStore = cache.Cache_NewLibraryCache()
 	cache.LibraryStore.UpdateSection(&models.LibrarySection{
 		LibrarySectionBase: models.LibrarySectionBase{Title: "Movies"},
-		MediaItems:         []models.MediaItem{{RatingKey: "media-1", Title: "Movie", UpdatedAt: mediaVersion}},
+		MediaItems:         []models.MediaItem{{RatingKey: "media-1", Title: "Movie", UpdatedAt: 100, ArtworkVersion: mediaVersion}},
 	})
 	cache.CollectionsStore = cache.Cache_NewCollectionsCache()
 	cache.CollectionsStore.UpsertCollection(&models.CollectionItem{
-		RatingKey: "collection-1", LibraryTitle: "Movies", Title: "Collection", UpdatedAt: collectionVersion,
+		RatingKey: "collection-1", LibraryTitle: "Movies", Title: "Collection", UpdatedAt: 100, ArtworkVersion: collectionVersion,
 	})
 
 	tests := []struct {
@@ -99,9 +99,9 @@ func TestStaleBrowserVersionUsesCurrentPlexVersion(t *testing.T) {
 	cache.LibraryStore = cache.Cache_NewLibraryCache()
 	cache.LibraryStore.UpdateSection(&models.LibrarySection{
 		LibrarySectionBase: models.LibrarySectionBase{Title: "Movies"},
-		MediaItems:         []models.MediaItem{{RatingKey: "media-1", UpdatedAt: oldVersion}},
+		MediaItems:         []models.MediaItem{{RatingKey: "media-1", UpdatedAt: 100, ArtworkVersion: oldVersion}},
 	})
-	if version, ok := cache.LibraryStore.AdvanceMediaItemUpdatedAt("media-1", currentVersion); !ok || version != currentVersion {
+	if version, ok := cache.LibraryStore.AdvanceMediaItemArtworkVersion("media-1", currentVersion); !ok || version != currentVersion {
 		t.Fatalf("advanced version = %d, found = %v; want %d, true", version, ok, currentVersion)
 	}
 

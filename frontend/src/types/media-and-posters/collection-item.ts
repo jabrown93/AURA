@@ -16,4 +16,5 @@ export interface CollectionItem {
   media_items: MediaItem[];
   library_title?: string;
   updated_at: number;
+  artwork_version: number;
 }

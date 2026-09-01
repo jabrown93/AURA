@@ -126,7 +126,7 @@ func (c *MediaServerLibraryCache) replaceSectionLocked(section *models.LibrarySe
 	itemIndexes := make(map[string]int, len(prepared.MediaItems))
 	for i := range prepared.MediaItems {
 		item := &prepared.MediaItems[i]
-		item.UpdatedAt = hydratedVersion(item.UpdatedAt, c.generationFloor)
+		item.ArtworkVersion = hydratedVersion(max(item.UpdatedAt, item.ArtworkVersion), c.generationFloor)
 		existing := existingByRatingKey[item.RatingKey]
 		if existing == nil {
 			key := mediaItemFallbackKey(item)
@@ -143,10 +143,10 @@ func (c *MediaServerLibraryCache) replaceSectionLocked(section *models.LibrarySe
 			preserveMediaItemVersion(item, existing)
 		}
 		section.MediaItems[i].UpdatedAt = item.UpdatedAt
+		section.MediaItems[i].ArtworkVersion = item.ArtworkVersion
 		if index, duplicate := itemIndexes[item.RatingKey]; item.RatingKey != "" && duplicate {
-			if item.UpdatedAt < items[index].UpdatedAt {
-				item.UpdatedAt = items[index].UpdatedAt
-			}
+			item.UpdatedAt = max(item.UpdatedAt, items[index].UpdatedAt)
+			item.ArtworkVersion = max(item.ArtworkVersion, items[index].ArtworkVersion)
 			items[index] = *item
 			continue
 		}
@@ -183,9 +183,8 @@ func preserveDBOwnedMediaItemState(item, existing *models.MediaItem) {
 }
 
 func preserveMediaItemVersion(item, existing *models.MediaItem) {
-	if item.UpdatedAt < existing.UpdatedAt {
-		item.UpdatedAt = existing.UpdatedAt
-	}
+	item.UpdatedAt = max(item.UpdatedAt, existing.UpdatedAt)
+	item.ArtworkVersion = max(item.ArtworkVersion, existing.ArtworkVersion)
 }
 
 // UpdateMediaItem updates a specific media item in a section
@@ -215,7 +214,7 @@ func (c *MediaServerLibraryCache) UpdateMediaItem(sectionTitle string, item *mod
 				}
 			}
 		}
-		item.UpdatedAt = hydratedVersion(item.UpdatedAt, c.generationFloor)
+		item.ArtworkVersion = hydratedVersion(max(item.UpdatedAt, item.ArtworkVersion), c.generationFloor)
 		if existingItem != nil {
 			oldKey := mediaItemMutationKeyFor(sectionTitle, existingItem)
 			generation := c.itemMutationGeneration[oldKey]
@@ -233,17 +232,17 @@ func (c *MediaServerLibraryCache) UpdateMediaItem(sectionTitle string, item *mod
 	}
 }
 
-// AdvanceMediaItemUpdatedAt advances the cached parent image version atomically.
+// AdvanceMediaItemArtworkVersion advances the cached parent image version atomically.
 // ratingKey is the parent key even when Plex applies artwork to a season or episode.
-func (c *MediaServerLibraryCache) AdvanceMediaItemUpdatedAt(ratingKey string, now int64) (int64, bool) {
+func (c *MediaServerLibraryCache) AdvanceMediaItemArtworkVersion(ratingKey string, now int64) (int64, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	for _, section := range c.sections {
 		for i := range section.MediaItems {
 			if section.MediaItems[i].RatingKey == ratingKey {
-				section.MediaItems[i].UpdatedAt = nextVersion(section.MediaItems[i].UpdatedAt, now)
-				return section.MediaItems[i].UpdatedAt, true
+				section.MediaItems[i].ArtworkVersion = nextVersion(section.MediaItems[i].ArtworkVersion, now)
+				return section.MediaItems[i].ArtworkVersion, true
 			}
 		}
 	}

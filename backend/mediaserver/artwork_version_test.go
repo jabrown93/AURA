@@ -29,7 +29,7 @@ func TestSuccessfulArtworkAppliesAdvanceParentVersions(t *testing.T) {
 	baseVersion := time.Now().Add(time.Second).UnixMicro()
 	seasonNumber, episodeNumber := 1, 2
 	item := models.MediaItem{
-		RatingKey: "show-1", Type: "show", Title: "Show", LibraryTitle: "TV", UpdatedAt: baseVersion,
+		RatingKey: "show-1", Type: "show", Title: "Show", LibraryTitle: "TV", UpdatedAt: 100, ArtworkVersion: baseVersion,
 		Series: &models.MediaItemSeries{Seasons: []models.MediaItemSeason{{
 			RatingKey: "season-1", SeasonNumber: seasonNumber,
 			Episodes: []models.MediaItemEpisode{{RatingKey: "episode-2", SeasonNumber: seasonNumber, EpisodeNumber: episodeNumber}},
@@ -39,7 +39,7 @@ func TestSuccessfulArtworkAppliesAdvanceParentVersions(t *testing.T) {
 		LibrarySectionBase: models.LibrarySectionBase{Title: "TV"},
 		MediaItems:         []models.MediaItem{item},
 	})
-	collection := models.CollectionItem{RatingKey: "collection-1", LibraryTitle: "TV", Title: "Collection", UpdatedAt: baseVersion}
+	collection := models.CollectionItem{RatingKey: "collection-1", LibraryTitle: "TV", Title: "Collection", UpdatedAt: 100, ArtworkVersion: baseVersion}
 	cache.CollectionsStore.UpsertCollection(&collection)
 
 	images := []models.ImageFile{
@@ -52,11 +52,11 @@ func TestSuccessfulArtworkAppliesAdvanceParentVersions(t *testing.T) {
 			t.Fatalf("apply %s failed: %s", image.Type, err.Message)
 		}
 		cached, ok := cache.LibraryStore.GetMediaItemByRatingKey(item.RatingKey)
-		if !ok || cached.UpdatedAt != baseVersion+int64(i)+1 {
-			t.Fatalf("after %s parent version = %d, found = %v; want %d", image.Type, cached.UpdatedAt, ok, baseVersion+int64(i)+1)
+		if !ok || cached.UpdatedAt != 100 || cached.ArtworkVersion != baseVersion+int64(i)+1 {
+			t.Fatalf("after %s cached item = %+v, found = %v; want timestamp 100 and version %d", image.Type, cached, ok, baseVersion+int64(i)+1)
 		}
-		if item.UpdatedAt != cached.UpdatedAt {
-			t.Fatalf("after %s mutation result version = %d, want cached version %d", image.Type, item.UpdatedAt, cached.UpdatedAt)
+		if item.UpdatedAt != 100 || item.ArtworkVersion != cached.ArtworkVersion {
+			t.Fatalf("after %s mutation result = %+v, want timestamp 100 and cached version %d", image.Type, item, cached.ArtworkVersion)
 		}
 	}
 
@@ -65,11 +65,11 @@ func TestSuccessfulArtworkAppliesAdvanceParentVersions(t *testing.T) {
 		t.Fatalf("collection apply failed: %s", err.Message)
 	}
 	cachedCollection, ok := cache.CollectionsStore.GetCollectionByRatingKey(collection.RatingKey)
-	if !ok || cachedCollection.UpdatedAt != baseVersion+1 {
-		t.Fatalf("collection version = %d, found = %v; want %d", cachedCollection.UpdatedAt, ok, baseVersion+1)
+	if !ok || cachedCollection.UpdatedAt != 100 || cachedCollection.ArtworkVersion != baseVersion+1 {
+		t.Fatalf("cached collection = %+v, found = %v; want timestamp 100 and version %d", cachedCollection, ok, baseVersion+1)
 	}
-	if collection.UpdatedAt != cachedCollection.UpdatedAt {
-		t.Fatalf("collection mutation result version = %d, want cached version %d", collection.UpdatedAt, cachedCollection.UpdatedAt)
+	if collection.UpdatedAt != 100 || collection.ArtworkVersion != cachedCollection.ArtworkVersion {
+		t.Fatalf("collection mutation result = %+v, want timestamp 100 and cached version %d", collection, cachedCollection.ArtworkVersion)
 	}
 
 	mu.Lock()
@@ -98,23 +98,23 @@ func TestSuccessfulArtworkAppliesAdvanceUncachedParentVersions(t *testing.T) {
 
 	cleanupArtworkVersionTest(t, server.URL)
 	baseVersion := time.Now().Add(time.Second).UnixMicro()
-	item := models.MediaItem{RatingKey: "movie-1", Type: "movie", Title: "Movie", LibraryTitle: "Movies", UpdatedAt: baseVersion}
+	item := models.MediaItem{RatingKey: "movie-1", Type: "movie", Title: "Movie", LibraryTitle: "Movies", UpdatedAt: 100, ArtworkVersion: baseVersion}
 	image := models.ImageFile{ID: "poster", Type: "poster", Modified: time.Unix(1, 0)}
 
 	if err := DownloadApplyImageToMediaItem(testLogContext(), &item, image); err.Message != "" {
 		t.Fatalf("media apply failed: %s", err.Message)
 	}
-	if item.UpdatedAt != baseVersion+1 {
-		t.Fatalf("uncached media version = %d, want %d", item.UpdatedAt, baseVersion+1)
+	if item.UpdatedAt != 100 || item.ArtworkVersion != baseVersion+1 {
+		t.Fatalf("uncached media item = %+v, want timestamp 100 and version %d", item, baseVersion+1)
 	}
 
-	collection := models.CollectionItem{RatingKey: "collection-1", LibraryTitle: "Movies", UpdatedAt: baseVersion}
+	collection := models.CollectionItem{RatingKey: "collection-1", LibraryTitle: "Movies", UpdatedAt: 100, ArtworkVersion: baseVersion}
 	image.Type = "collection_poster"
 	if err := ApplyCollectionImage(testLogContext(), &collection, image); err.Message != "" {
 		t.Fatalf("collection apply failed: %s", err.Message)
 	}
-	if collection.UpdatedAt != baseVersion+1 {
-		t.Fatalf("uncached collection version = %d, want %d", collection.UpdatedAt, baseVersion+1)
+	if collection.UpdatedAt != 100 || collection.ArtworkVersion != baseVersion+1 {
+		t.Fatalf("uncached collection = %+v, want timestamp 100 and version %d", collection, baseVersion+1)
 	}
 }
 
@@ -126,27 +126,27 @@ func TestFailedArtworkAppliesDoNotAdvanceVersions(t *testing.T) {
 
 	cleanupArtworkVersionTest(t, server.URL)
 	version := time.Now().Add(time.Second).UnixMicro()
-	item := models.MediaItem{RatingKey: "movie-1", Type: "movie", Title: "Movie", LibraryTitle: "Movies", UpdatedAt: version}
+	item := models.MediaItem{RatingKey: "movie-1", Type: "movie", Title: "Movie", LibraryTitle: "Movies", UpdatedAt: 100, ArtworkVersion: version}
 	cache.LibraryStore.UpdateSection(&models.LibrarySection{
 		LibrarySectionBase: models.LibrarySectionBase{Title: "Movies"},
 		MediaItems:         []models.MediaItem{item},
 	})
-	collection := models.CollectionItem{RatingKey: "collection-1", LibraryTitle: "Movies", UpdatedAt: version}
+	collection := models.CollectionItem{RatingKey: "collection-1", LibraryTitle: "Movies", UpdatedAt: 100, ArtworkVersion: version}
 	cache.CollectionsStore.UpsertCollection(&collection)
 	image := models.ImageFile{ID: "image", Type: "poster", Modified: time.Unix(1, 0)}
 
 	if err := DownloadApplyImageToMediaItem(testLogContext(), &item, image); err.Message == "" {
 		t.Fatal("media apply unexpectedly succeeded")
 	}
-	if cached, _ := cache.LibraryStore.GetMediaItemByRatingKey(item.RatingKey); cached.UpdatedAt != version {
-		t.Fatalf("failed media apply advanced version to %d", cached.UpdatedAt)
+	if cached, _ := cache.LibraryStore.GetMediaItemByRatingKey(item.RatingKey); cached.UpdatedAt != 100 || cached.ArtworkVersion != version {
+		t.Fatalf("failed media apply changed item: %+v", cached)
 	}
 	image.Type = "collection_poster"
 	if err := ApplyCollectionImage(testLogContext(), &collection, image); err.Message == "" {
 		t.Fatal("collection apply unexpectedly succeeded")
 	}
-	if cached, _ := cache.CollectionsStore.GetCollectionByRatingKey(collection.RatingKey); cached.UpdatedAt != version {
-		t.Fatalf("failed collection apply advanced version to %d", cached.UpdatedAt)
+	if cached, _ := cache.CollectionsStore.GetCollectionByRatingKey(collection.RatingKey); cached.UpdatedAt != 100 || cached.ArtworkVersion != version {
+		t.Fatalf("failed collection apply changed item: %+v", cached)
 	}
 }
 

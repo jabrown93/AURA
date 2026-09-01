@@ -18,7 +18,8 @@ type MediaItem struct {
 
 	// Used in Home Page - sorting and filtering
 	HasMediuxSets        bool  `json:"has_mediux_sets"` // Whether the item has MediUX sets
-	UpdatedAt            int64 `json:"updated_at"`      // Last updated timestamp
+	UpdatedAt            int64 `json:"updated_at"`      // Last updated timestamp from the media server
+	ArtworkVersion       int64 `json:"artwork_version"` // Opaque image cache version
 	AddedAt              int64 `json:"added_at"`        // Added timestamp
 	ReleasedAt           int64 `json:"released_at"`     // Release date timestamp
 	LatestEpisodeAddedAt int64 `json:"latest_episode_added_at"`
@@ -85,13 +86,14 @@ type SelectedTypes struct {
 }
 
 type CollectionItem struct {
-	RatingKey    string      `json:"rating_key"`
-	Index        string      `json:"index"` // Unique identifier for the collection in Plex
-	TMDB_ID      string      `json:"tmdb_id,omitempty"`
-	Title        string      `json:"title"`
-	Summary      string      `json:"summary,omitempty"`
-	ChildCount   int         `json:"child_count"`
-	MediaItems   []MediaItem `json:"media_items"`
-	LibraryTitle string      `json:"library_title,omitempty"`
-	UpdatedAt    int64       `json:"updated_at"`
+	RatingKey      string      `json:"rating_key"`
+	Index          string      `json:"index"` // Unique identifier for the collection in Plex
+	TMDB_ID        string      `json:"tmdb_id,omitempty"`
+	Title          string      `json:"title"`
+	Summary        string      `json:"summary,omitempty"`
+	ChildCount     int         `json:"child_count"`
+	MediaItems     []MediaItem `json:"media_items"`
+	LibraryTitle   string      `json:"library_title,omitempty"`
+	UpdatedAt      int64       `json:"updated_at"`
+	ArtworkVersion int64       `json:"artwork_version"`
 }

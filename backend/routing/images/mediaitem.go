@@ -15,8 +15,8 @@ const (
 	unversionedImageCacheControl = "private, no-store"
 )
 
-func setMediaImageCacheControl(w http.ResponseWriter, r *http.Request, updatedAt int64) {
-	if config.Current.MediaServer.Type == "Plex" && updatedAt > 0 && r.URL.Query().Get("v") == strconv.FormatInt(updatedAt, 10) {
+func setMediaImageCacheControl(w http.ResponseWriter, r *http.Request, artworkVersion int64) {
+	if config.Current.MediaServer.Type == "Plex" && artworkVersion > 0 && r.URL.Query().Get("v") == strconv.FormatInt(artworkVersion, 10) {
 		w.Header().Set("Cache-Control", versionedImageCacheControl)
 		return
 	}
@@ -87,7 +87,7 @@ func GetMediaItemImage(w http.ResponseWriter, r *http.Request) {
 
 	// Set the content type for the response
 	w.Header().Set("Content-Type", "image/jpeg")
-	setMediaImageCacheControl(w, r, item.UpdatedAt)
+	setMediaImageCacheControl(w, r, item.ArtworkVersion)
 	// Write the image data to the response
 	w.WriteHeader(http.StatusOK)
 	w.Write(imageData)
@@ -149,7 +149,7 @@ func GetCollectionItemImage(w http.ResponseWriter, r *http.Request) {
 
 	// Set the content type for the response
 	w.Header().Set("Content-Type", "image/jpeg")
-	setMediaImageCacheControl(w, r, item.UpdatedAt)
+	setMediaImageCacheControl(w, r, item.ArtworkVersion)
 	// Write the image data to the response
 	w.WriteHeader(http.StatusOK)
 	w.Write(imageData)

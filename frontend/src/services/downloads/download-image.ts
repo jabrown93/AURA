@@ -15,7 +15,7 @@ export interface DownloadImageFileForMediaItem_Request {
 
 export interface DownloadImageFileForMediaItem_Response {
   result: string;
-  updated_at?: number;
+  artwork_version?: number;
 }
 
 export const downloadImageFileForMediaItem = async (
@@ -38,7 +38,7 @@ export const downloadImageFileForMediaItem = async (
         response.data.error?.message || "Unknown error downloading poster file and updating media server"
       );
     }
-    updateArtworkVersion(mediaItem, response.data.data?.updated_at, onArtworkApplied);
+    updateArtworkVersion(mediaItem, response.data.data?.artwork_version, onArtworkApplied);
     return response.data;
   } catch (error) {
     log(

@@ -1,9 +1,9 @@
-export function updateArtworkVersion<T extends { updated_at: number }>(
+export function updateArtworkVersion<T extends { artwork_version: number }>(
   item: T,
-  updatedAt?: number,
+  artworkVersion?: number,
   onArtworkApplied?: (item: T) => void
 ): T {
-  if (updatedAt !== undefined && updatedAt > item.updated_at) item.updated_at = updatedAt;
+  if (artworkVersion !== undefined && artworkVersion > item.artwork_version) item.artwork_version = artworkVersion;
   onArtworkApplied?.(item);
   return item;
 }
