@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-func TestArtworkApplyResponsesReturnAdvancedVersion(t *testing.T) {
+func TestArtworkApplyResponsesReturnAdvancedVersionOnCacheMiss(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -25,10 +25,6 @@ func TestArtworkApplyResponsesReturnAdvancedVersion(t *testing.T) {
 	mediaItem := models.MediaItem{
 		RatingKey: "movie-1", Type: "movie", Title: "Movie", LibraryTitle: "Movies", UpdatedAt: baseVersion,
 	}
-	cache.LibraryStore.UpdateSection(&models.LibrarySection{
-		LibrarySectionBase: models.LibrarySectionBase{Title: "Movies"},
-		MediaItems:         []models.MediaItem{mediaItem},
-	})
 	mediaResponse := postArtworkApply[DownloadImageFileForMediaItem_Response](t, "/api/download/image/item", map[string]any{
 		"media_item": mediaItem,
 		"image_file": models.ImageFile{ID: "poster", Type: "poster"},
@@ -43,7 +39,6 @@ func TestArtworkApplyResponsesReturnAdvancedVersion(t *testing.T) {
 	collection := models.CollectionItem{
 		RatingKey: "collection-1", LibraryTitle: "Movies", Title: "Collection", UpdatedAt: baseVersion,
 	}
-	cache.CollectionsStore.UpsertCollection(&collection)
 	collectionResponse := postArtworkApply[DownloadCollectionImage_Response](t, "/api/download/image/collection", map[string]any{
 		"collection_item": collection,
 		"image_file":      models.ImageFile{ID: "collection-poster", Type: "collection_poster"},
