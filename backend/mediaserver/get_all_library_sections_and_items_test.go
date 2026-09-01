@@ -174,3 +174,60 @@ func TestFullRefreshCommitsAllSectionsOnlyAfterSuccess(t *testing.T) {
 		t.Fatal("successful refresh did not publish new section snapshot")
 	}
 }
+
+type stateRereadDB struct {
+	database.DB
+	reads int
+}
+
+func (*stateRereadDB) UpdateMediaItemsOnServer(context.Context, string, []string, bool) logging.LogErrorInfo {
+	return logging.LogErrorInfo{}
+}
+
+func (f *stateRereadDB) GetAllMediaItemStates(context.Context) (map[database.MediaItemKey]database.MediaItemState, logging.LogErrorInfo) {
+	f.reads++
+	if f.reads == 1 {
+		return map[database.MediaItemKey]database.MediaItemState{}, logging.LogErrorInfo{}
+	}
+	return map[database.MediaItemKey]database.MediaItemState{
+		{TMDBID: "550", LibraryTitle: "Movies"}: {Ignored: true, IgnoreMode: "always"},
+	}, logging.LogErrorInfo{}
+}
+
+func TestPublishSectionSnapshotRereadsDatabaseStateForItemsMissingFromCache(t *testing.T) {
+	previousDB := database.Client
+	previousCache := cache.LibraryStore
+	t.Cleanup(func() {
+		database.Client = previousDB
+		cache.LibraryStore = previousCache
+	})
+	db := &stateRereadDB{}
+	database.Client = db
+	cache.LibraryStore = cache.Cache_NewLibraryCache()
+
+	generation := cache.LibraryStore.DBMutationGeneration()
+	staged, ok := fetchSectionSnapshot(context.Background(), &singleItemClient{}, models.LibrarySection{
+		LibrarySectionBase: models.LibrarySectionBase{Title: "Movies"},
+	}, map[database.MediaItemKey]database.MediaItemState{})
+	if !ok {
+		t.Fatal("staging the section snapshot failed")
+	}
+
+	// The item is absent from the live cache, so the ignore made while the
+	// snapshot was staged only exists in the database.
+	db.reads = 1
+	publishSectionSnapshot(context.Background(), staged, generation)
+
+	published, found := cache.LibraryStore.GetMediaItemFromSectionByTMDBID("Movies", "550")
+	if !found || !published.IgnoredInDB || published.IgnoredMode != "always" {
+		t.Fatalf("published item = %+v, found = %v; want ignored state from the re-read", published, found)
+	}
+}
+
+type singleItemClient struct{ MediaServerInterface }
+
+func (*singleItemClient) GetLibrarySectionItems(_ context.Context, section models.LibrarySection, _, _ string) ([]models.MediaItem, int, int, logging.LogErrorInfo) {
+	return []models.MediaItem{{
+		TMDB_ID: "550", RatingKey: "rating-550", LibraryTitle: section.Title,
+	}}, 1, 1, logging.LogErrorInfo{}
+}

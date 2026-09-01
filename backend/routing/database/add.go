@@ -1,7 +1,6 @@
 package routes_db
 
 import (
-	"aura/cache"
 	"aura/database"
 	"aura/logging"
 	"aura/mediaserver"
@@ -148,13 +147,10 @@ func AddNewItemToDB(w http.ResponseWriter, r *http.Request) {
 		ctx = logging.WithCurrentAction(ctx, logAction)
 		defer ld.Log()
 
-		_, _, dbSets, Err := database.CheckIfMediaItemExists(ctx, cachedItem.TMDB_ID, cachedItem.LibraryTitle)
-		if Err.Message != "" {
-			logAction.SetErrorFromInfo(Err)
-			return
-		}
 		// Update only database-owned saved-set state on hits; insert request data on misses.
-		cache.LibraryStore.UpsertMediaItemDBSavedSets(cachedItem.LibraryTitle, &cachedItem, dbSets)
+		if Err := database.SyncCachedSavedSets(ctx, cachedItem, true); Err.Message != "" {
+			logAction.SetErrorFromInfo(Err)
+		}
 	}()
 	response.SavedItem = saveItem
 

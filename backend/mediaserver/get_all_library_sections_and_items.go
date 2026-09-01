@@ -74,7 +74,12 @@ func getAllLibrarySectionsAndItemsImpl(ctx context.Context) (success bool) {
 	}
 
 	updatedAt := time.Now().Unix()
-	cache.LibraryStore.ReplaceAllSectionsFromDBSnapshot(snapshots, updatedAt, dbSnapshotGeneration)
+	database.WithMediaItemStates(ctx, func(states map[database.MediaItemKey]database.MediaItemState) {
+		for _, snapshot := range snapshots {
+			applyMediaItemStates(snapshot.MediaItems, states)
+		}
+		cache.LibraryStore.ReplaceAllSectionsFromDBSnapshot(snapshots, updatedAt, dbSnapshotGeneration)
+	})
 	cache.CollectionsStore.LastFullUpdate = updatedAt
 	return true
 }
@@ -106,8 +111,33 @@ func fetchAndCacheSectionItems(ctx context.Context, section models.LibrarySectio
 	if !ok {
 		return false
 	}
-	cache.LibraryStore.UpdateSectionFromDBSnapshot(snapshot, dbSnapshotGeneration)
+	publishSectionSnapshot(ctx, snapshot, dbSnapshotGeneration)
 	return true
+}
+
+// publishSectionSnapshot re-reads database-owned item state immediately before
+// publication so items missing from the live cache cannot publish state that a
+// mutation superseded while the snapshot was staged.
+func publishSectionSnapshot(ctx context.Context, snapshot *models.LibrarySection, dbSnapshotGeneration uint64) {
+	database.WithMediaItemStates(ctx, func(states map[database.MediaItemKey]database.MediaItemState) {
+		applyMediaItemStates(snapshot.MediaItems, states)
+		cache.LibraryStore.UpdateSectionFromDBSnapshot(snapshot, dbSnapshotGeneration)
+	})
+}
+
+// applyMediaItemStates overwrites database-owned fields from states. A nil map
+// means the state read failed, so the items keep what they already carry.
+func applyMediaItemStates(items []models.MediaItem, states map[database.MediaItemKey]database.MediaItemState) {
+	if states == nil {
+		return
+	}
+	for i := range items {
+		state := states[database.MediaItemKey{TMDBID: items[i].TMDB_ID, LibraryTitle: items[i].LibraryTitle}]
+		items[i].DBSavedSets = append([]models.DBSavedSet(nil), state.SavedSets...)
+		items[i].IgnoredInDB = state.Ignored
+		items[i].IgnoredMode = state.IgnoreMode
+		items[i].IgnoredSets = append([]string(nil), state.IgnoredSets...)
+	}
 }
 
 func buildSectionSnapshot(ctx context.Context, section models.LibrarySection) (*models.LibrarySection, bool) {
@@ -139,13 +169,9 @@ func fetchSectionSnapshot(ctx context.Context, msClient MediaServerInterface, se
 		if Err.Message != "" {
 			return nil, false
 		}
+		applyMediaItemStates(items, states)
 		tmdbIDs := make([]string, 0, len(items))
 		for i := range items {
-			state := states[database.MediaItemKey{TMDBID: items[i].TMDB_ID, LibraryTitle: items[i].LibraryTitle}]
-			items[i].DBSavedSets = append([]models.DBSavedSet(nil), state.SavedSets...)
-			items[i].IgnoredInDB = state.Ignored
-			items[i].IgnoredMode = state.IgnoreMode
-			items[i].IgnoredSets = append([]string(nil), state.IgnoredSets...)
 			tmdbIDs = append(tmdbIDs, items[i].TMDB_ID)
 		}
 		if updateErr := database.UpdateMediaItemsOnServer(ctx, section.Title, tmdbIDs, true); updateErr.Message != "" {
