@@ -5557,6 +5557,10 @@ const docTemplate = `{
                     "description": "Current Mediux site link",
                     "type": "string"
                 },
+                "mediux_valid": {
+                    "description": "Whether MediUX accepted the configured token",
+                    "type": "boolean"
+                },
                 "needs_setup": {
                     "description": "Whether the app needs initial setup",
                     "type": "boolean"
@@ -5772,6 +5776,9 @@ const docTemplate = `{
             "properties": {
                 "result": {
                     "type": "string"
+                },
+                "updated_at": {
+                    "type": "integer"
                 }
             }
         },
@@ -5791,6 +5798,9 @@ const docTemplate = `{
             "properties": {
                 "result": {
                     "type": "string"
+                },
+                "updated_at": {
+                    "type": "integer"
                 }
             }
         },

@@ -16,26 +16,24 @@ import (
 )
 
 var (
-	warmupMu   sync.Mutex
-	warmupDone bool
+	warmupMu                         sync.Mutex
+	warmupDone                       bool
+	getAllLibrarySectionsAndItemsRun = getAllLibrarySectionsAndItemsImpl
 )
 
 func GetAllLibrarySectionsAndItems(ctx context.Context, force bool) (success bool) {
-	// If we already did a run that satisfies this request, skip.
+	// Serialize full refreshes so recovery cannot rebuild the same cache while a
+	// scheduled or user-triggered refresh is already replacing it.
 	warmupMu.Lock()
-	alreadyDone := warmupDone
-	warmupMu.Unlock()
-	if alreadyDone && !force {
+	defer warmupMu.Unlock()
+	if warmupDone && !force {
 		return true
 	}
 
-	success = getAllLibrarySectionsAndItemsImpl(ctx)
+	success = getAllLibrarySectionsAndItemsRun(ctx)
 	if success {
-		warmupMu.Lock()
 		warmupDone = true
-		warmupMu.Unlock()
 	}
-
 	return success
 }
 
@@ -50,13 +48,15 @@ func getAllLibrarySectionsAndItemsImpl(ctx context.Context) (success bool) {
 
 	logAction.AppendResult("num_sections", len(configuredSections))
 
+	success = true
 	ejRanCollections := false
 	dbSnapshotGeneration := cache.LibraryStore.DBMutationGeneration()
 	snapshots := make([]*models.LibrarySection, 0, len(configuredSections))
 	for _, section := range configuredSections {
 		found, Err := GetLibrarySectionDetails(ctx, &section)
 		if Err.Message != "" || !found {
-			return false
+			success = false
+			continue
 		}
 
 		if (section.Type == "movie" || section.Type == "mixed") && !ejRanCollections {
@@ -72,14 +72,24 @@ func getAllLibrarySectionsAndItemsImpl(ctx context.Context) (success bool) {
 		}
 		snapshots = append(snapshots, snapshot)
 	}
-
 	updatedAt := time.Now().Unix()
 	database.WithMediaItemStates(ctx, func(states map[database.MediaItemKey]database.MediaItemState) {
 		for _, snapshot := range snapshots {
 			applyMediaItemStates(snapshot.MediaItems, states)
 		}
+		if !success {
+			// A skipped section is absent from snapshots and full publication prunes
+			// what it does not carry, so publish only the sections that succeeded.
+			for _, snapshot := range snapshots {
+				cache.LibraryStore.UpdateSectionFromDBSnapshot(snapshot, dbSnapshotGeneration)
+			}
+			return
+		}
 		cache.LibraryStore.ReplaceAllSectionsFromDBSnapshot(snapshots, updatedAt, dbSnapshotGeneration)
 	})
+	if !success {
+		return false
+	}
 	cache.CollectionsStore.LastFullUpdate = updatedAt
 	return true
 }
@@ -90,6 +100,12 @@ func getAllLibrarySectionsAndItemsImpl(ctx context.Context) (success bool) {
 func RefreshSectionItems(ctx context.Context, sectionTitle string) (success bool) {
 	ctx, logAction := logging.AddSubActionToContext(ctx, fmt.Sprintf("Refreshing Library Section Items for '%s'", sectionTitle), logging.LevelDebug)
 	defer logAction.Complete()
+
+	// Share the full-refresh lock so a single-section refresh cannot publish
+	// between a full refresh's fetch and its replacement of every section.
+	// ponytail: one refresh lock; per-section locks if refresh throughput matters.
+	warmupMu.Lock()
+	defer warmupMu.Unlock()
 
 	for _, section := range config.Current.MediaServer.Libraries {
 		if section.Title != sectionTitle {

@@ -15,6 +15,7 @@ type AppConfigStatus struct {
 	NeedsSetup           bool          `json:"needs_setup"`                 // Whether the app needs initial setup
 	MediaServerReachable bool          `json:"media_server_reachable"`      // Whether the media server answered the last check
 	MediuxReachable      bool          `json:"mediux_reachable"`            // Whether MediUX answered the last check
+	MediuxValid          bool          `json:"mediux_valid"`                // Whether MediUX accepted the configured token
 	CurrentSetup         config.Config `json:"current_setup"`               // The current (sanitized) configuration
 	MediaServerName      string        `json:"media_server_name,omitempty"` // Friendly name of the media server
 	MediuxSiteLink       string        `json:"mediux_site_link,omitempty"`  // Current Mediux site link
@@ -50,6 +51,7 @@ func GetAppConfigStatus(w http.ResponseWriter, r *http.Request) {
 		NeedsSetup:           config.NeedsSetup(),
 		MediaServerReachable: config.MediaServerReachable,
 		MediuxReachable:      config.MediuxReachable,
+		MediuxValid:          config.MediuxValid,
 		CurrentSetup:         *currentConfig.SanitizeConfig(ctx),
 		MediaServerName:      config.MediaServerName,
 		MediuxSiteLink:       mediux.MediuxSiteLink,

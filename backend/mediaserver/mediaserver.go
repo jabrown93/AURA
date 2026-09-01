@@ -231,9 +231,12 @@ func DownloadApplyImageToMediaItem(ctx context.Context, item *models.MediaItem, 
 		return Err
 	}
 	if Err = msClient.DownloadApplyImageToMediaItem(ctx, item, imageFile); Err.Message == "" {
-		if version, ok := cache.LibraryStore.AdvanceMediaItemUpdatedAt(item.RatingKey, time.Now().UnixMicro()); ok {
-			item.UpdatedAt = version
+		now := time.Now().UnixMicro()
+		version := max(item.UpdatedAt+1, now)
+		if cachedVersion, ok := cache.LibraryStore.AdvanceMediaItemUpdatedAt(item.RatingKey, now); ok {
+			version = cachedVersion
 		}
+		item.UpdatedAt = version
 	}
 	return Err
 }
@@ -252,9 +255,12 @@ func ApplyCollectionImage(ctx context.Context, collectionItem *models.Collection
 		return Err
 	}
 	if Err = msClient.ApplyCollectionImage(ctx, collectionItem, imageFile); Err.Message == "" {
-		if version, ok := cache.CollectionsStore.AdvanceCollectionUpdatedAt(collectionItem.RatingKey, time.Now().UnixMicro()); ok {
-			collectionItem.UpdatedAt = version
+		now := time.Now().UnixMicro()
+		version := max(collectionItem.UpdatedAt+1, now)
+		if cachedVersion, ok := cache.CollectionsStore.AdvanceCollectionUpdatedAt(collectionItem.RatingKey, now); ok {
+			version = cachedVersion
 		}
+		collectionItem.UpdatedAt = version
 	}
 	return Err
 }

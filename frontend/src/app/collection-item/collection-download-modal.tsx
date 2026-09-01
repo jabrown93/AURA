@@ -47,6 +47,7 @@ import {
 export interface CollectionsDownloadModalProps {
   item: CollectionItem;
   set: CollectionItemSetRef;
+  onArtworkApplied?: (item: CollectionItem) => void;
 }
 
 const downloadSchema = z.object({
@@ -54,7 +55,7 @@ const downloadSchema = z.object({
   backdrop: z.boolean(),
 });
 
-const CollectionsDownloadModal: React.FC<CollectionsDownloadModalProps> = ({ item, set }) => {
+const CollectionsDownloadModal: React.FC<CollectionsDownloadModalProps> = ({ item, set, onArtworkApplied }) => {
   const [isMounted, setIsMounted] = useState(false);
 
   // Cancel Button Text
@@ -194,6 +195,7 @@ const CollectionsDownloadModal: React.FC<CollectionsDownloadModalProps> = ({ ite
       if (response.status === "error") {
         throw new Error(response.error?.message || `Unknown error downloading ${imageLabel}`);
       }
+      onArtworkApplied?.({ ...collectionItem });
 
       // Mark as done and set progress to target
       isDone = true;

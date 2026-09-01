@@ -55,6 +55,7 @@ type MediaItemDetailsProps = {
   ignoredInDB?: boolean;
   ignoredMode?: string;
   currentSetsAvailable?: string[];
+  onArtworkApplied?: (item: MediaItem) => void;
 };
 
 export function MediaItemDetails({
@@ -67,6 +68,7 @@ export function MediaItemDetails({
   ignoredInDB,
   ignoredMode,
   currentSetsAvailable = [],
+  onArtworkApplied,
 }: MediaItemDetailsProps) {
   const [isInDBLocal, setIsInDBLocal] = useState(existsInDB);
   const [isIgnoredLocal, setIsIgnoredLocal] = useState(ignoredInDB);
@@ -477,6 +479,7 @@ export function MediaItemDetails({
           mediaItem={mediaItem}
           isOpen={isManualImportModalOpen}
           onClose={() => setIsManualImportModalOpen(false)}
+          onArtworkApplied={onArtworkApplied}
         />
       )}
 

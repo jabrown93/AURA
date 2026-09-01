@@ -90,6 +90,34 @@ func TestSuccessfulArtworkAppliesAdvanceParentVersions(t *testing.T) {
 	}
 }
 
+func TestSuccessfulArtworkAppliesAdvanceUncachedParentVersions(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	cleanupArtworkVersionTest(t, server.URL)
+	baseVersion := time.Now().Add(time.Second).UnixMicro()
+	item := models.MediaItem{RatingKey: "movie-1", Type: "movie", Title: "Movie", LibraryTitle: "Movies", UpdatedAt: baseVersion}
+	image := models.ImageFile{ID: "poster", Type: "poster", Modified: time.Unix(1, 0)}
+
+	if err := DownloadApplyImageToMediaItem(testLogContext(), &item, image); err.Message != "" {
+		t.Fatalf("media apply failed: %s", err.Message)
+	}
+	if item.UpdatedAt != baseVersion+1 {
+		t.Fatalf("uncached media version = %d, want %d", item.UpdatedAt, baseVersion+1)
+	}
+
+	collection := models.CollectionItem{RatingKey: "collection-1", LibraryTitle: "Movies", UpdatedAt: baseVersion}
+	image.Type = "collection_poster"
+	if err := ApplyCollectionImage(testLogContext(), &collection, image); err.Message != "" {
+		t.Fatalf("collection apply failed: %s", err.Message)
+	}
+	if collection.UpdatedAt != baseVersion+1 {
+		t.Fatalf("uncached collection version = %d, want %d", collection.UpdatedAt, baseVersion+1)
+	}
+}
+
 func TestFailedArtworkAppliesDoNotAdvanceVersions(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "apply failed", http.StatusInternalServerError)

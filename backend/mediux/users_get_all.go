@@ -58,6 +58,7 @@ func GetAllUsers(ctx context.Context) (users []models.MediuxUserInfo, Err loggin
 	var mediuxResp MediuxUsersResponse
 	Err = httpx.DecodeResponseToJSON(ctx, respBody, &mediuxResp, "MediUX All Users Response")
 	if Err.Message != "" {
+		logAction.SetErrorFromInfo(Err)
 		return users, *logAction.Error
 	}
 

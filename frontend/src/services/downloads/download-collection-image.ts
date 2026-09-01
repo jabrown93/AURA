@@ -1,6 +1,7 @@
 import { collectionItemInfo } from "@/helper/item-info";
 import apiClient from "@/services/api-client";
 import { ReturnErrorMessage } from "@/services/api-error-return";
+import { updateArtworkVersion } from "@/services/downloads/artwork-version";
 
 import { log } from "@/lib/logger";
 
@@ -16,6 +17,7 @@ export interface DownloadCollectionImage_Request {
 
 export interface DownloadCollectionImage_Response {
   result: string;
+  updated_at?: number;
 }
 
 export const DownloadImageFileForCollectionItem = async (
@@ -43,6 +45,7 @@ export const DownloadImageFileForCollectionItem = async (
         response.data.error?.message || `Unknown error downloading ${imageType} image and updating media server`
       );
     } else {
+      updateArtworkVersion(collectionItem, response.data.data?.updated_at);
       log(
         "INFO",
         "API - Media Server",

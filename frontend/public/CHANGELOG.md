@@ -1,5 +1,21 @@
 # Changelog
 
+## [2.1.15](https://github.com/jabrown93/AURA/compare/v2.1.14...v2.1.15) (2026-09-01)
+
+
+### Bug Fixes
+
+* **deps:** update dependency lucide-react to v1.37.0 ([a573b16](https://github.com/jabrown93/AURA/commit/a573b161096eea215c9768050772db6639eac24b))
+* **deps:** update dependency zod to v4.5.2 ([#167](https://github.com/jabrown93/AURA/issues/167)) ([4c8242c](https://github.com/jabrown93/AURA/commit/4c8242c97af3cc10d4d9f820c860e5f1854e16c3))
+* **mediux:** restore runtime state after outage ([#164](https://github.com/jabrown93/AURA/issues/164)) ([4894516](https://github.com/jabrown93/AURA/commit/4894516d9ae0ea4a5fc19b487e9b4d60c31289b7))
+
+## [2.1.14](https://github.com/jabrown93/AURA/compare/v2.1.13...v2.1.14) (2026-09-01)
+
+
+### Bug Fixes
+
+* return applied artwork versions ([#165](https://github.com/jabrown93/AURA/issues/165)) ([d0faf0d](https://github.com/jabrown93/AURA/commit/d0faf0d6017300fe995e3f46e653231ce397498e))
+
 ## [2.1.13](https://github.com/jabrown93/AURA/compare/v2.1.12...v2.1.13) (2026-09-01)
 
 
