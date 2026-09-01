@@ -179,13 +179,7 @@ func runWarmup() (success bool) {
 
 	success = false
 
-	// Cache: Add all MediUX users
-	config.AppLoadingStep = "Preloading MediUX Users into Cache"
-	preloadMediuxUsers(ctx)
-
-	// Cache: Get a list of all items in MediUX that has a set
-	config.AppLoadingStep = "Preloading MediUX Items with Sets into Cache"
-	preloadMediuxItemsWithSets(ctx)
+	mediuxRecoveryNeeded := !config.MediuxReachable
 
 	// Cache: Load AniDB -> TMDB mappings (Fribb anime-lists) so anime items that
 	// Plex matched with the HAMA agent (AniDB IDs only) resolve to TMDB instead
@@ -224,9 +218,12 @@ func runWarmup() (success bool) {
 		}
 	}
 
-	// Cache: Add all media server sections and items
-	config.AppLoadingStep = "Preloading Media Server Data into Cache"
-	_ = refreshLibraryItems(ctx, false)
+	// Cache: Build MediUX-derived state after database initialization so the
+	// library stage can load saved item state and publish HasMediuxSets values.
+	config.AppLoadingStep = "Preloading MediUX and Media Server Data into Cache"
+	if recoveryErr := recoverMediuxRuntimeState(ctx); recoveryErr.Message != "" {
+		mediuxRecoveryNeeded = true
+	}
 	logging.LOGGER.Info().Timestamp().Int("sections", cache.LibraryStore.GetSectionsCount()).Int("items", cache.LibraryStore.GetItemsCount()).Msg("Loaded Media Server sections and items into cache")
 	logging.LOGGER.Info().Timestamp().Int("collection_items", len(cache.CollectionsStore.GetAllCollections())).
 		Msg("Loaded Media Server collections into cache")
@@ -320,6 +317,10 @@ func runWarmup() (success bool) {
 
 	// Initialize Media Server WebSocket Listener (if supported)
 	autodownload.StartOrRestartPlexWebSocketClient()
+
+	if mediuxRecoveryNeeded {
+		go recheckMediuxUntilReachable()
+	}
 
 	success = true
 	return success

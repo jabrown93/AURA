@@ -28,6 +28,17 @@ type updateConfigResponse struct {
 	Status  AppConfigStatus `json:"status"`
 }
 
+// RecoverMediuxRuntimeState is set by main so config updates can rebuild runtime
+// caches without importing the main package.
+var RecoverMediuxRuntimeState func(context.Context) logging.LogErrorInfo
+
+func recoverMediuxAfterTokenCorrection(ctx context.Context, tokenCorrected bool) logging.LogErrorInfo {
+	if !tokenCorrected || RecoverMediuxRuntimeState == nil {
+		return logging.LogErrorInfo{}
+	}
+	return RecoverMediuxRuntimeState(ctx)
+}
+
 // UpdateConfig godoc
 // @Summary      Update Config
 // @Description  Update the application configuration
@@ -60,6 +71,7 @@ func UpdateAppConfig(w http.ResponseWriter, r *http.Request) {
 	loggingChanged, loggingValid := checkConfigDifferences_Logging(ctx, config.Current.Logging, &newConfig.Logging)
 	mediaServerChanged, mediaServerValid, newMediaServerName := checkConfigDifferences_MediaServer(ctx, config.Current.MediaServer, &newConfig.MediaServer)
 	mediuxChanged, mediuxValid := checkConfigDifferences_Mediux(ctx, config.Current.Mediux, &newConfig.Mediux)
+	mediuxTokenCorrected := !config.MediuxValid && config.Current.Mediux.ApiToken != newConfig.Mediux.ApiToken
 	autoDownloadChanged, autoDownloadValid := checkConfigDifferences_Autodownload(ctx, config.Current.AutoDownload, &newConfig.AutoDownload)
 	imagesChanged, imagesValid := checkConfigDifferences_Images(ctx, config.Current.Images, &newConfig.Images, newConfig.MediaServer)
 	tmdbChanged, tmdbValid := checkConfigDifferences_TMDB(ctx, config.Current.TMDB, &newConfig.TMDB)
@@ -133,6 +145,10 @@ func UpdateAppConfig(w http.ResponseWriter, r *http.Request) {
 	config.MediaServerName = newMediaServerName
 	config.MediuxValid = true
 	config.MediuxReachable = true
+
+	if recoveryErr := recoverMediuxAfterTokenCorrection(ctx, mediuxTokenCorrected); recoveryErr.Message != "" {
+		logAction.SetErrorFromInfo(recoveryErr)
+	}
 
 	if autoDownloadChanged {
 		jobs.StartAutoDownloadJob()
