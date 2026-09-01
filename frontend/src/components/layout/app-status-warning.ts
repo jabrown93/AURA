@@ -1,6 +1,8 @@
 import type { AppStatusResponse } from "@/types/config/response-status";
 
-type DependencyStatus = Pick<AppStatusResponse, "media_server_reachable" | "mediux_reachable" | "mediux_valid">;
+type DependencyStatus = Pick<AppStatusResponse, "media_server_reachable" | "mediux_reachable"> & {
+  mediux_valid?: boolean;
+};
 
 export type DependencyWarning = {
   label: string;
@@ -22,7 +24,7 @@ export const getDependencyWarning = (status: DependencyStatus | null): Dependenc
       detail: "MediUX is unreachable. aura is running with reduced functionality and will reconnect automatically.",
     };
   }
-  if (!status.mediux_valid) {
+  if (status.mediux_valid === false) {
     return {
       label: "MediUX token is invalid",
       detail: "MediUX rejected configured token. Update it in settings to restore MediUX functionality.",

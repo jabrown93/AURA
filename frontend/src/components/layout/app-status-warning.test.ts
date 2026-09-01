@@ -20,6 +20,7 @@ test("reports unreachable and rejected MediUX states distinctly", () => {
   });
 });
 
-test("returns no warning after recovery", () => {
+test("returns no warning after recovery or when validity is unknown", () => {
   assert.equal(getDependencyWarning(status), null);
+  assert.equal(getDependencyWarning({ media_server_reachable: true, mediux_reachable: true }), null);
 });
