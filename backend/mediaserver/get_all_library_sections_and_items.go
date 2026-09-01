@@ -51,6 +51,7 @@ func getAllLibrarySectionsAndItemsImpl(ctx context.Context) (success bool) {
 	logAction.AppendResult("num_sections", len(configuredSections))
 
 	ejRanCollections := false
+	dbSnapshotGeneration := cache.LibraryStore.DBMutationGeneration()
 	snapshots := make([]*models.LibrarySection, 0, len(configuredSections))
 	for _, section := range configuredSections {
 		found, Err := GetLibrarySectionDetails(ctx, &section)
@@ -73,7 +74,7 @@ func getAllLibrarySectionsAndItemsImpl(ctx context.Context) (success bool) {
 	}
 
 	updatedAt := time.Now().Unix()
-	cache.LibraryStore.ReplaceAllSections(snapshots, updatedAt)
+	cache.LibraryStore.ReplaceAllSectionsFromDBSnapshot(snapshots, updatedAt, dbSnapshotGeneration)
 	cache.CollectionsStore.LastFullUpdate = updatedAt
 	return true
 }
@@ -100,11 +101,12 @@ func RefreshSectionItems(ctx context.Context, sectionTitle string) (success bool
 
 // fetchAndCacheSectionItems publishes only after every page succeeds.
 func fetchAndCacheSectionItems(ctx context.Context, section models.LibrarySection) bool {
+	dbSnapshotGeneration := cache.LibraryStore.DBMutationGeneration()
 	snapshot, ok := buildSectionSnapshot(ctx, section)
 	if !ok {
 		return false
 	}
-	cache.LibraryStore.UpdateSection(snapshot)
+	cache.LibraryStore.UpdateSectionFromDBSnapshot(snapshot, dbSnapshotGeneration)
 	return true
 }
 
@@ -143,6 +145,7 @@ func fetchSectionSnapshot(ctx context.Context, msClient MediaServerInterface, se
 			items[i].DBSavedSets = append([]models.DBSavedSet(nil), state.SavedSets...)
 			items[i].IgnoredInDB = state.Ignored
 			items[i].IgnoredMode = state.IgnoreMode
+			items[i].IgnoredSets = append([]string(nil), state.IgnoredSets...)
 			tmdbIDs = append(tmdbIDs, items[i].TMDB_ID)
 		}
 		if updateErr := database.UpdateMediaItemsOnServer(ctx, section.Title, tmdbIDs, true); updateErr.Message != "" {

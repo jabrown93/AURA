@@ -12,10 +12,18 @@ import (
 var LibraryStore *MediaServerLibraryCache
 
 type MediaServerLibraryCache struct {
-	sections        map[string]*models.LibrarySection // Key: Library Title
-	mu              sync.RWMutex
-	generationFloor int64
-	lastFullUpdate  int64
+	sections               map[string]*models.LibrarySection // Key: Library Title
+	mu                     sync.RWMutex
+	generationFloor        int64
+	dbMutationGeneration   uint64
+	itemMutationGeneration map[mediaItemMutationKey]uint64
+	lastFullUpdate         int64
+}
+
+type mediaItemMutationKey struct {
+	sectionTitle string
+	ratingKey    string
+	fallbackKey  string
 }
 
 // NewLibraryCache creates a new LibraryCache instance
@@ -25,8 +33,9 @@ func Cache_NewLibraryCache() *MediaServerLibraryCache {
 
 func newLibraryCache(generationFloor int64) *MediaServerLibraryCache {
 	return &MediaServerLibraryCache{
-		sections:        make(map[string]*models.LibrarySection),
-		generationFloor: generationFloor,
+		sections:               make(map[string]*models.LibrarySection),
+		generationFloor:        generationFloor,
+		itemMutationGeneration: make(map[mediaItemMutationKey]uint64),
 	}
 }
 
@@ -34,29 +43,54 @@ func init() {
 	LibraryStore = Cache_NewLibraryCache()
 }
 
-// UpdateSection atomically replaces one complete section snapshot.
-func (c *MediaServerLibraryCache) UpdateSection(section *models.LibrarySection) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.replaceSectionLocked(section)
+// DBMutationGeneration captures cache mutations to database-owned item fields.
+func (c *MediaServerLibraryCache) DBMutationGeneration() uint64 {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.dbMutationGeneration
 }
 
-// ReplaceAllSections atomically publishes a successful full refresh and prunes
-// sections absent from that refresh.
+// UpdateSection atomically replaces one complete authoritative snapshot.
+func (c *MediaServerLibraryCache) UpdateSection(section *models.LibrarySection) {
+	c.UpdateSectionFromDBSnapshot(section, c.DBMutationGeneration())
+}
+
+// UpdateSectionFromDBSnapshot preserves only database-owned fields mutated after
+// snapshotGeneration was captured.
+func (c *MediaServerLibraryCache) UpdateSectionFromDBSnapshot(section *models.LibrarySection, snapshotGeneration uint64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.replaceSectionLocked(section, snapshotGeneration)
+}
+
+// ReplaceAllSections atomically publishes a successful authoritative refresh.
 func (c *MediaServerLibraryCache) ReplaceAllSections(sections []*models.LibrarySection, updatedAt int64) {
+	c.ReplaceAllSectionsFromDBSnapshot(sections, updatedAt, c.DBMutationGeneration())
+}
+
+// ReplaceAllSectionsFromDBSnapshot publishes a successful full refresh and
+// prunes sections absent from that refresh.
+func (c *MediaServerLibraryCache) ReplaceAllSectionsFromDBSnapshot(sections []*models.LibrarySection, updatedAt int64, snapshotGeneration uint64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	replacement := make(map[string]*models.LibrarySection, len(sections))
+	retainedGenerations := make(map[mediaItemMutationKey]uint64)
 	for _, section := range sections {
-		c.replaceSectionLocked(section)
+		c.replaceSectionLocked(section, snapshotGeneration)
 		replacement[section.Title] = c.sections[section.Title]
+		for key, generation := range c.itemMutationGeneration {
+			if key.sectionTitle == section.Title {
+				retainedGenerations[key] = generation
+			}
+		}
 	}
 	c.sections = replacement
+	c.itemMutationGeneration = retainedGenerations
 	c.lastFullUpdate = updatedAt
 }
 
-func (c *MediaServerLibraryCache) replaceSectionLocked(section *models.LibrarySection) {
+func (c *MediaServerLibraryCache) replaceSectionLocked(section *models.LibrarySection, snapshotGeneration uint64) {
 	prepared := cloneLibrarySection(section)
 	var existingItems []models.MediaItem
 	if existing, found := c.sections[section.Title]; found {
@@ -81,6 +115,13 @@ func (c *MediaServerLibraryCache) replaceSectionLocked(section *models.LibrarySe
 		}
 	}
 
+	existingGenerations := make(map[mediaItemMutationKey]uint64)
+	for key, generation := range c.itemMutationGeneration {
+		if key.sectionTitle == section.Title {
+			existingGenerations[key] = generation
+			delete(c.itemMutationGeneration, key)
+		}
+	}
 	items := make([]models.MediaItem, 0, len(prepared.MediaItems))
 	itemIndexes := make(map[string]int, len(prepared.MediaItems))
 	for i := range prepared.MediaItems {
@@ -94,7 +135,12 @@ func (c *MediaServerLibraryCache) replaceSectionLocked(section *models.LibrarySe
 			}
 		}
 		if existing != nil {
-			preserveMutableMediaItemState(item, existing)
+			generation := existingGenerations[mediaItemMutationKeyFor(section.Title, existing)]
+			if generation > snapshotGeneration {
+				preserveDBOwnedMediaItemState(item, existing)
+				c.itemMutationGeneration[mediaItemMutationKeyFor(section.Title, item)] = generation
+			}
+			preserveMediaItemVersion(item, existing)
 		}
 		section.MediaItems[i].UpdatedAt = item.UpdatedAt
 		if index, duplicate := itemIndexes[item.RatingKey]; item.RatingKey != "" && duplicate {
@@ -121,11 +167,22 @@ func mediaItemFallbackKey(item *models.MediaItem) string {
 	return item.Type + "\x00" + item.TMDB_ID
 }
 
-func preserveMutableMediaItemState(item, existing *models.MediaItem) {
+func mediaItemMutationKeyFor(sectionTitle string, item *models.MediaItem) mediaItemMutationKey {
+	key := mediaItemMutationKey{sectionTitle: sectionTitle, ratingKey: item.RatingKey}
+	if item.RatingKey == "" {
+		key.fallbackKey = mediaItemFallbackKey(item)
+	}
+	return key
+}
+
+func preserveDBOwnedMediaItemState(item, existing *models.MediaItem) {
 	item.DBSavedSets = append([]models.DBSavedSet(nil), existing.DBSavedSets...)
 	item.IgnoredInDB = existing.IgnoredInDB
 	item.IgnoredMode = existing.IgnoredMode
 	item.IgnoredSets = append([]string(nil), existing.IgnoredSets...)
+}
+
+func preserveMediaItemVersion(item, existing *models.MediaItem) {
 	if item.UpdatedAt < existing.UpdatedAt {
 		item.UpdatedAt = existing.UpdatedAt
 	}
@@ -160,8 +217,15 @@ func (c *MediaServerLibraryCache) UpdateMediaItem(sectionTitle string, item *mod
 		}
 		item.UpdatedAt = hydratedVersion(item.UpdatedAt, c.generationFloor)
 		if existingItem != nil {
-			preserveMutableMediaItemState(item, existingItem)
+			oldKey := mediaItemMutationKeyFor(sectionTitle, existingItem)
+			generation := c.itemMutationGeneration[oldKey]
+			preserveDBOwnedMediaItemState(item, existingItem)
+			preserveMediaItemVersion(item, existingItem)
 			*existingItem = cloneMediaItem(item)
+			if generation != 0 {
+				delete(c.itemMutationGeneration, oldKey)
+				c.itemMutationGeneration[mediaItemMutationKeyFor(sectionTitle, existingItem)] = generation
+			}
 		} else {
 			section.MediaItems = append(section.MediaItems, cloneMediaItem(item))
 			section.TotalSize = len(section.MediaItems)
@@ -186,7 +250,12 @@ func (c *MediaServerLibraryCache) AdvanceMediaItemUpdatedAt(ratingKey string, no
 	return 0, false
 }
 
-func (c *MediaServerLibraryCache) SetIgnored(sectionTitle, tmdbID string, ignored bool, mode string) bool {
+func (c *MediaServerLibraryCache) nextDBMutationGenerationLocked() uint64 {
+	c.dbMutationGeneration++
+	return c.dbMutationGeneration
+}
+
+func (c *MediaServerLibraryCache) SetIgnored(sectionTitle, tmdbID string, ignored bool, mode string, ignoredSets ...[]string) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -194,30 +263,73 @@ func (c *MediaServerLibraryCache) SetIgnored(sectionTitle, tmdbID string, ignore
 	if !exists {
 		return false
 	}
+	matched := false
 	for i := range section.MediaItems {
 		if section.MediaItems[i].TMDB_ID == tmdbID {
-			section.MediaItems[i].IgnoredInDB = ignored
-			section.MediaItems[i].IgnoredMode = mode
-			return true
+			matched = true
+			break
 		}
 	}
-	return false
+	if !matched {
+		return false
+	}
+	generation := c.nextDBMutationGenerationLocked()
+	var sets []string
+	if ignored && len(ignoredSets) > 0 {
+		sets = ignoredSets[0]
+	}
+	for i := range section.MediaItems {
+		item := &section.MediaItems[i]
+		if item.TMDB_ID == tmdbID {
+			item.IgnoredInDB = ignored
+			item.IgnoredMode = mode
+			item.IgnoredSets = append([]string(nil), sets...)
+			c.itemMutationGeneration[mediaItemMutationKeyFor(sectionTitle, item)] = generation
+		}
+	}
+	return true
 }
 
 func (c *MediaServerLibraryCache) UpdateMediaItemDBSavedSets(sectionTitle string, item *models.MediaItem, dbSavedSets []models.DBSavedSet) {
+	c.updateMediaItemDBSavedSets(sectionTitle, item, dbSavedSets, false)
+}
+
+func (c *MediaServerLibraryCache) UpsertMediaItemDBSavedSets(sectionTitle string, item *models.MediaItem, dbSavedSets []models.DBSavedSet) {
+	c.updateMediaItemDBSavedSets(sectionTitle, item, dbSavedSets, true)
+}
+
+func (c *MediaServerLibraryCache) updateMediaItemDBSavedSets(sectionTitle string, item *models.MediaItem, dbSavedSets []models.DBSavedSet, insertMissing bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// Check if section exists
-	if section, exists := c.sections[sectionTitle]; exists {
-		// Create a map of existing items for O(1) lookup
-		existingItems := make(map[string]*models.MediaItem)
-		for i := range section.MediaItems {
-			existingItems[section.MediaItems[i].TMDB_ID] = &section.MediaItems[i]
+	section, exists := c.sections[sectionTitle]
+	if !exists {
+		return
+	}
+	matched := false
+	for i := range section.MediaItems {
+		if section.MediaItems[i].TMDB_ID == item.TMDB_ID {
+			matched = true
+			break
 		}
-		if existingItem, found := existingItems[item.TMDB_ID]; found {
+	}
+	if !matched && !insertMissing {
+		return
+	}
+	generation := c.nextDBMutationGenerationLocked()
+	for i := range section.MediaItems {
+		existingItem := &section.MediaItems[i]
+		if existingItem.TMDB_ID == item.TMDB_ID {
 			existingItem.DBSavedSets = append([]models.DBSavedSet(nil), dbSavedSets...)
+			c.itemMutationGeneration[mediaItemMutationKeyFor(sectionTitle, existingItem)] = generation
 		}
+	}
+	if !matched {
+		inserted := cloneMediaItem(item)
+		inserted.DBSavedSets = append([]models.DBSavedSet(nil), dbSavedSets...)
+		section.MediaItems = append(section.MediaItems, inserted)
+		section.TotalSize = len(section.MediaItems)
+		c.itemMutationGeneration[mediaItemMutationKeyFor(sectionTitle, &inserted)] = generation
 	}
 }
 

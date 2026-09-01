@@ -153,16 +153,8 @@ func AddNewItemToDB(w http.ResponseWriter, r *http.Request) {
 			logAction.SetErrorFromInfo(Err)
 			return
 		}
-		// On a hit the cached entry is media-server-owned and richer than the request's
-		// copy, so only DBSavedSets may be written. On a miss there is nothing to clobber
-		// and the item must still be inserted, or its saved sets stay invisible until the
-		// next full library refresh.
-		if _, found := cache.LibraryStore.GetMediaItemFromSectionByTMDBID(cachedItem.LibraryTitle, cachedItem.TMDB_ID); found {
-			cache.LibraryStore.UpdateMediaItemDBSavedSets(cachedItem.LibraryTitle, &cachedItem, dbSets)
-			return
-		}
-		cachedItem.DBSavedSets = dbSets
-		cache.LibraryStore.UpdateMediaItem(cachedItem.LibraryTitle, &cachedItem)
+		// Update only database-owned saved-set state on hits; insert request data on misses.
+		cache.LibraryStore.UpsertMediaItemDBSavedSets(cachedItem.LibraryTitle, &cachedItem, dbSets)
 	}()
 	response.SavedItem = saveItem
 

@@ -1,7 +1,6 @@
 package routes_db
 
 import (
-	"aura/cache"
 	"aura/database"
 	"aura/logging"
 	"aura/utils/httpx"
@@ -72,8 +71,6 @@ func IgnoreItemInDB(w http.ResponseWriter, r *http.Request) {
 		httpx.SendResponse(w, ld, response)
 		return
 	}
-	cache.LibraryStore.SetIgnored(libraryTitle, tmdbID, true, mode)
-
 	response.Ignored = true
 	response.TmdbID = tmdbID
 	response.LibraryTitle = libraryTitle
@@ -118,8 +115,6 @@ func StopIgnoringItemInDB(w http.ResponseWriter, r *http.Request) {
 		httpx.SendResponse(w, ld, response)
 		return
 	}
-	cache.LibraryStore.SetIgnored(libraryTitle, tmdbID, false, "")
-
 	response.Ignored = false
 	response.TmdbID = tmdbID
 	response.LibraryTitle = libraryTitle

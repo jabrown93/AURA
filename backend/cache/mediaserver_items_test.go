@@ -70,18 +70,20 @@ func TestUpdateSectionKeepsAmbiguousTMDBMatchesSeparate(t *testing.T) {
 	c.UpdateSection(&models.LibrarySection{
 		LibrarySectionBase: models.LibrarySectionBase{Title: "Movies"},
 		MediaItems: []models.MediaItem{
-			{TMDB_ID: "550", RatingKey: "edition-a", Type: "movie", Title: "A", UpdatedAt: 300, DBSavedSets: []models.DBSavedSet{{ID: "set-a"}}},
-			{TMDB_ID: "550", RatingKey: "edition-b", Type: "movie", Title: "B", UpdatedAt: 400, DBSavedSets: []models.DBSavedSet{{ID: "set-b"}}},
+			{TMDB_ID: "550", RatingKey: "edition-a", Type: "movie", Title: "A", UpdatedAt: 300},
+			{TMDB_ID: "550", RatingKey: "edition-b", Type: "movie", Title: "B", UpdatedAt: 400},
 		},
 	})
+	snapshotGeneration := c.DBMutationGeneration()
+	c.UpdateMediaItemDBSavedSets("Movies", &models.MediaItem{TMDB_ID: "550"}, []models.DBSavedSet{{ID: "set-a"}})
 
-	c.UpdateSection(&models.LibrarySection{
+	c.UpdateSectionFromDBSnapshot(&models.LibrarySection{
 		LibrarySectionBase: models.LibrarySectionBase{Title: "Movies"},
 		MediaItems: []models.MediaItem{
 			{TMDB_ID: "550", RatingKey: "edition-a", Type: "movie", Title: "A refreshed", UpdatedAt: 100},
 			{TMDB_ID: "550", RatingKey: "edition-c", Type: "movie", Title: "C", UpdatedAt: 100},
 		},
-	})
+	}, snapshotGeneration)
 
 	section, ok := c.GetSectionByTitle("Movies")
 	if !ok || len(section.MediaItems) != 2 {
@@ -103,22 +105,45 @@ func TestUpdateSectionPreservesMutableStateAcrossUniqueRatingKeyChurn(t *testing
 		LibrarySectionBase: models.LibrarySectionBase{Title: "TV"},
 		MediaItems: []models.MediaItem{{
 			TMDB_ID: "42", RatingKey: "old-key", Type: "show", UpdatedAt: 500,
-			DBSavedSets: []models.DBSavedSet{{ID: "set-1"}}, IgnoredInDB: true,
-			IgnoredMode: "until-new-set-available", IgnoredSets: []string{"old-set"},
 		}},
 	})
+	snapshotGeneration := c.DBMutationGeneration()
+	c.UpdateMediaItemDBSavedSets("TV", &models.MediaItem{TMDB_ID: "42"}, []models.DBSavedSet{{ID: "set-1"}})
+	c.SetIgnored("TV", "42", true, "until-new-set-available", []string{"old-set"})
 
-	c.UpdateSection(&models.LibrarySection{
+	c.UpdateSectionFromDBSnapshot(&models.LibrarySection{
 		LibrarySectionBase: models.LibrarySectionBase{Title: "TV"},
 		MediaItems: []models.MediaItem{{
 			TMDB_ID: "42", RatingKey: "new-key", Type: "show", Title: "refreshed", UpdatedAt: 100,
 		}},
-	})
+	}, snapshotGeneration)
 
 	got, ok := c.GetMediaItemByRatingKey("new-key")
 	if !ok || got.UpdatedAt != 500 || len(got.DBSavedSets) != 1 || got.DBSavedSets[0].ID != "set-1" ||
 		!got.IgnoredInDB || got.IgnoredMode != "until-new-set-available" || len(got.IgnoredSets) != 1 || got.IgnoredSets[0] != "old-set" {
 		t.Fatalf("unique rating-key churn lost mutable state: %+v, found = %v", got, ok)
+	}
+}
+
+func TestUpdateSectionAppliesAuthoritativeDBDeletion(t *testing.T) {
+	c := newLibraryCache(0)
+	c.UpdateSection(&models.LibrarySection{
+		LibrarySectionBase: models.LibrarySectionBase{Title: "Movies"},
+		MediaItems: []models.MediaItem{{
+			TMDB_ID: "550", RatingKey: "movie-1", Type: "movie",
+			DBSavedSets: []models.DBSavedSet{{ID: "deleted-set"}},
+			IgnoredInDB: true, IgnoredMode: "until-new-set-available", IgnoredSets: []string{"old-set"},
+		}},
+	})
+
+	c.UpdateSection(&models.LibrarySection{
+		LibrarySectionBase: models.LibrarySectionBase{Title: "Movies"},
+		MediaItems:         []models.MediaItem{{TMDB_ID: "550", RatingKey: "movie-1", Type: "movie"}},
+	})
+
+	got, ok := c.GetMediaItemByRatingKey("movie-1")
+	if !ok || len(got.DBSavedSets) != 0 || got.IgnoredInDB || got.IgnoredMode != "" || len(got.IgnoredSets) != 0 {
+		t.Fatalf("authoritative DB deletion was overwritten: %+v, found = %v", got, ok)
 	}
 }
 
@@ -132,6 +157,7 @@ func TestReplaceAllSectionsPreservesMutationMadeWhileSnapshotWasStaged(t *testin
 		LibrarySectionBase: models.LibrarySectionBase{Title: "Movies"},
 		MediaItems:         []models.MediaItem{{TMDB_ID: "550", RatingKey: "movie-1", Type: "movie", Title: "refreshed"}},
 	}}
+	snapshotGeneration := c.DBMutationGeneration()
 
 	published := make(chan struct{})
 	if !c.SetIgnored("Movies", "550", true, "always") {
@@ -139,7 +165,7 @@ func TestReplaceAllSectionsPreservesMutationMadeWhileSnapshotWasStaged(t *testin
 	}
 	c.UpdateMediaItemDBSavedSets("Movies", &models.MediaItem{TMDB_ID: "550"}, []models.DBSavedSet{{ID: "set-1"}})
 	go func() {
-		c.ReplaceAllSections(staged, 123)
+		c.ReplaceAllSectionsFromDBSnapshot(staged, 123, snapshotGeneration)
 		close(published)
 	}()
 	<-published
@@ -191,29 +217,42 @@ func TestReplaceAllSectionsPrunesAndCopiesSnapshots(t *testing.T) {
 	}
 }
 
-func TestSetIgnoredMutatesOnlyMatchingCachedItem(t *testing.T) {
+func TestSetIgnoredMutatesEveryMatchingTMDBEdition(t *testing.T) {
 	c := newLibraryCache(0)
 	c.UpdateSection(&models.LibrarySection{
 		LibrarySectionBase: models.LibrarySectionBase{Title: "Movies"},
 		MediaItems: []models.MediaItem{
-			{TMDB_ID: "550", DBSavedSets: []models.DBSavedSet{{ID: "set-1"}}},
-			{TMDB_ID: "680"},
+			{TMDB_ID: "550", RatingKey: "edition-a", DBSavedSets: []models.DBSavedSet{{ID: "set-1"}}},
+			{TMDB_ID: "550", RatingKey: "edition-b"},
+			{TMDB_ID: "680", RatingKey: "other"},
 		},
 	})
 
 	if !c.SetIgnored("Movies", "550", true, "always") {
 		t.Fatal("SetIgnored() did not find TMDB 550")
 	}
-	ignored, _ := c.GetMediaItemFromSectionByTMDBID("Movies", "550")
-	if !ignored.IgnoredInDB || ignored.IgnoredMode != "always" || len(ignored.DBSavedSets) != 1 {
-		t.Fatalf("ignored item = %+v, want independent saved-set state", ignored)
+	for _, ratingKey := range []string{"edition-a", "edition-b"} {
+		ignored, _ := c.GetMediaItemByRatingKey(ratingKey)
+		if !ignored.IgnoredInDB || ignored.IgnoredMode != "always" {
+			t.Fatalf("ignored edition %q = %+v", ratingKey, ignored)
+		}
+	}
+	first, _ := c.GetMediaItemByRatingKey("edition-a")
+	if len(first.DBSavedSets) != 1 {
+		t.Fatalf("ignore clobbered saved-set state: %+v", first)
 	}
 	if !c.SetIgnored("Movies", "550", false, "") {
 		t.Fatal("SetIgnored() did not unignore TMDB 550")
 	}
-	unignored, _ := c.GetMediaItemFromSectionByTMDBID("Movies", "550")
-	if unignored.IgnoredInDB || unignored.IgnoredMode != "" || len(unignored.DBSavedSets) != 1 {
-		t.Fatalf("unignored item = %+v, want saved sets retained", unignored)
+	for _, ratingKey := range []string{"edition-a", "edition-b"} {
+		unignored, _ := c.GetMediaItemByRatingKey(ratingKey)
+		if unignored.IgnoredInDB || unignored.IgnoredMode != "" {
+			t.Fatalf("unignored edition %q = %+v", ratingKey, unignored)
+		}
+	}
+	other, _ := c.GetMediaItemByRatingKey("other")
+	if other.IgnoredInDB || other.IgnoredMode != "" {
+		t.Fatalf("unrelated TMDB edition changed: %+v", other)
 	}
 }
 

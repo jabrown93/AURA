@@ -1,12 +1,14 @@
 package database
 
 import (
+	"aura/cache"
 	"aura/config"
 	"aura/logging"
 	"aura/models"
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 )
 
 const LATEST_DB_VERSION = 6
@@ -217,7 +219,17 @@ func UpsertSavedItem(ctx context.Context, newItem models.DBSavedItem) (Err loggi
 	if Client == nil {
 		return logging.Error_DBClientNotInitialized()
 	}
-	return Client.UpsertSavedItem(ctx, newItem)
+	if Err = Client.UpsertSavedItem(ctx, newItem); Err.Message == "" {
+		refreshCachedSavedSets(ctx, newItem.MediaItem.TMDB_ID, newItem.MediaItem.LibraryTitle)
+	}
+	return Err
+}
+
+func refreshCachedSavedSets(ctx context.Context, tmdbID, libraryTitle string) {
+	_, _, sets, Err := Client.CheckIfMediaItemExists(ctx, tmdbID, libraryTitle)
+	if Err.Message == "" {
+		cache.LibraryStore.UpdateMediaItemDBSavedSets(libraryTitle, &models.MediaItem{TMDB_ID: tmdbID}, sets)
+	}
 }
 
 func CheckIfMediaItemExists(ctx context.Context, TMDB_ID, libraryTitle string) (ignored bool, ignoreMode string, sets []models.DBSavedSet, logErr logging.LogErrorInfo) {
@@ -259,7 +271,11 @@ func DeleteMediaItemAndIgnoredStatus(ctx context.Context, TMDB_ID, libraryTitle 
 	if Client == nil {
 		return logging.Error_DBClientNotInitialized()
 	}
-	return Client.DeleteMediaItemAndIgnoredStatus(ctx, TMDB_ID, libraryTitle)
+	if Err = Client.DeleteMediaItemAndIgnoredStatus(ctx, TMDB_ID, libraryTitle); Err.Message == "" {
+		cache.LibraryStore.UpdateMediaItemDBSavedSets(libraryTitle, &models.MediaItem{TMDB_ID: TMDB_ID}, nil)
+		cache.LibraryStore.SetIgnored(libraryTitle, TMDB_ID, false, "")
+	}
+	return Err
 }
 
 func GetAllSavedSets(ctx context.Context, dbFilter models.DBFilter) (out PagedSavedItems, logErr logging.LogErrorInfo) {
@@ -287,28 +303,44 @@ func DeletePosterSetForMediaItem(ctx context.Context, tmdbID, libraryTitle, setI
 	if Client == nil {
 		return logging.Error_DBClientNotInitialized()
 	}
-	return Client.DeletePosterSetForMediaItem(ctx, tmdbID, libraryTitle, setID)
+	if Err = Client.DeletePosterSetForMediaItem(ctx, tmdbID, libraryTitle, setID); Err.Message == "" {
+		refreshCachedSavedSets(ctx, tmdbID, libraryTitle)
+	}
+	return Err
 }
 
 func DeleteAllPosterSetsForMediaItem(ctx context.Context, tmdbID, libraryTitle string) (Err logging.LogErrorInfo) {
 	if Client == nil {
 		return logging.Error_DBClientNotInitialized()
 	}
-	return Client.DeleteAllPosterSetsForMediaItem(ctx, tmdbID, libraryTitle)
+	if Err = Client.DeleteAllPosterSetsForMediaItem(ctx, tmdbID, libraryTitle); Err.Message == "" {
+		cache.LibraryStore.UpdateMediaItemDBSavedSets(libraryTitle, &models.MediaItem{TMDB_ID: tmdbID}, nil)
+	}
+	return Err
 }
 
 func IgnoreMediaItem(ctx context.Context, tmdbID, libraryTitle, mode, currentSets string) (Err logging.LogErrorInfo) {
 	if Client == nil {
 		return logging.Error_DBClientNotInitialized()
 	}
-	return Client.IgnoreMediaItem(ctx, tmdbID, libraryTitle, mode, currentSets)
+	if Err = Client.IgnoreMediaItem(ctx, tmdbID, libraryTitle, mode, currentSets); Err.Message == "" {
+		var ignoredSets []string
+		if currentSets != "" {
+			ignoredSets = strings.Split(currentSets, ",")
+		}
+		cache.LibraryStore.SetIgnored(libraryTitle, tmdbID, true, mode, ignoredSets)
+	}
+	return Err
 }
 
 func StopIgnoringMediaItem(ctx context.Context, TMDB_ID, libraryTitle string) (Err logging.LogErrorInfo) {
 	if Client == nil {
 		return logging.Error_DBClientNotInitialized()
 	}
-	return Client.StopIgnoringMediaItem(ctx, TMDB_ID, libraryTitle)
+	if Err = Client.StopIgnoringMediaItem(ctx, TMDB_ID, libraryTitle); Err.Message == "" {
+		cache.LibraryStore.SetIgnored(libraryTitle, TMDB_ID, false, "")
+	}
+	return Err
 }
 
 func GetTempIgnoredItems(ctx context.Context) (items []models.MediaItem, Err logging.LogErrorInfo) {
