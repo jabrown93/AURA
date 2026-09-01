@@ -81,7 +81,7 @@ func DownloadImageFileForMediaItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response.Result = fmt.Sprintf("Sucessfully downloaded %s", utils.GetFileDownloadName(req.MediaItem.Title, req.ImageFile))
+	response.Result = fmt.Sprintf("Successfully downloaded %s", utils.GetFileDownloadName(req.MediaItem.Title, req.ImageFile))
 	response.UpdatedAt = req.MediaItem.UpdatedAt
 	httpx.SendResponse(w, ld, response)
 }
