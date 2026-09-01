@@ -23,25 +23,26 @@ func init() {
 }
 
 func (c *MediuxItemCache) StoreMediuxItems(movies, shows []models.MediuxContentID) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	items := make(map[string][]*models.MediuxContentID, 2)
+	storeUnique := func(itemType string, values []models.MediuxContentID) {
+		seen := make(map[string]struct{}, len(values))
+		for _, value := range values {
+			if value.ID == "" {
+				continue
+			}
+			if _, exists := seen[value.ID]; exists {
+				continue
+			}
+			seen[value.ID] = struct{}{}
+			items[itemType] = append(items[itemType], &models.MediuxContentID{ID: value.ID})
+		}
+	}
+	storeUnique("movie", movies)
+	storeUnique("show", shows)
 
-	for _, value := range movies {
-		if value.ID == "" {
-			continue
-		}
-		c.items["movie"] = append(c.items["movie"], &models.MediuxContentID{
-			ID: value.ID,
-		})
-	}
-	for _, value := range shows {
-		if value.ID == "" {
-			continue
-		}
-		c.items["show"] = append(c.items["show"], &models.MediuxContentID{
-			ID: value.ID,
-		})
-	}
+	c.mu.Lock()
+	c.items = items
+	c.mu.Unlock()
 }
 
 func (c *MediuxItemCache) GetMediuxItems() []models.MediuxContentID {
