@@ -57,36 +57,55 @@ func (c *MediaServerLibraryCache) ReplaceAllSections(sections []*models.LibraryS
 }
 
 func (c *MediaServerLibraryCache) replaceSectionLocked(section *models.LibrarySection) {
-	existingVersions := make(map[string]int64)
+	prepared := cloneLibrarySection(section)
+	var existingItems []models.MediaItem
 	if existing, found := c.sections[section.Title]; found {
-		for i := range existing.MediaItems {
-			key := mediaItemVersionKey(&existing.MediaItems[i])
-			if key != "" && existing.MediaItems[i].UpdatedAt > existingVersions[key] {
-				existingVersions[key] = existing.MediaItems[i].UpdatedAt
-			}
+		existingItems = existing.MediaItems
+	}
+
+	existingByRatingKey := make(map[string]*models.MediaItem, len(existingItems))
+	existingFallbacks := make(map[string][]*models.MediaItem, len(existingItems))
+	for i := range existingItems {
+		item := &existingItems[i]
+		if item.RatingKey != "" {
+			existingByRatingKey[item.RatingKey] = item
+		}
+		if key := mediaItemFallbackKey(item); key != "" {
+			existingFallbacks[key] = append(existingFallbacks[key], item)
+		}
+	}
+	preparedFallbackCounts := make(map[string]int, len(prepared.MediaItems))
+	for i := range prepared.MediaItems {
+		if key := mediaItemFallbackKey(&prepared.MediaItems[i]); key != "" {
+			preparedFallbackCounts[key]++
 		}
 	}
 
-	prepared := cloneLibrarySection(section)
 	items := make([]models.MediaItem, 0, len(prepared.MediaItems))
 	itemIndexes := make(map[string]int, len(prepared.MediaItems))
 	for i := range prepared.MediaItems {
 		item := &prepared.MediaItems[i]
 		item.UpdatedAt = hydratedVersion(item.UpdatedAt, c.generationFloor)
-		key := mediaItemVersionKey(item)
-		if item.UpdatedAt < existingVersions[key] {
-			item.UpdatedAt = existingVersions[key]
+		existing := existingByRatingKey[item.RatingKey]
+		if existing == nil {
+			key := mediaItemFallbackKey(item)
+			if candidates := existingFallbacks[key]; key != "" && len(candidates) == 1 && preparedFallbackCounts[key] == 1 {
+				existing = candidates[0]
+			}
+		}
+		if existing != nil {
+			preserveMutableMediaItemState(item, existing)
 		}
 		section.MediaItems[i].UpdatedAt = item.UpdatedAt
-		if index, duplicate := itemIndexes[key]; key != "" && duplicate {
+		if index, duplicate := itemIndexes[item.RatingKey]; item.RatingKey != "" && duplicate {
 			if item.UpdatedAt < items[index].UpdatedAt {
 				item.UpdatedAt = items[index].UpdatedAt
 			}
 			items[index] = *item
 			continue
 		}
-		if key != "" {
-			itemIndexes[key] = len(items)
+		if item.RatingKey != "" {
+			itemIndexes[item.RatingKey] = len(items)
 		}
 		items = append(items, *item)
 	}
@@ -95,14 +114,21 @@ func (c *MediaServerLibraryCache) replaceSectionLocked(section *models.LibrarySe
 	c.sections[prepared.Title] = prepared
 }
 
-func mediaItemVersionKey(item *models.MediaItem) string {
-	if item.TMDB_ID != "" {
-		return "tmdb_id:" + item.TMDB_ID
+func mediaItemFallbackKey(item *models.MediaItem) string {
+	if item.TMDB_ID == "" {
+		return ""
 	}
-	if item.RatingKey != "" {
-		return "rating_key:" + item.RatingKey
+	return item.Type + "\x00" + item.TMDB_ID
+}
+
+func preserveMutableMediaItemState(item, existing *models.MediaItem) {
+	item.DBSavedSets = append([]models.DBSavedSet(nil), existing.DBSavedSets...)
+	item.IgnoredInDB = existing.IgnoredInDB
+	item.IgnoredMode = existing.IgnoredMode
+	item.IgnoredSets = append([]string(nil), existing.IgnoredSets...)
+	if item.UpdatedAt < existing.UpdatedAt {
+		item.UpdatedAt = existing.UpdatedAt
 	}
-	return ""
 }
 
 // UpdateMediaItem updates a specific media item in a section
@@ -110,20 +136,31 @@ func (c *MediaServerLibraryCache) UpdateMediaItem(sectionTitle string, item *mod
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// Check if section exists
 	if section, exists := c.sections[sectionTitle]; exists {
-		existingItems := make(map[string]*models.MediaItem)
-		for i := range section.MediaItems {
-			key := mediaItemVersionKey(&section.MediaItems[i])
-			if key != "" {
-				existingItems[key] = &section.MediaItems[i]
+		var existingItem *models.MediaItem
+		if item.RatingKey != "" {
+			for i := range section.MediaItems {
+				if section.MediaItems[i].RatingKey == item.RatingKey {
+					existingItem = &section.MediaItems[i]
+					break
+				}
+			}
+		}
+		if existingItem == nil {
+			key := mediaItemFallbackKey(item)
+			for i := range section.MediaItems {
+				if key != "" && mediaItemFallbackKey(&section.MediaItems[i]) == key {
+					if existingItem != nil {
+						existingItem = nil
+						break
+					}
+					existingItem = &section.MediaItems[i]
+				}
 			}
 		}
 		item.UpdatedAt = hydratedVersion(item.UpdatedAt, c.generationFloor)
-		if existingItem, found := existingItems[mediaItemVersionKey(item)]; found {
-			if item.UpdatedAt < existingItem.UpdatedAt {
-				item.UpdatedAt = existingItem.UpdatedAt
-			}
+		if existingItem != nil {
+			preserveMutableMediaItemState(item, existingItem)
 			*existingItem = cloneMediaItem(item)
 		} else {
 			section.MediaItems = append(section.MediaItems, cloneMediaItem(item))
