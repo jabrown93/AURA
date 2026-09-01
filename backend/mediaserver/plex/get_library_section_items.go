@@ -27,13 +27,14 @@ func (p *Plex) PrepareLatestEpisodeAddedAt(ctx context.Context, section models.L
 	return Err
 }
 
-func (p *Plex) GetLibrarySectionItems(ctx context.Context, section models.LibrarySection, sectionStartIndex string, limit string) (items []models.MediaItem, totalSize int, Err logging.LogErrorInfo) {
+func (p *Plex) GetLibrarySectionItems(ctx context.Context, section models.LibrarySection, sectionStartIndex string, limit string) (items []models.MediaItem, rawItemCount int, totalSize int, Err logging.LogErrorInfo) {
 	ctx, logAction := logging.AddSubActionToContext(ctx, fmt.Sprintf(
 		"Plex: Fetching Items for Library Section: %s", section.Title,
 	), logging.LevelInfo)
 	defer logAction.Complete()
 
 	items = []models.MediaItem{}
+	rawItemCount = 0
 	totalSize = 0
 	Err = logging.LogErrorInfo{}
 
@@ -46,7 +47,7 @@ func (p *Plex) GetLibrarySectionItems(ctx context.Context, section models.Librar
 	u, err := url.Parse(config.Current.MediaServer.URL)
 	if err != nil {
 		logAction.SetError("Failed to parse base URL", "Ensure the URL is valid", map[string]any{"error": err.Error()})
-		return items, totalSize, *logAction.Error
+		return items, rawItemCount, totalSize, *logAction.Error
 	}
 	u.Path = path.Join(u.Path, "library", "sections", section.ID, "all")
 	query := u.Query()
@@ -60,7 +61,7 @@ func (p *Plex) GetLibrarySectionItems(ctx context.Context, section models.Librar
 	resp, respBody, Err := makeRequest(ctx, config.Current.MediaServer, URL, "GET", nil)
 	if Err.Message != "" {
 		logAction.SetErrorFromInfo(Err)
-		return items, totalSize, *logAction.Error
+		return items, rawItemCount, totalSize, *logAction.Error
 	}
 	defer resp.Body.Close()
 
@@ -68,9 +69,10 @@ func (p *Plex) GetLibrarySectionItems(ctx context.Context, section models.Librar
 	var plexResp PlexLibraryItemsWrapper
 	Err = httpx.DecodeResponseToJSON(ctx, respBody, &plexResp, "Plex Library Items Response")
 	if Err.Message != "" {
-		return items, totalSize, *logAction.Error
+		return items, rawItemCount, totalSize, *logAction.Error
 	}
 
+	rawItemCount = len(plexResp.MediaContainer.Metadata)
 	totalSize = plexResp.MediaContainer.TotalSize
 
 	for _, metadata := range plexResp.MediaContainer.Metadata {
@@ -135,8 +137,7 @@ func (p *Plex) GetLibrarySectionItems(ctx context.Context, section models.Librar
 
 		if item.TMDB_ID == "" {
 			logging.LOGGER.Warn().Timestamp().Str("item_title", item.Title).Str("library_section", section.Title).Msgf("Skipping item in '%s' as no TMDB ID could be found", section.Title)
-			totalSize-- // Decrement total size as this item will be skipped
-			continue    // Skip items without TMDB ID
+			continue // Keep server total intact so subsequent page offsets remain stable.
 		}
 
 		// Check if Media Item exists in MediUX with a set
@@ -160,7 +161,7 @@ func (p *Plex) GetLibrarySectionItems(ctx context.Context, section models.Librar
 		items[i].LatestEpisodeAddedAt = p.latestEpisodeAddedAtByShow[items[i].RatingKey]
 	}
 
-	return items, totalSize, logging.LogErrorInfo{}
+	return items, rawItemCount, totalSize, logging.LogErrorInfo{}
 }
 
 // fetchLatestEpisodeAddedAtByShow fetches all episodes for a library section in one bulk
