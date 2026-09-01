@@ -19,17 +19,51 @@ type pagedLibraryClient struct {
 	starts []string
 }
 
-func (f *pagedLibraryClient) GetLibrarySectionItems(_ context.Context, section models.LibrarySection, start, _ string) ([]models.MediaItem, int, logging.LogErrorInfo) {
+func (f *pagedLibraryClient) GetLibrarySectionItems(_ context.Context, section models.LibrarySection, start, _ string) ([]models.MediaItem, int, int, logging.LogErrorInfo) {
 	f.starts = append(f.starts, start)
 	if len(f.starts) == f.failAt {
-		return nil, 1001, logging.LogErrorInfo{Message: "page failed"}
+		return nil, 1, 1001, logging.LogErrorInfo{Message: "page failed"}
 	}
 	item := models.MediaItem{
 		TMDB_ID:      fmt.Sprintf("tmdb-%s", start),
 		RatingKey:    fmt.Sprintf("rating-%s", start),
 		LibraryTitle: section.Title,
 	}
-	return []models.MediaItem{item}, 1001, logging.LogErrorInfo{}
+	rawItemCount := 1
+	if start == "0" {
+		rawItemCount = 1000
+	}
+	return []models.MediaItem{item}, rawItemCount, 1001, logging.LogErrorInfo{}
+}
+
+type filteredMiddlePageClient struct {
+	MediaServerInterface
+	starts []string
+}
+
+func (f *filteredMiddlePageClient) GetLibrarySectionItems(_ context.Context, section models.LibrarySection, start, _ string) ([]models.MediaItem, int, int, logging.LogErrorInfo) {
+	f.starts = append(f.starts, start)
+	if start == "1000" {
+		return nil, 1000, 2001, logging.LogErrorInfo{}
+	}
+	return []models.MediaItem{{
+		TMDB_ID: "tmdb-" + start, RatingKey: "rating-" + start, LibraryTitle: section.Title,
+	}}, map[string]int{"0": 1000, "2000": 1}[start], 2001, logging.LogErrorInfo{}
+}
+
+func TestFetchSectionSnapshotContinuesAfterFilteredEmptyPage(t *testing.T) {
+	client := &filteredMiddlePageClient{}
+
+	snapshot, ok := fetchSectionSnapshot(context.Background(), client, models.LibrarySection{
+		LibrarySectionBase: models.LibrarySectionBase{Title: "TV"},
+	}, map[database.MediaItemKey]database.MediaItemState{})
+
+	if !ok || snapshot == nil || len(snapshot.MediaItems) != 2 || snapshot.TotalSize != 2 {
+		t.Fatalf("snapshot = %+v, success = %v; want valid items from pages before and after filtered page", snapshot, ok)
+	}
+	if fmt.Sprint(client.starts) != "[0 1000 2000]" {
+		t.Fatalf("page starts = %v, want raw offsets [0 1000 2000]", client.starts)
+	}
 }
 
 func TestFetchSectionSnapshotPreservesCacheWhenLaterPageFails(t *testing.T) {

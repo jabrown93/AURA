@@ -133,7 +133,7 @@ func fetchSectionSnapshot(ctx context.Context, msClient MediaServerInterface, se
 	expectedTotal := 0
 	allItems := make([]models.MediaItem, 0)
 	for {
-		items, totalSize, Err := msClient.GetLibrarySectionItems(ctx, section, strconv.Itoa(start), strconv.Itoa(pageSize))
+		items, rawItemCount, totalSize, Err := msClient.GetLibrarySectionItems(ctx, section, strconv.Itoa(start), strconv.Itoa(pageSize))
 		if Err.Message != "" {
 			return nil, false
 		}
@@ -160,15 +160,15 @@ func fetchSectionSnapshot(ctx context.Context, msClient MediaServerInterface, se
 			expectedTotal = totalSize
 		}
 		allItems = append(allItems, items...)
-		if len(items) == 0 {
+		if rawItemCount == 0 {
 			break
 		}
 
-		start += pageSize
+		start += rawItemCount
 		if expectedTotal > 0 && start >= expectedTotal {
 			break
 		}
-		if expectedTotal == 0 && len(items) < pageSize {
+		if expectedTotal == 0 && rawItemCount < pageSize {
 			break
 		}
 	}
