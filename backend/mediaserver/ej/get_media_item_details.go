@@ -71,7 +71,7 @@ func (e *EJ) GetMediaItemDetails(ctx context.Context, item *models.MediaItem) (f
 	item.Title = ejResp.Name
 	item.Year = ejResp.ProductionYear
 	item.ContentRating = ejResp.OfficialRating
-	item.UpdatedAt = ejResp.DateCreated.UnixMilli()
+	item.UpdatedAt = ejResp.DateCreated.UnixMicro()
 	item.ReleasedAt = ejResp.PremiereDate.UnixMilli()
 	item.Summary = ejResp.Overview
 	if ejResp.ProviderIds.Imdb != "" {

@@ -1,5 +1,7 @@
 package plex
 
+import "time"
+
 type PlexConnectionInfoWrapper struct {
 	MediaContainer PlexConnectionInfo `json:"MediaContainer"`
 }
@@ -241,4 +243,15 @@ type PlexServerConnections struct {
 	Local    bool   `json:"local"`
 	Relay    bool   `json:"relay"`
 	IPv6     bool   `json:"ipv6"`
+}
+
+// artworkVersion converts a Plex updatedAt, reported in Unix seconds, into the
+// microsecond unit the artwork cache versions with. Without this the value sits
+// ~6 orders of magnitude below the generation floor, clamps to it, and a poster
+// changed directly in Plex never busts the browser cache.
+func artworkVersion(updatedAtSeconds int64) int64 {
+	if updatedAtSeconds == 0 {
+		return 0
+	}
+	return time.Unix(updatedAtSeconds, 0).UnixMicro()
 }

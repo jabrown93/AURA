@@ -2,11 +2,26 @@ package routes_images
 
 import (
 	"aura/cache"
+	"aura/config"
 	"aura/logging"
 	"aura/mediaserver"
 	"aura/utils/httpx"
 	"net/http"
+	"strconv"
 )
+
+const (
+	versionedImageCacheControl   = "private, max-age=86400"
+	unversionedImageCacheControl = "private, no-store"
+)
+
+func setMediaImageCacheControl(w http.ResponseWriter, r *http.Request, updatedAt int64) {
+	if config.Current.MediaServer.Type == "Plex" && updatedAt > 0 && r.URL.Query().Get("v") == strconv.FormatInt(updatedAt, 10) {
+		w.Header().Set("Cache-Control", versionedImageCacheControl)
+		return
+	}
+	w.Header().Set("Cache-Control", unversionedImageCacheControl)
+}
 
 // GetMediaItemImage godoc
 // @Summary      Get Media Item Image
@@ -72,6 +87,7 @@ func GetMediaItemImage(w http.ResponseWriter, r *http.Request) {
 
 	// Set the content type for the response
 	w.Header().Set("Content-Type", "image/jpeg")
+	setMediaImageCacheControl(w, r, item.UpdatedAt)
 	// Write the image data to the response
 	w.WriteHeader(http.StatusOK)
 	w.Write(imageData)
@@ -133,6 +149,7 @@ func GetCollectionItemImage(w http.ResponseWriter, r *http.Request) {
 
 	// Set the content type for the response
 	w.Header().Set("Content-Type", "image/jpeg")
+	setMediaImageCacheControl(w, r, item.UpdatedAt)
 	// Write the image data to the response
 	w.WriteHeader(http.StatusOK)
 	w.Write(imageData)

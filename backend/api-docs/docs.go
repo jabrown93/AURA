@@ -4792,6 +4792,9 @@ const docTemplate = `{
                 },
                 "tmdb_id": {
                     "type": "string"
+                },
+                "updated_at": {
+                    "type": "integer"
                 }
             }
         },

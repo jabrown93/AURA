@@ -7,6 +7,7 @@ import (
 	"aura/utils"
 	"aura/utils/httpx"
 	"net/http"
+	"time"
 )
 
 // GetMediuxImage godoc
@@ -59,6 +60,13 @@ func GetMediuxImage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", imageType)
+	cacheControl := unversionedImageCacheControl
+	if assetID != "" {
+		if _, err := time.Parse(time.RFC3339Nano, modifiedDate); err == nil {
+			cacheControl = versionedImageCacheControl
+		}
+	}
+	w.Header().Set("Cache-Control", cacheControl)
 	w.WriteHeader(http.StatusOK)
 	w.Write(imageData)
 }
@@ -82,6 +90,7 @@ func GetMediuxAvatarImage(w http.ResponseWriter, r *http.Request) {
 	username := r.URL.Query().Get("username")
 
 	if avatarID == "" && username == "" {
+		logAction.SetError("Missing avatar identifier", "avatar_id or username is required", nil)
 		httpx.SendResponse(w, ld, nil)
 		return
 	} else if avatarID == "" && username != "" {
@@ -90,6 +99,7 @@ func GetMediuxAvatarImage(w http.ResponseWriter, r *http.Request) {
 		if found && cachedUser.Avatar != "" {
 			avatarID = cachedUser.Avatar
 		} else {
+			logAction.SetError("MediUX user avatar not found", "No avatar was found for the supplied username", map[string]any{"username": username})
 			httpx.SendResponse(w, ld, nil)
 			return
 		}
@@ -102,6 +112,7 @@ func GetMediuxAvatarImage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", imageType)
+	w.Header().Set("Cache-Control", unversionedImageCacheControl)
 	w.WriteHeader(http.StatusOK)
 	w.Write(imageData)
 
