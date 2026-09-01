@@ -26,7 +26,7 @@ func TestSuccessfulArtworkAppliesAdvanceParentVersions(t *testing.T) {
 	defer server.Close()
 
 	cleanupArtworkVersionTest(t, server.URL)
-	baseVersion := time.Now().UnixMicro() + 1000
+	baseVersion := time.Now().Add(time.Second).UnixMicro()
 	seasonNumber, episodeNumber := 1, 2
 	item := models.MediaItem{
 		RatingKey: "show-1", Type: "show", Title: "Show", LibraryTitle: "TV", UpdatedAt: baseVersion,
@@ -97,7 +97,7 @@ func TestFailedArtworkAppliesDoNotAdvanceVersions(t *testing.T) {
 	defer server.Close()
 
 	cleanupArtworkVersionTest(t, server.URL)
-	version := time.Now().UnixMicro() + 1000
+	version := time.Now().Add(time.Second).UnixMicro()
 	item := models.MediaItem{RatingKey: "movie-1", Type: "movie", Title: "Movie", LibraryTitle: "Movies", UpdatedAt: version}
 	cache.LibraryStore.UpdateSection(&models.LibrarySection{
 		LibrarySectionBase: models.LibrarySectionBase{Title: "Movies"},

@@ -79,7 +79,10 @@ func TestHydrationWritesMonotonicVersionsBackToResults(t *testing.T) {
 
 	browseResult := &models.LibrarySection{
 		LibrarySectionBase: models.LibrarySectionBase{Title: "Movies"},
-		MediaItems:         []models.MediaItem{{RatingKey: "section-item", UpdatedAt: 100}},
+		MediaItems: []models.MediaItem{
+			{RatingKey: "section-item", UpdatedAt: 100},
+			{RatingKey: "detail-item", UpdatedAt: 100},
+		},
 	}
 	library.UpdateSection(browseResult)
 	if got := browseResult.MediaItems[0].UpdatedAt; got != 700 {
@@ -148,7 +151,10 @@ func TestVersionOwnershipUsesRatingKeyWhenTMDBIDIsEmpty(t *testing.T) {
 
 	browseResult := &models.LibrarySection{
 		LibrarySectionBase: models.LibrarySectionBase{Title: "TV"},
-		MediaItems:         []models.MediaItem{{RatingKey: "show-1", Title: "One refreshed", UpdatedAt: 101}},
+		MediaItems: []models.MediaItem{
+			{RatingKey: "show-1", Title: "One refreshed", UpdatedAt: 101},
+			{RatingKey: "show-2", Title: "Two", UpdatedAt: 200},
+		},
 	}
 	library.UpdateSection(browseResult)
 

@@ -64,8 +64,8 @@ func (s *SQliteDB) GetAllMediaItemStates(ctx context.Context) (map[MediaItemKey]
 		if ignoreMode.Valid && trimmedIgnoreMode != "" {
 			state.Ignored = true
 			state.IgnoreMode = trimmedIgnoreMode
-			state.SavedSets = nil
-		} else if setID.Valid {
+		}
+		if setID.Valid {
 			state.SavedSets = append(state.SavedSets, models.DBSavedSet{
 				ID:          setID.String,
 				UserCreated: user.String,

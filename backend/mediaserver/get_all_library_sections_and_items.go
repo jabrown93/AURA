@@ -43,11 +43,7 @@ func getAllLibrarySectionsAndItemsImpl(ctx context.Context) (success bool) {
 	ctx, logAction := logging.AddSubActionToContext(ctx, "Fetching All Library Sections and Items", logging.LevelDebug)
 	defer logAction.Complete()
 
-	success = true
-
-	configuredSections := config.Current.MediaServer.Libraries
-
-	// Sort sections by Title to ensure consistent order
+	configuredSections := append([]models.LibrarySection(nil), config.Current.MediaServer.Libraries...)
 	sort.SliceStable(configuredSections, func(i, j int) bool {
 		return configuredSections[i].Title < configuredSections[j].Title
 	})
@@ -55,14 +51,13 @@ func getAllLibrarySectionsAndItemsImpl(ctx context.Context) (success bool) {
 	logAction.AppendResult("num_sections", len(configuredSections))
 
 	ejRanCollections := false
-
+	snapshots := make([]*models.LibrarySection, 0, len(configuredSections))
 	for _, section := range configuredSections {
 		found, Err := GetLibrarySectionDetails(ctx, &section)
 		if Err.Message != "" || !found {
-			continue
+			return false
 		}
 
-		// Update the collections cache for this section
 		if (section.Type == "movie" || section.Type == "mixed") && !ejRanCollections {
 			GetMovieCollections(ctx, section)
 			if config.Current.MediaServer.Type == "Emby" || config.Current.MediaServer.Type == "Jellyfin" {
@@ -70,12 +65,16 @@ func getAllLibrarySectionsAndItemsImpl(ctx context.Context) (success bool) {
 			}
 		}
 
-		if !fetchAndCacheSectionItems(ctx, section) {
+		snapshot, ok := buildSectionSnapshot(ctx, section)
+		if !ok {
 			return false
 		}
+		snapshots = append(snapshots, snapshot)
 	}
-	cache.LibraryStore.LastFullUpdate = time.Now().Unix()
-	cache.CollectionsStore.LastFullUpdate = time.Now().Unix()
+
+	updatedAt := time.Now().Unix()
+	cache.LibraryStore.ReplaceAllSections(snapshots, updatedAt)
+	cache.CollectionsStore.LastFullUpdate = updatedAt
 	return true
 }
 
@@ -99,12 +98,20 @@ func RefreshSectionItems(ctx context.Context, sectionTitle string) (success bool
 	return false
 }
 
-// fetchAndCacheSectionItems pages through a library section's items and upserts them into
-// the library cache. Returns false if a page fetch fails.
+// fetchAndCacheSectionItems publishes only after every page succeeds.
 func fetchAndCacheSectionItems(ctx context.Context, section models.LibrarySection) bool {
+	snapshot, ok := buildSectionSnapshot(ctx, section)
+	if !ok {
+		return false
+	}
+	cache.LibraryStore.UpdateSection(snapshot)
+	return true
+}
+
+func buildSectionSnapshot(ctx context.Context, section models.LibrarySection) (*models.LibrarySection, bool) {
 	msClient, Err := NewMediaServerClient(&config.Current.MediaServer)
 	if Err.Message != "" {
-		return false
+		return nil, false
 	}
 
 	states, stateErr := database.GetAllMediaItemStates(ctx)
@@ -117,24 +124,25 @@ func fetchAndCacheSectionItems(ctx context.Context, section models.LibrarySectio
 			logging.LOGGER.Warn().Timestamp().Str("section_title", section.Title).Str("error", prepareErr.Message).Msg("Failed to fetch latest episode dates")
 		}
 	}
+	return fetchSectionSnapshot(ctx, msClient, section, states)
+}
 
-	pageSize := 1000
+func fetchSectionSnapshot(ctx context.Context, msClient MediaServerInterface, section models.LibrarySection, states map[database.MediaItemKey]database.MediaItemState) (*models.LibrarySection, bool) {
+	const pageSize = 1000
 	start := 0
 	expectedTotal := 0
+	allItems := make([]models.MediaItem, 0)
 	for {
 		items, totalSize, Err := msClient.GetLibrarySectionItems(ctx, section, strconv.Itoa(start), strconv.Itoa(pageSize))
 		if Err.Message != "" {
-			return false
+			return nil, false
 		}
 		tmdbIDs := make([]string, 0, len(items))
 		for i := range items {
 			state := states[database.MediaItemKey{TMDBID: items[i].TMDB_ID, LibraryTitle: items[i].LibraryTitle}]
-			items[i].DBSavedSets = []models.DBSavedSet{}
+			items[i].DBSavedSets = append([]models.DBSavedSet(nil), state.SavedSets...)
 			items[i].IgnoredInDB = state.Ignored
 			items[i].IgnoredMode = state.IgnoreMode
-			if !state.Ignored && len(state.SavedSets) > 0 {
-				items[i].DBSavedSets = state.SavedSets
-			}
 			tmdbIDs = append(tmdbIDs, items[i].TMDB_ID)
 		}
 		if updateErr := database.UpdateMediaItemsOnServer(ctx, section.Title, tmdbIDs, true); updateErr.Message != "" {
@@ -151,22 +159,20 @@ func fetchAndCacheSectionItems(ctx context.Context, section models.LibrarySectio
 		if totalSize > 0 {
 			expectedTotal = totalSize
 		}
+		allItems = append(allItems, items...)
 		if len(items) == 0 {
 			break
 		}
 
-		sectionForCache := section
-		sectionForCache.TotalSize = expectedTotal
-		sectionForCache.MediaItems = items
-
-		// Update Library Cache
-		cache.LibraryStore.UpdateSection(&sectionForCache)
-
-		start += len(items)
-
+		start += pageSize
 		if expectedTotal > 0 && start >= expectedTotal {
 			break
 		}
+		if expectedTotal == 0 && len(items) < pageSize {
+			break
+		}
 	}
-	return true
+	section.MediaItems = allItems
+	section.TotalSize = len(allItems)
+	return &section, true
 }

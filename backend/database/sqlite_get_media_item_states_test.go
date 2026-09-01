@@ -48,6 +48,7 @@ func TestGetAllMediaItemStatesReturnsSavedSetsAndIgnoreModesInOneBulkRead(t *tes
 		`INSERT INTO SavedItems VALUES
 			('1', 'Movies', 7, 1, 0, 1, 0, 1),
 			('1', 'Movies', 7, 1, 0, 1, 0, 1),
+			('2', 'Movies', 7, 1, 0, 1, 0, 1),
 			('3', 'Movies', 99, 1, 0, 0, 0, 0)`,
 	}
 	for _, statement := range statements {
@@ -77,8 +78,8 @@ func TestGetAllMediaItemStatesReturnsSavedSetsAndIgnoreModesInOneBulkRead(t *tes
 	}
 
 	ignored := states[MediaItemKey{TMDBID: "2", LibraryTitle: "Movies"}]
-	if !ignored.Ignored || ignored.IgnoreMode != "until-set-available" || len(ignored.SavedSets) != 0 {
-		t.Fatalf("ignored state = %+v", ignored)
+	if !ignored.Ignored || ignored.IgnoreMode != "until-set-available" || len(ignored.SavedSets) != 1 || ignored.SavedSets[0].ID != "set-7" {
+		t.Fatalf("ignored state = %+v, want ignore and saved-set state retained independently", ignored)
 	}
 
 	unresolved := states[MediaItemKey{TMDBID: "3", LibraryTitle: "Movies"}]

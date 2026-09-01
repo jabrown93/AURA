@@ -133,8 +133,7 @@ func (e *EJ) GetLibrarySectionItems(ctx context.Context, section models.LibraryS
 		}
 		if item.TMDB_ID == "" {
 			logging.LOGGER.Warn().Timestamp().Str("item_title", item.Title).Str("library_section", section.Title).Msgf("Skipping item in '%s' as no TMDB ID could be found", section.Title)
-			totalSize-- // Decrement total size as this item will be skipped
-			continue    // Skip items without TMDB ID
+			continue // Keep server total intact so subsequent page offsets remain stable.
 		}
 
 		// Check if Media Item exists in MediUX with a set
