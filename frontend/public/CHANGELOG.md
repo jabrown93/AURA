@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.1.18](https://github.com/jabrown93/AURA/compare/v2.1.17...v2.1.18) (2026-09-01)
+
+
+### Bug Fixes
+
+* **deps:** update dependency zod to v4.5.4 ([7462af2](https://github.com/jabrown93/AURA/commit/7462af2c718fcc20ef266806e7a55d63f65fdc8b))
+* **images:** split artwork version from media timestamps ([#174](https://github.com/jabrown93/AURA/issues/174)) ([1dab8b9](https://github.com/jabrown93/AURA/commit/1dab8b908eec003ee4e74573a0defac88512a131)), closes [#162](https://github.com/jabrown93/AURA/issues/162)
+
 ## [2.1.17](https://github.com/jabrown93/AURA/compare/v2.1.16...v2.1.17) (2026-09-01)
 
 
