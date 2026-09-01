@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.17-beta.1](https://github.com/jabrown93/AURA/compare/v2.1.16...v2.1.17-beta.1) (2026-09-01)
+
+
+### Bug Fixes
+
+* **renovate:** avoid Bundler pin update failures ([#170](https://github.com/jabrown93/AURA/issues/170)) ([ec40655](https://github.com/jabrown93/AURA/commit/ec40655201e7b681f3948efad5c2f376a86593a4)), closes [#6](https://github.com/jabrown93/AURA/issues/6)
+
 ## [2.1.16](https://github.com/jabrown93/AURA/compare/v2.1.15...v2.1.16) (2026-09-01)
 
 
