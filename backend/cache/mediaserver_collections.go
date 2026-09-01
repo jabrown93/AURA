@@ -96,16 +96,16 @@ func (msc *MediaServerCollectionsCache) GetCollectionByRatingKey(ratingKey strin
 	return nil, false
 }
 
-// AdvanceCollectionUpdatedAt advances a cached collection image version atomically.
-func (msc *MediaServerCollectionsCache) AdvanceCollectionUpdatedAt(ratingKey string, now int64) (int64, bool) {
+// AdvanceCollectionArtworkVersion advances a cached collection image version atomically.
+func (msc *MediaServerCollectionsCache) AdvanceCollectionArtworkVersion(ratingKey string, now int64) (int64, bool) {
 	msc.mu.Lock()
 	defer msc.mu.Unlock()
 
 	for _, lib := range msc.collections {
 		for _, collection := range lib {
 			if collection.RatingKey == ratingKey {
-				collection.UpdatedAt = nextVersion(collection.UpdatedAt, now)
-				return collection.UpdatedAt, true
+				collection.ArtworkVersion = nextVersion(collection.ArtworkVersion, now)
+				return collection.ArtworkVersion, true
 			}
 		}
 	}
@@ -133,9 +133,10 @@ func (msc *MediaServerCollectionsCache) UpsertCollection(collection *models.Coll
 		lib = make(map[string]*models.CollectionItem)
 		msc.collections[collection.LibraryTitle] = lib
 	}
-	collection.UpdatedAt = hydratedVersion(collection.UpdatedAt, msc.generationFloor)
-	if existing := lib[collection.RatingKey]; existing != nil && collection.UpdatedAt < existing.UpdatedAt {
-		collection.UpdatedAt = existing.UpdatedAt
+	collection.ArtworkVersion = hydratedVersion(max(collection.UpdatedAt, collection.ArtworkVersion), msc.generationFloor)
+	if existing := lib[collection.RatingKey]; existing != nil {
+		collection.UpdatedAt = max(collection.UpdatedAt, existing.UpdatedAt)
+		collection.ArtworkVersion = max(collection.ArtworkVersion, existing.ArtworkVersion)
 	}
 	lib[collection.RatingKey] = collection
 }

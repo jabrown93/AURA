@@ -26,6 +26,7 @@ export interface MediaItem {
 
   has_mediux_sets: boolean;
   updated_at: number;
+  artwork_version: number;
   added_at: number;
   released_at: number;
   latest_episode_added_at: number;

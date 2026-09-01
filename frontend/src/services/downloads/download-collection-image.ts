@@ -17,7 +17,7 @@ export interface DownloadCollectionImage_Request {
 
 export interface DownloadCollectionImage_Response {
   result: string;
-  updated_at?: number;
+  artwork_version?: number;
 }
 
 export const DownloadImageFileForCollectionItem = async (
@@ -45,7 +45,7 @@ export const DownloadImageFileForCollectionItem = async (
         response.data.error?.message || `Unknown error downloading ${imageType} image and updating media server`
       );
     } else {
-      updateArtworkVersion(collectionItem, response.data.data?.updated_at);
+      updateArtworkVersion(collectionItem, response.data.data?.artwork_version);
       log(
         "INFO",
         "API - Media Server",

@@ -342,7 +342,7 @@ export default function CollectionItemPage() {
   return (
     <>
       <DimmedBackground
-        backdropURL={`/api/images/media/collection?rating_key=${collectionItem?.rating_key}&image_type=backdrop&v=${collectionItem?.updated_at}`}
+        backdropURL={`/api/images/media/collection?rating_key=${collectionItem?.rating_key}&image_type=backdrop&v=${collectionItem?.artwork_version}`}
       />
 
       <div className="p-4 lg:p-6">

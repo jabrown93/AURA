@@ -1,6 +1,4 @@
 basePath: /
-# yamllint disable rule:indentation
-# yamllint disable rule:line-length
 definitions:
   autodownload.AutoDownloadResult:
     properties:
@@ -763,6 +761,8 @@ definitions:
     type: object
   models.CollectionItem:
     properties:
+      artwork_version:
+        type: integer
       child_count:
         type: integer
       index:
@@ -995,6 +995,9 @@ definitions:
       added_at:
         description: Added timestamp
         type: integer
+      artwork_version:
+        description: Opaque image cache version
+        type: integer
       content_rating:
         description: Used in MediaItem Details Page - For more information about the
           item
@@ -1056,7 +1059,7 @@ definitions:
         description: '"movie" or "show"'
         type: string
       updated_at:
-        description: Last updated timestamp
+        description: Last updated timestamp from the media server
         type: integer
       year:
         description: Release year of the media item
@@ -1459,10 +1462,10 @@ definitions:
     type: object
   routes_download.DownloadCollectionImage_Response:
     properties:
+      artwork_version:
+        type: integer
       result:
         type: string
-      updated_at:
-        type: integer
     type: object
   routes_download.DownloadImageFileForMediaItem_Request:
     properties:
@@ -1473,10 +1476,10 @@ definitions:
     type: object
   routes_download.DownloadImageFileForMediaItem_Response:
     properties:
+      artwork_version:
+        type: integer
       result:
         type: string
-      updated_at:
-        type: integer
     type: object
   routes_download.GetAllCollectionDownloadQueueItems_Response:
     properties:

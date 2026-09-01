@@ -453,7 +453,7 @@ export function DynamicSearch({ placeholder = "Search", className }: DynamicSear
                                 subtitle={`${item.library_title} • ${item.year}`}
                                 href={`/media-item/`}
                                 isHighlighted={isHighlighted}
-                                imageSrc={`/api/images/media/item?rating_key=${item.rating_key}&image_type=poster&v=${item.updated_at}`}
+                                imageSrc={`/api/images/media/item?rating_key=${item.rating_key}&image_type=poster&v=${item.artwork_version}`}
                                 imageAlt={item.title}
                                 fallbackIcon={
                                   item.type === "movie" ? (
@@ -500,7 +500,7 @@ export function DynamicSearch({ placeholder = "Search", className }: DynamicSear
                                 subtitle={subtitle}
                                 href={`/saved-sets/`}
                                 isHighlighted={isHighlighted}
-                                imageSrc={`/api/images/media/item?rating_key=${set.media_item.rating_key}&image_type=poster&v=${set.media_item.updated_at}`}
+                                imageSrc={`/api/images/media/item?rating_key=${set.media_item.rating_key}&image_type=poster&v=${set.media_item.artwork_version}`}
                                 imageAlt={set.media_item.title}
                                 fallbackIcon={<Film className="h-4 w-4 text-muted-foreground" />}
                                 onLinkClick={() => {

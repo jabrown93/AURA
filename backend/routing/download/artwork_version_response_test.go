@@ -23,7 +23,7 @@ func TestArtworkApplyResponsesReturnAdvancedVersionOnCacheMiss(t *testing.T) {
 	baseVersion := time.Now().Add(time.Second).UnixMicro()
 
 	mediaItem := models.MediaItem{
-		RatingKey: "movie-1", Type: "movie", Title: "Movie", LibraryTitle: "Movies", UpdatedAt: baseVersion,
+		RatingKey: "movie-1", Type: "movie", Title: "Movie", LibraryTitle: "Movies", UpdatedAt: 100, ArtworkVersion: baseVersion,
 	}
 	mediaResponse := postArtworkApply[DownloadImageFileForMediaItem_Response](t, "/api/download/image/item", map[string]any{
 		"media_item": mediaItem,
@@ -32,12 +32,12 @@ func TestArtworkApplyResponsesReturnAdvancedVersionOnCacheMiss(t *testing.T) {
 	if mediaResponse.Status != "success" {
 		t.Fatalf("media response status = %q, want success", mediaResponse.Status)
 	}
-	if mediaResponse.Data.UpdatedAt != baseVersion+1 {
-		t.Fatalf("media response updated_at = %d, want %d", mediaResponse.Data.UpdatedAt, baseVersion+1)
+	if mediaResponse.Data.ArtworkVersion != baseVersion+1 {
+		t.Fatalf("media response artwork_version = %d, want %d", mediaResponse.Data.ArtworkVersion, baseVersion+1)
 	}
 
 	collection := models.CollectionItem{
-		RatingKey: "collection-1", LibraryTitle: "Movies", Title: "Collection", UpdatedAt: baseVersion,
+		RatingKey: "collection-1", LibraryTitle: "Movies", Title: "Collection", UpdatedAt: 100, ArtworkVersion: baseVersion,
 	}
 	collectionResponse := postArtworkApply[DownloadCollectionImage_Response](t, "/api/download/image/collection", map[string]any{
 		"collection_item": collection,
@@ -46,8 +46,8 @@ func TestArtworkApplyResponsesReturnAdvancedVersionOnCacheMiss(t *testing.T) {
 	if collectionResponse.Status != "success" {
 		t.Fatalf("collection response status = %q, want success", collectionResponse.Status)
 	}
-	if collectionResponse.Data.UpdatedAt != baseVersion+1 {
-		t.Fatalf("collection response updated_at = %d, want %d", collectionResponse.Data.UpdatedAt, baseVersion+1)
+	if collectionResponse.Data.ArtworkVersion != baseVersion+1 {
+		t.Fatalf("collection response artwork_version = %d, want %d", collectionResponse.Data.ArtworkVersion, baseVersion+1)
 	}
 }
 
@@ -60,7 +60,7 @@ func TestFailedArtworkApplyResponsesDoNotReturnVersion(t *testing.T) {
 	cleanupArtworkApplyResponseTest(t, server.URL)
 	baseVersion := time.Now().Add(time.Second).UnixMicro()
 	mediaItem := models.MediaItem{
-		RatingKey: "movie-1", Type: "movie", Title: "Movie", LibraryTitle: "Movies", UpdatedAt: baseVersion,
+		RatingKey: "movie-1", Type: "movie", Title: "Movie", LibraryTitle: "Movies", UpdatedAt: 100, ArtworkVersion: baseVersion,
 	}
 	cache.LibraryStore.UpdateSection(&models.LibrarySection{
 		LibrarySectionBase: models.LibrarySectionBase{Title: "Movies"},
@@ -71,26 +71,26 @@ func TestFailedArtworkApplyResponsesDoNotReturnVersion(t *testing.T) {
 		"media_item": mediaItem,
 		"image_file": models.ImageFile{ID: "poster", Type: "poster"},
 	}, DownloadImageFileForMediaItem)
-	if _, ok := response.Data["updated_at"]; ok {
-		t.Fatal("failed apply response returned updated_at")
+	if _, ok := response.Data["artwork_version"]; ok {
+		t.Fatal("failed apply response returned artwork_version")
 	}
-	if cached, _ := cache.LibraryStore.GetMediaItemByRatingKey(mediaItem.RatingKey); cached.UpdatedAt != baseVersion {
-		t.Fatalf("failed apply advanced version to %d", cached.UpdatedAt)
+	if cached, _ := cache.LibraryStore.GetMediaItemByRatingKey(mediaItem.RatingKey); cached.UpdatedAt != 100 || cached.ArtworkVersion != baseVersion {
+		t.Fatalf("failed apply changed item: %+v", cached)
 	}
 
 	collection := models.CollectionItem{
-		RatingKey: "collection-1", LibraryTitle: "Movies", Title: "Collection", UpdatedAt: baseVersion,
+		RatingKey: "collection-1", LibraryTitle: "Movies", Title: "Collection", UpdatedAt: 100, ArtworkVersion: baseVersion,
 	}
 	cache.CollectionsStore.UpsertCollection(&collection)
 	collectionResponse := postArtworkApply[map[string]any](t, "/api/download/image/collection", map[string]any{
 		"collection_item": collection,
 		"image_file":      models.ImageFile{ID: "collection-poster", Type: "collection_poster"},
 	}, DownloadImageFileForCollectionItem)
-	if _, ok := collectionResponse.Data["updated_at"]; ok {
-		t.Fatal("failed collection apply response returned updated_at")
+	if _, ok := collectionResponse.Data["artwork_version"]; ok {
+		t.Fatal("failed collection apply response returned artwork_version")
 	}
-	if cached, _ := cache.CollectionsStore.GetCollectionByRatingKey(collection.RatingKey); cached.UpdatedAt != baseVersion {
-		t.Fatalf("failed collection apply advanced version to %d", cached.UpdatedAt)
+	if cached, _ := cache.CollectionsStore.GetCollectionByRatingKey(collection.RatingKey); cached.UpdatedAt != 100 || cached.ArtworkVersion != baseVersion {
+		t.Fatalf("failed collection apply changed item: %+v", cached)
 	}
 }
 

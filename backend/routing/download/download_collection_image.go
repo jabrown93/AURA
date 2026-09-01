@@ -14,8 +14,8 @@ type DownloadCollectionImage_Request struct {
 }
 
 type DownloadCollectionImage_Response struct {
-	Result    string `json:"result"`
-	UpdatedAt int64  `json:"updated_at,omitempty"`
+	Result         string `json:"result"`
+	ArtworkVersion int64  `json:"artwork_version,omitempty"`
 }
 
 // DownloadImageFileForCollectionItem godoc
@@ -80,6 +80,6 @@ func DownloadImageFileForCollectionItem(w http.ResponseWriter, r *http.Request) 
 	}
 
 	response.Result = "ok"
-	response.UpdatedAt = req.CollectionItem.UpdatedAt
+	response.ArtworkVersion = req.CollectionItem.ArtworkVersion
 	httpx.SendResponse(w, ld, response)
 }

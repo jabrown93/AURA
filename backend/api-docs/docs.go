@@ -4765,6 +4765,9 @@ const docTemplate = `{
         "models.CollectionItem": {
             "type": "object",
             "properties": {
+                "artwork_version": {
+                    "type": "integer"
+                },
                 "child_count": {
                     "type": "integer"
                 },
@@ -5089,6 +5092,10 @@ const docTemplate = `{
                     "description": "Added timestamp",
                     "type": "integer"
                 },
+                "artwork_version": {
+                    "description": "Opaque image cache version",
+                    "type": "integer"
+                },
                 "content_rating": {
                     "description": "Used in MediaItem Details Page - For more information about the item",
                     "type": "string"
@@ -5174,7 +5181,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "updated_at": {
-                    "description": "Last updated timestamp",
+                    "description": "Last updated timestamp from the media server",
                     "type": "integer"
                 },
                 "year": {
@@ -5774,11 +5781,11 @@ const docTemplate = `{
         "routes_download.DownloadCollectionImage_Response": {
             "type": "object",
             "properties": {
+                "artwork_version": {
+                    "type": "integer"
+                },
                 "result": {
                     "type": "string"
-                },
-                "updated_at": {
-                    "type": "integer"
                 }
             }
         },
@@ -5796,11 +5803,11 @@ const docTemplate = `{
         "routes_download.DownloadImageFileForMediaItem_Response": {
             "type": "object",
             "properties": {
+                "artwork_version": {
+                    "type": "integer"
+                },
                 "result": {
                     "type": "string"
-                },
-                "updated_at": {
-                    "type": "integer"
                 }
             }
         },
