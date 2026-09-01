@@ -2,5 +2,12 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "local>jabrown93/.github:renovate-config"
+  ],
+  "packageRules": [
+    {
+      "description": "Work around Bundler pin bug: https://github.com/renovatebot/renovate/discussions/43902",
+      "matchManagers": ["bundler"],
+      "rangeStrategy": "update-lockfile"
+    }
   ]
 }
