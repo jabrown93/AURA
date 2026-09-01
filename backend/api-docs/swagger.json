@@ -5764,6 +5764,9 @@
             "properties": {
                 "result": {
                     "type": "string"
+                },
+                "updated_at": {
+                    "type": "integer"
                 }
             }
         },
@@ -5783,6 +5786,9 @@
             "properties": {
                 "result": {
                     "type": "string"
+                },
+                "updated_at": {
+                    "type": "integer"
                 }
             }
         },

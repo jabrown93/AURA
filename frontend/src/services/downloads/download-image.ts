@@ -1,5 +1,6 @@
 import apiClient from "@/services/api-client";
 import { ReturnErrorMessage } from "@/services/api-error-return";
+import { updateArtworkVersion } from "@/services/downloads/artwork-version";
 
 import { log } from "@/lib/logger";
 
@@ -13,7 +14,8 @@ export interface DownloadImageFileForMediaItem_Request {
 }
 
 export interface DownloadImageFileForMediaItem_Response {
-  message: string;
+  result: string;
+  updated_at?: number;
 }
 
 export const downloadImageFileForMediaItem = async (
@@ -35,6 +37,7 @@ export const downloadImageFileForMediaItem = async (
         response.data.error?.message || "Unknown error downloading poster file and updating media server"
       );
     }
+    updateArtworkVersion(mediaItem, response.data.data?.updated_at);
     return response.data;
   } catch (error) {
     log(

@@ -16,7 +16,8 @@ type DownloadImageFileForMediaItem_Request struct {
 }
 
 type DownloadImageFileForMediaItem_Response struct {
-	Result string `json:"result"`
+	Result    string `json:"result"`
+	UpdatedAt int64  `json:"updated_at,omitempty"`
 }
 
 // DownloadImageFileForMediaItem godoc
@@ -81,5 +82,6 @@ func DownloadImageFileForMediaItem(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response.Result = fmt.Sprintf("Sucessfully downloaded %s", utils.GetFileDownloadName(req.MediaItem.Title, req.ImageFile))
+	response.UpdatedAt = req.MediaItem.UpdatedAt
 	httpx.SendResponse(w, ld, response)
 }

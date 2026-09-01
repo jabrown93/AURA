@@ -1458,6 +1458,8 @@ definitions:
     properties:
       result:
         type: string
+      updated_at:
+        type: integer
     type: object
   routes_download.DownloadImageFileForMediaItem_Request:
     properties:
@@ -1470,6 +1472,8 @@ definitions:
     properties:
       result:
         type: string
+      updated_at:
+        type: integer
     type: object
   routes_download.GetAllCollectionDownloadQueueItems_Response:
     properties:

@@ -695,6 +695,7 @@ const MediaItemPage = () => {
             ignoredInDB={ignoredInDB}
             ignoredMode={ignoredMode}
             currentSetsAvailable={posterSets?.map((set) => set.id) || []}
+            onArtworkApplied={handleMediaItemChange}
           />
 
           {/* Loading and Error States */}
