@@ -211,6 +211,7 @@ func recoverMediuxRuntimeState(ctx context.Context) logging.LogErrorInfo {
 
 	failureMessage := ""
 	failureDetails := map[string]any{}
+	mediuxStageFailed := false
 	recordFailure := func(stage string, Err logging.LogErrorInfo) {
 		if failureMessage != "" {
 			failureMessage += "; "
@@ -221,15 +222,21 @@ func recoverMediuxRuntimeState(ctx context.Context) logging.LogErrorInfo {
 
 	if Err := preloadMediuxUsers(ctx); Err.Message != "" {
 		recordFailure("users preload", Err)
+		mediuxStageFailed = true
 	}
 	if Err := preloadMediuxItemsWithSets(ctx); Err.Message != "" {
 		recordFailure("items preload", Err)
+		mediuxStageFailed = true
 	}
 	if !refreshLibraryItems(ctx, true) {
 		recordFailure("library refresh", logging.LogErrorInfo{Message: "failed to refresh media server library"})
 	}
 	if failureMessage != "" {
-		config.MediuxReachable = false
+		// Only a failed MediUX request means MediUX itself is unreachable; a media
+		// server library refresh failure stays retryable without misreporting MediUX.
+		if mediuxStageFailed {
+			config.MediuxReachable = false
+		}
 		logAction.SetError("MediUX runtime recovery failed: "+failureMessage, "Recovery will retry until every required stage succeeds.", failureDetails)
 		return *logAction.Error
 	}

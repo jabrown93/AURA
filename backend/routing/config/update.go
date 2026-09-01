@@ -32,11 +32,17 @@ type updateConfigResponse struct {
 // caches without importing the main package.
 var RecoverMediuxRuntimeState func(context.Context) logging.LogErrorInfo
 
-func recoverMediuxAfterTokenCorrection(ctx context.Context, tokenCorrected bool) logging.LogErrorInfo {
+// recoverMediuxAfterTokenCorrection rebuilds runtime state for a corrected token.
+// The token itself is already validated and saved, so a failed rebuild is not a
+// config update failure: it stays visible through the status flags and the
+// background recheck loop keeps retrying.
+func recoverMediuxAfterTokenCorrection(ctx context.Context, tokenCorrected bool) {
 	if !tokenCorrected || RecoverMediuxRuntimeState == nil {
-		return logging.LogErrorInfo{}
+		return
 	}
-	return RecoverMediuxRuntimeState(ctx)
+	if Err := RecoverMediuxRuntimeState(ctx); Err.Message != "" {
+		logging.LOGGER.Warn().Timestamp().Msgf("MediUX runtime recovery after token correction failed: %s", Err.Message)
+	}
 }
 
 // UpdateConfig godoc
@@ -146,9 +152,7 @@ func UpdateAppConfig(w http.ResponseWriter, r *http.Request) {
 	config.MediuxValid = true
 	config.MediuxReachable = true
 
-	if recoveryErr := recoverMediuxAfterTokenCorrection(ctx, mediuxTokenCorrected); recoveryErr.Message != "" {
-		logAction.SetErrorFromInfo(recoveryErr)
-	}
+	recoverMediuxAfterTokenCorrection(ctx, mediuxTokenCorrected)
 
 	if autoDownloadChanged {
 		jobs.StartAutoDownloadJob()

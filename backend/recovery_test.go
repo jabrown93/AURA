@@ -59,15 +59,16 @@ func TestRecoverMediuxRuntimeStateReportsEveryStageFailure(t *testing.T) {
 	})
 
 	tests := []struct {
-		name          string
-		usersErr      logging.LogErrorInfo
-		itemsErr      logging.LogErrorInfo
-		libraryOK     bool
-		wantSubstring string
+		name                string
+		usersErr            logging.LogErrorInfo
+		itemsErr            logging.LogErrorInfo
+		libraryOK           bool
+		wantSubstring       string
+		wantMediuxReachable bool
 	}{
 		{name: "users preload", usersErr: logging.LogErrorInfo{Message: "users failed"}, libraryOK: true, wantSubstring: "users failed"},
 		{name: "items preload", itemsErr: logging.LogErrorInfo{Message: "items failed"}, libraryOK: true, wantSubstring: "items failed"},
-		{name: "library refresh", libraryOK: false, wantSubstring: "library"},
+		{name: "library refresh", libraryOK: false, wantSubstring: "library", wantMediuxReachable: true},
 	}
 
 	for _, tt := range tests {
@@ -86,6 +87,7 @@ func TestRecoverMediuxRuntimeStateReportsEveryStageFailure(t *testing.T) {
 				return tt.libraryOK
 			}
 
+			config.MediuxReachable = true
 			Err := recoverMediuxRuntimeState(recoveryTestContext())
 
 			if Err.Message == "" {
@@ -96,6 +98,9 @@ func TestRecoverMediuxRuntimeStateReportsEveryStageFailure(t *testing.T) {
 			}
 			if !strings.Contains(Err.Message, tt.wantSubstring) {
 				t.Fatalf("recovery error = %q, want substring %q", Err.Message, tt.wantSubstring)
+			}
+			if config.MediuxReachable != tt.wantMediuxReachable {
+				t.Fatalf("MediuxReachable = %v, want %v", config.MediuxReachable, tt.wantMediuxReachable)
 			}
 		})
 	}

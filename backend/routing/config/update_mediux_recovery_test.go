@@ -16,18 +16,14 @@ func TestRecoverMediuxAfterTokenCorrectionUsesRuntimeRecoveryCallback(t *testing
 		return logging.LogErrorInfo{Message: "items preload failed"}
 	}
 
-	Err := recoverMediuxAfterTokenCorrection(context.Background(), true)
-	if Err.Message != "items preload failed" {
-		t.Fatalf("recovery error = %q, want %q", Err.Message, "items preload failed")
-	}
+	// A failed recovery must not surface to the caller: the saved token is still
+	// valid, and the background recheck loop retries the rebuild.
+	recoverMediuxAfterTokenCorrection(context.Background(), true)
 	if calls != 1 {
 		t.Fatalf("recovery calls = %d, want 1", calls)
 	}
 
-	Err = recoverMediuxAfterTokenCorrection(context.Background(), false)
-	if Err.Message != "" {
-		t.Fatalf("unchanged token recovery error = %q, want none", Err.Message)
-	}
+	recoverMediuxAfterTokenCorrection(context.Background(), false)
 	if calls != 1 {
 		t.Fatalf("recovery calls after unchanged token = %d, want 1", calls)
 	}
