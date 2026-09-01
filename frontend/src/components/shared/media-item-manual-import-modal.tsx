@@ -34,6 +34,7 @@ export type MediaItemManualImportModalProps = {
   mediaItem: MediaItem;
   isOpen: boolean;
   onClose: () => void;
+  onArtworkApplied?: (item: MediaItem) => void;
 };
 
 type ImportTaskStatus = "pending" | "in-progress" | "completed" | "failed";
@@ -66,7 +67,7 @@ const getImportPercentComplete = (progress: ImportProgress) => {
   return Math.min(100, Math.round((done / total) * 100));
 };
 
-export function ManualImportModal({ mediaItem, isOpen, onClose }: MediaItemManualImportModalProps) {
+export function ManualImportModal({ mediaItem, isOpen, onClose, onArtworkApplied }: MediaItemManualImportModalProps) {
   // States for YAML text input
   const [yamlText, setYamlText] = useState("");
   const [isValidYaml, setIsValidYaml] = useState(false);
@@ -197,6 +198,7 @@ export function ManualImportModal({ mediaItem, isOpen, onClose }: MediaItemManua
       if (response.status === "error") {
         throw new Error(response.error?.message || "Unknown error");
       }
+      onArtworkApplied?.({ ...mediaItem });
 
       updateImportTask(t.id, (task) => ({ ...task, status: "completed" }));
     } catch (error) {

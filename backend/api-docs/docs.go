@@ -5776,6 +5776,9 @@ const docTemplate = `{
             "properties": {
                 "result": {
                     "type": "string"
+                },
+                "updated_at": {
+                    "type": "integer"
                 }
             }
         },
@@ -5795,6 +5798,9 @@ const docTemplate = `{
             "properties": {
                 "result": {
                     "type": "string"
+                },
+                "updated_at": {
+                    "type": "integer"
                 }
             }
         },

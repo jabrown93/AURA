@@ -696,6 +696,7 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
       if (response.status === "error") {
         throw new Error(response.error?.message || "Unknown error");
       }
+      onDownloadComplete?.({ ...payload.mediaItem });
 
       updateTask(taskId, (t) => ({ ...t, status: "completed" }));
       return true;

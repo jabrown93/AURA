@@ -471,7 +471,11 @@ export default function CollectionItemPage() {
                     <div className="relative w-full mb-1">
                       {/* Download Button - absolute top right */}
                       <div className="absolute top-0 right-0 z-10">
-                        <CollectionsDownloadModal item={collectionItem} set={set} />
+                        <CollectionsDownloadModal
+                          item={collectionItem}
+                          set={set}
+                          onArtworkApplied={setCollectionItem}
+                        />
                       </div>
                       {/* Set Name */}
                       <P className="text-primary-dynamic text-sm font-semibold w-full mb-1 truncate pr-10">

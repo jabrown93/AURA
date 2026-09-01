@@ -15,10 +15,12 @@ export function CarouselDisplay({
   sets,
   includedItems = {},
   dimNotFound = false,
+  onArtworkApplied,
 }: {
   sets: SetRef[];
   includedItems?: { [tmdb_id: string]: IncludedItem };
   dimNotFound?: boolean;
+  onArtworkApplied?: (item: MediaItem) => void;
 }) {
   const downloadDefaultTypes = useUserPreferencesStore((state) => state.downloadDefaults);
   const showOnlyDownloadDefaults = useUserPreferencesStore((state) => state.showOnlyDownloadDefaults);
@@ -86,6 +88,7 @@ export function CarouselDisplay({
                             className={`w-full ${!isAvailable && dimNotFound ? "opacity-35" : ""}`}
                             includedItems={includedItems}
                             matchedToItem={isAvailable}
+                            onArtworkApplied={onArtworkApplied}
                           />
                         ))}
                       {shouldShow("backdrop") &&
@@ -98,6 +101,7 @@ export function CarouselDisplay({
                             className={`w-full ${!isAvailable && dimNotFound ? "opacity-35" : ""}`}
                             includedItems={includedItems}
                             matchedToItem={isAvailable}
+                            onArtworkApplied={onArtworkApplied}
                           />
                         ))}
                     </div>
@@ -190,6 +194,7 @@ export function CarouselDisplay({
                           }`}
                           includedItems={includedItems}
                           matchedToItem={hasSeason(includedItems, tmdbId, seasonNum)}
+                          onArtworkApplied={onArtworkApplied}
                         />
                       )}
 
@@ -203,6 +208,7 @@ export function CarouselDisplay({
                           }`}
                           includedItems={includedItems}
                           matchedToItem={hasSeason(includedItems, tmdbId, seasonNum)}
+                          onArtworkApplied={onArtworkApplied}
                         />
                       )}
 
@@ -216,6 +222,7 @@ export function CarouselDisplay({
                           }`}
                           includedItems={includedItems}
                           matchedToItem={hasSeason(includedItems, tmdbId, seasonNum)}
+                          onArtworkApplied={onArtworkApplied}
                         />
                       )}
                     </div>
@@ -302,6 +309,7 @@ export function CarouselDisplay({
                                   card.season_number || 0,
                                   card.episode_number
                                 )}
+                                onArtworkApplied={onArtworkApplied}
                               />
                             </div>
                           </CarouselItem>

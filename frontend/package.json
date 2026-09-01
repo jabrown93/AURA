@@ -11,7 +11,7 @@
     "format": "prettier -l --write \"**/*.{ts,tsx,md,json,js,jsx}\"",
     "format:check": "prettier -l \"**/*.{ts,tsx,md,json,js,jsx}\"",
     "typecheck": "tsc --noEmit",
-    "test": "node --no-warnings --test --experimental-strip-types src/components/layout/app-status-warning.test.ts src/services/mediaserver/collect-library-pages.test.ts",
+    "test": "node --no-warnings --test --experimental-strip-types rc/components/layout/app-status-warning.test.ts src/services/mediaserver/collect-library-pages.test.ts src/services/downloads/artwork-version.test.ts",
     "audit": "npm audit",
     "audit:fix": "npm audit fix"
   },
@@ -42,7 +42,7 @@
     "fast-blurhash": "1.2.0",
     "idb-keyval": "6.3.0",
     "js-yaml": "5.4.1",
-    "lucide-react": "1.35.0",
+    "lucide-react": "1.37.0",
     "motion": "13.1.1",
     "next": "16.3.3",
     "next-themes": "0.4.6",
@@ -54,7 +54,7 @@
     "sonner": "2.0.8",
     "tailwind-merge": "3.6.0",
     "vaul": "1.1.2",
-    "zod": "4.5.1",
+    "zod": "4.5.2",
     "zustand": "5.0.15"
   },
   "devDependencies": {
