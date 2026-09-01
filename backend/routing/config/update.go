@@ -28,6 +28,23 @@ type updateConfigResponse struct {
 	Status  AppConfigStatus `json:"status"`
 }
 
+// RecoverMediuxRuntimeState is set by main so config updates can rebuild runtime
+// caches without importing the main package.
+var RecoverMediuxRuntimeState func(context.Context) logging.LogErrorInfo
+
+// recoverMediuxAfterTokenCorrection rebuilds runtime state for a corrected token.
+// The token itself is already validated and saved, so a failed rebuild is not a
+// config update failure: it stays visible through the status flags and the
+// background recheck loop keeps retrying.
+func recoverMediuxAfterTokenCorrection(ctx context.Context, tokenCorrected bool) {
+	if !tokenCorrected || RecoverMediuxRuntimeState == nil {
+		return
+	}
+	if Err := RecoverMediuxRuntimeState(ctx); Err.Message != "" {
+		logging.LOGGER.Warn().Timestamp().Msgf("MediUX runtime recovery after token correction failed: %s", Err.Message)
+	}
+}
+
 // UpdateConfig godoc
 // @Summary      Update Config
 // @Description  Update the application configuration
@@ -60,6 +77,7 @@ func UpdateAppConfig(w http.ResponseWriter, r *http.Request) {
 	loggingChanged, loggingValid := checkConfigDifferences_Logging(ctx, config.Current.Logging, &newConfig.Logging)
 	mediaServerChanged, mediaServerValid, newMediaServerName := checkConfigDifferences_MediaServer(ctx, config.Current.MediaServer, &newConfig.MediaServer)
 	mediuxChanged, mediuxValid := checkConfigDifferences_Mediux(ctx, config.Current.Mediux, &newConfig.Mediux)
+	mediuxTokenCorrected := !config.MediuxValid && config.Current.Mediux.ApiToken != newConfig.Mediux.ApiToken
 	autoDownloadChanged, autoDownloadValid := checkConfigDifferences_Autodownload(ctx, config.Current.AutoDownload, &newConfig.AutoDownload)
 	imagesChanged, imagesValid := checkConfigDifferences_Images(ctx, config.Current.Images, &newConfig.Images, newConfig.MediaServer)
 	tmdbChanged, tmdbValid := checkConfigDifferences_TMDB(ctx, config.Current.TMDB, &newConfig.TMDB)
@@ -134,6 +152,8 @@ func UpdateAppConfig(w http.ResponseWriter, r *http.Request) {
 	config.MediuxValid = true
 	config.MediuxReachable = true
 
+	recoverMediuxAfterTokenCorrection(ctx, mediuxTokenCorrected)
+
 	if autoDownloadChanged {
 		jobs.StartAutoDownloadJob()
 	}
@@ -154,6 +174,7 @@ func UpdateAppConfig(w http.ResponseWriter, r *http.Request) {
 		NeedsSetup:           config.NeedsSetup(),
 		MediaServerReachable: config.MediaServerReachable,
 		MediuxReachable:      config.MediuxReachable,
+		MediuxValid:          config.MediuxValid,
 		CurrentSetup:         *newConfig.SanitizeConfig(ctx),
 		MediaServerName:      config.MediaServerName,
 	}

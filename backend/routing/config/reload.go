@@ -42,6 +42,7 @@ func ReloadAppConfig(w http.ResponseWriter, r *http.Request) {
 		NeedsSetup:           config.NeedsSetup(),
 		MediaServerReachable: config.MediaServerReachable,
 		MediuxReachable:      config.MediuxReachable,
+		MediuxValid:          config.MediuxValid,
 		CurrentSetup:         *sanitizedConfig,
 		MediaServerName:      config.MediaServerName,
 	}

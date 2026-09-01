@@ -11,6 +11,7 @@ import (
 	"aura/logging"
 	"aura/notification"
 	"aura/routing"
+	routes_config "aura/routing/config"
 	"context"
 	"os"
 	"strings"
@@ -42,6 +43,14 @@ func init() {
 }
 
 func main() {
+	routes_config.RecoverMediuxRuntimeState = func(ctx context.Context) logging.LogErrorInfo {
+		Err := recoverMediuxRuntimeState(ctx)
+		if Err.Message != "" {
+			go recheckMediuxUntilReachable()
+		}
+		return Err
+	}
+
 	// Serve immediately with onboarding/public routes first.
 	config.AppFullyLoaded = false
 	config.AppVersion = APP_VERSION
@@ -111,13 +120,6 @@ func main() {
 		// Config is valid. Attempt preflight; on success, activate the full routes.
 		if runPreFlight() {
 			activateFullRoutes()
-			if !config.MediuxReachable {
-				// Activated in a degraded state. Preflight only runs again at
-				// onboarding, and activated is already closed so the retry loop below
-				// would exit immediately, so the MediUX flags would stay false until a
-				// restart. Poll MediUX on its own until the outage clears.
-				go recheckMediuxUntilReachable()
-			}
 			return
 		}
 
@@ -167,9 +169,9 @@ func retryPreFlightUntilReady(activateFullRoutes func(), activated <-chan struct
 }
 
 // recheckMediuxUntilReachable re-validates the MediUX token on an interval after
-// the app came up with MediUX unreachable, so its flags recover once the outage
-// ends. It re-checks MediUX alone rather than re-running preflight, which would
-// overwrite config.AppLoadingStep on an already-loaded app.
+// the app came up with MediUX unreachable, so its flags and MediUX-derived caches
+// recover once the outage ends. It re-checks MediUX alone rather than re-running
+// warmup, which would duplicate jobs and listeners on an already-loaded app.
 func recheckMediuxUntilReachable() {
 	ticker := time.NewTicker(preflightRetryInterval)
 	defer ticker.Stop()
@@ -177,11 +179,66 @@ func recheckMediuxUntilReachable() {
 		ctx, ld := logging.CreateLoggingContext(context.Background(), "MediUX Recheck")
 		action := ld.AddAction("Rechecking MediUX Availability", logging.LevelInfo)
 		ctx = logging.WithCurrentAction(ctx, action)
-		result := validateMediuxToken(ctx)
+		result, recoveryErr := handleMediuxRecheck(ctx, validateMediuxToken, recoverMediuxRuntimeState)
+		if recoveryErr.Message != "" {
+			action.SetErrorFromInfo(recoveryErr)
+		}
 		action.Complete()
 		ld.Log()
-		if result != mediuxUnreachable {
+		if result == mediuxTokenRejected || result == mediuxTokenAccepted && recoveryErr.Message == "" {
 			return
 		}
 	}
+}
+
+func handleMediuxRecheck(
+	ctx context.Context,
+	validate func(context.Context) mediuxTokenResult,
+	recoverRuntimeState func(context.Context) logging.LogErrorInfo,
+) (mediuxTokenResult, logging.LogErrorInfo) {
+	result := validate(ctx)
+	if result == mediuxTokenAccepted {
+		return result, recoverRuntimeState(ctx)
+	}
+	return result, logging.LogErrorInfo{}
+}
+
+// recoverMediuxRuntimeState rebuilds MediUX-derived caches as one required
+// pipeline. Full library refresh recalculates HasMediuxSets after publication.
+func recoverMediuxRuntimeState(ctx context.Context) logging.LogErrorInfo {
+	ctx, logAction := logging.AddSubActionToContext(ctx, "Recovering MediUX Runtime State", logging.LevelInfo)
+	defer logAction.Complete()
+
+	failureMessage := ""
+	failureDetails := map[string]any{}
+	mediuxStageFailed := false
+	recordFailure := func(stage string, Err logging.LogErrorInfo) {
+		if failureMessage != "" {
+			failureMessage += "; "
+		}
+		failureMessage += stage + ": " + Err.Message
+		failureDetails[stage] = Err
+	}
+
+	if Err := preloadMediuxUsers(ctx); Err.Message != "" {
+		recordFailure("users preload", Err)
+		mediuxStageFailed = true
+	}
+	if Err := preloadMediuxItemsWithSets(ctx); Err.Message != "" {
+		recordFailure("items preload", Err)
+		mediuxStageFailed = true
+	}
+	if !refreshLibraryItems(ctx, true) {
+		recordFailure("library refresh", logging.LogErrorInfo{Message: "failed to refresh media server library"})
+	}
+	if failureMessage != "" {
+		// Only a failed MediUX request means MediUX itself is unreachable; a media
+		// server library refresh failure stays retryable without misreporting MediUX.
+		if mediuxStageFailed {
+			config.MediuxReachable = false
+		}
+		logAction.SetError("MediUX runtime recovery failed: "+failureMessage, "Recovery will retry until every required stage succeeds.", failureDetails)
+		return *logAction.Error
+	}
+	return logging.LogErrorInfo{}
 }
