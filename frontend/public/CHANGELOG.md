@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.1.13-beta.1](https://github.com/jabrown93/AURA/compare/v2.1.12...v2.1.13-beta.1) (2026-09-01)
+
+
+### Bug Fixes
+
+* **images:** cache protected images safely ([#152](https://github.com/jabrown93/AURA/issues/152)) ([907a0fa](https://github.com/jabrown93/AURA/commit/907a0fa0b8258f809fad538df93a97a6d6c7288d))
+* **startup:** allow startup during MediUX outage ([#150](https://github.com/jabrown93/AURA/issues/150)) ([32d36b1](https://github.com/jabrown93/AURA/commit/32d36b1a03eabd2820fe5f896ae1344157fc79d6))
+
 ## [2.1.12](https://github.com/jabrown93/AURA/compare/v2.1.11...v2.1.12) (2026-08-31)
 
 
