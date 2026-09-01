@@ -4,6 +4,8 @@ export interface AppStatusResponse {
   config_loaded: boolean;
   config_valid: boolean;
   needs_setup: boolean;
+  media_server_reachable: boolean;
+  mediux_reachable: boolean;
   current_setup: AppConfig;
   media_server_name?: string;
   mediux_site_link?: string;

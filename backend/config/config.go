@@ -12,13 +12,15 @@ var (
 	ConfigPath string = ""
 
 	// Flags to track config loading and validation status
-	Loaded           bool   = false
-	Valid            bool   = false
-	MediaServerValid bool   = true
-	MediaServerName  string = ""
-	MediuxValid      bool   = true
-	AppFullyLoaded   bool   = false
-	AppLoadingStep   string = ""
+	Loaded               bool   = false
+	Valid                bool   = false
+	MediaServerValid     bool   = true
+	MediaServerReachable bool   = true
+	MediaServerName      string = ""
+	MediuxValid          bool   = true
+	MediuxReachable      bool   = true
+	AppFullyLoaded       bool   = false
+	AppLoadingStep       string = ""
 
 	// App Details
 	AppName    string = ""
@@ -27,6 +29,14 @@ var (
 	AppPort    int    = 0
 	AppVersion string = ""
 )
+
+// NeedsSetup reports whether the user still has to complete onboarding. It
+// deliberately covers config well-formedness only: an unreachable media server
+// or MediUX is a degraded runtime state the UI flags separately, not a reason to
+// send the user back through setup while the app is otherwise serving.
+func NeedsSetup() bool {
+	return !(Loaded && Valid)
+}
 
 type Config struct {
 	Auth          Config_Auth              `json:"auth" yaml:"Auth,omitempty"`                     // Authentication settings.
