@@ -129,8 +129,10 @@ func UpdateAppConfig(w http.ResponseWriter, r *http.Request) {
 	config.Loaded = true
 	config.Valid = true
 	config.MediaServerValid = true
+	config.MediaServerReachable = true
 	config.MediaServerName = newMediaServerName
 	config.MediuxValid = true
+	config.MediuxReachable = true
 
 	if autoDownloadChanged {
 		jobs.StartAutoDownloadJob()
@@ -147,11 +149,13 @@ func UpdateAppConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response.Status = AppConfigStatus{
-		ConfigLoaded:    config.Loaded,
-		ConfigValid:     (config.Valid && config.MediuxValid && config.MediaServerValid),
-		NeedsSetup:      !(config.Loaded && config.Valid && config.MediuxValid && config.MediaServerValid),
-		CurrentSetup:    *newConfig.SanitizeConfig(ctx),
-		MediaServerName: config.MediaServerName,
+		ConfigLoaded:         config.Loaded,
+		ConfigValid:          config.Valid,
+		NeedsSetup:           config.NeedsSetup(),
+		MediaServerReachable: config.MediaServerReachable,
+		MediuxReachable:      config.MediuxReachable,
+		CurrentSetup:         *newConfig.SanitizeConfig(ctx),
+		MediaServerName:      config.MediaServerName,
 	}
 
 	httpx.SendResponse(w, ld, response)

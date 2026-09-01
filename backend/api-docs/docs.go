@@ -4792,6 +4792,9 @@ const docTemplate = `{
                 },
                 "tmdb_id": {
                     "type": "string"
+                },
+                "updated_at": {
+                    "type": "integer"
                 }
             }
         },
@@ -5541,6 +5544,14 @@ const docTemplate = `{
                 "media_server_name": {
                     "description": "Friendly name of the media server",
                     "type": "string"
+                },
+                "media_server_reachable": {
+                    "description": "Whether the media server answered the last check",
+                    "type": "boolean"
+                },
+                "mediux_reachable": {
+                    "description": "Whether MediUX answered the last check",
+                    "type": "boolean"
                 },
                 "mediux_site_link": {
                     "description": "Current Mediux site link",

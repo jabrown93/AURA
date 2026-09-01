@@ -84,6 +84,7 @@ func runPreFlight() (success bool) {
 	connectionOk, serverName, serverVersion, msErr := mediaserver.TestConnection(ctx, &config.Current.MediaServer)
 	if msErr.Message != "" || !connectionOk || serverVersion == "" || serverName == "" {
 		config.MediaServerValid = false
+		config.MediaServerReachable = false
 		return success
 	}
 	if config.Current.MediaServer.Type == "Jellyfin" || config.Current.MediaServer.Type == "Emby" {
@@ -92,9 +93,11 @@ func runPreFlight() (success bool) {
 		ejUserID, initErr := mediaserver.GetAdminUser(ctx, &config.Current.MediaServer)
 		if initErr.Message != "" {
 			config.MediaServerValid = false
+			config.MediaServerReachable = false
 			return success
 		} else if ejUserID == "" {
 			config.MediaServerValid = false
+			config.MediaServerReachable = false
 			logging.LOGGER.Error().Timestamp().Msg("Failed to retrieve admin user ID from Emby/Jellyfin server")
 			return success
 		}
@@ -105,12 +108,14 @@ func runPreFlight() (success bool) {
 		Str("media_server_version", serverVersion).
 		Msg("Media Server connection validated successfully")
 	config.MediaServerValid = true
+	config.MediaServerReachable = true
 
 	// Validate MediUX Token
 	config.AppLoadingStep = "Validating MediUX Token"
-	mediuxTokenValid, mediuxErr := mediux.ValidateToken(ctx, config.Current.Mediux.ApiToken)
-	if mediuxErr.Message != "" || !mediuxTokenValid {
-		config.MediuxValid = false
+	if validateMediuxToken(ctx) == mediuxTokenRejected {
+		// MediUX answered and refused the token, so the configured token is wrong.
+		// Fail preflight to keep the app on onboarding until the user fixes it,
+		// rather than starting degraded as we do for an outage.
 		return success
 	}
 
@@ -119,6 +124,44 @@ func runPreFlight() (success bool) {
 	}
 
 	return success
+}
+
+type mediuxTokenResult int
+
+const (
+	mediuxTokenAccepted mediuxTokenResult = iota
+	mediuxTokenRejected
+	mediuxUnreachable
+)
+
+// validateMediuxToken checks the configured MediUX token and records the outcome
+// on the config package's flags. It separates "MediUX said no" from "MediUX did
+// not answer": the first is a config problem the user must fix, the second is an
+// outage the app can run through in a degraded state.
+func validateMediuxToken(ctx context.Context) mediuxTokenResult {
+	tokenValid, mediuxErr := mediux.ValidateToken(ctx, config.Current.Mediux.ApiToken)
+	switch {
+	case mediuxErr.Message == "" && tokenValid:
+		config.MediuxValid = true
+		config.MediuxReachable = true
+		return mediuxTokenAccepted
+	case mediuxAuthRejected(mediuxErr):
+		config.MediuxValid = false
+		config.MediuxReachable = true
+		return mediuxTokenRejected
+	default:
+		config.MediuxValid = false
+		config.MediuxReachable = false
+		return mediuxUnreachable
+	}
+}
+
+// mediuxAuthRejected reports whether MediUX explicitly refused the token rather
+// than failing to answer. mediux.makeRequest records the response status under
+// status_code in the error detail; a transport failure carries no status at all.
+func mediuxAuthRejected(err logging.LogErrorInfo) bool {
+	status, ok := err.Detail["status_code"].(int)
+	return ok && (status == http.StatusUnauthorized || status == http.StatusForbidden)
 }
 
 func runWarmup() (success bool) {

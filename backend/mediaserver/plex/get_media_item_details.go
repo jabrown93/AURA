@@ -123,7 +123,7 @@ func extractMediaItemFromResponse(ctx context.Context, metadata PlexLibraryItems
 	item.Title = metadata.Title
 	item.Year = metadata.Year
 	item.LibraryTitle = metadata.LibrarySectionTitle
-	item.UpdatedAt = metadata.UpdatedAt
+	item.UpdatedAt = artworkVersion(metadata.UpdatedAt)
 	item.AddedAt = metadata.AddedAt
 	item.ContentRating = metadata.ContentRating
 	item.Summary = metadata.Summary

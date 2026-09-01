@@ -11,6 +11,7 @@ import (
 	"aura/logging"
 	"aura/notification"
 	"aura/routing"
+	"context"
 	"os"
 	"strings"
 	"sync"
@@ -110,6 +111,13 @@ func main() {
 		// Config is valid. Attempt preflight; on success, activate the full routes.
 		if runPreFlight() {
 			activateFullRoutes()
+			if !config.MediuxReachable {
+				// Activated in a degraded state. Preflight only runs again at
+				// onboarding, and activated is already closed so the retry loop below
+				// would exit immediately, so the MediUX flags would stay false until a
+				// restart. Poll MediUX on its own until the outage clears.
+				go recheckMediuxUntilReachable()
+			}
 			return
 		}
 
@@ -154,6 +162,26 @@ func retryPreFlightUntilReady(activateFullRoutes func(), activated <-chan struct
 				activateFullRoutes()
 				return
 			}
+		}
+	}
+}
+
+// recheckMediuxUntilReachable re-validates the MediUX token on an interval after
+// the app came up with MediUX unreachable, so its flags recover once the outage
+// ends. It re-checks MediUX alone rather than re-running preflight, which would
+// overwrite config.AppLoadingStep on an already-loaded app.
+func recheckMediuxUntilReachable() {
+	ticker := time.NewTicker(preflightRetryInterval)
+	defer ticker.Stop()
+	for range ticker.C {
+		ctx, ld := logging.CreateLoggingContext(context.Background(), "MediUX Recheck")
+		action := ld.AddAction("Rechecking MediUX Availability", logging.LevelInfo)
+		ctx = logging.WithCurrentAction(ctx, action)
+		result := validateMediuxToken(ctx)
+		action.Complete()
+		ld.Log()
+		if result != mediuxUnreachable {
+			return
 		}
 	}
 }
