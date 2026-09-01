@@ -178,7 +178,12 @@ export function MediaCarousel({ set, includedItems, mediaItem, onMediaItemChange
       </div>
 
       <CarouselContent>
-        <CarouselDisplay sets={[set] as SetRef[]} includedItems={includedItems || {}} dimNotFound={dimNotFound} />
+        <CarouselDisplay
+          sets={[set] as SetRef[]}
+          includedItems={includedItems || {}}
+          dimNotFound={dimNotFound}
+          onArtworkApplied={onMediaItemChange}
+        />
       </CarouselContent>
     </Carousel>
   );

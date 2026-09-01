@@ -31,7 +31,8 @@ interface AssetImageProps {
   imageClassName?: string;
   priority?: boolean;
   matchedToItem?: boolean;
-  includedItems?: { [key: string]: IncludedItem };
+  includedItems?: Record<string, IncludedItem>;
+  onArtworkApplied?: (item: MediaItem) => void;
 }
 
 /**
@@ -88,6 +89,7 @@ export function AssetImage({
   priority = false,
   matchedToItem = false,
   includedItems,
+  onArtworkApplied,
 }: AssetImageProps) {
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageError, setImageError] = useState(false);
@@ -149,7 +151,8 @@ export function AssetImage({
       const resp = await downloadImageFileForMediaItem(
         image,
         includedItems[image.item_tmdb_id].media_item,
-        downloadName
+        downloadName,
+        onArtworkApplied
       );
       if (resp.status === "error") {
         throw new Error(resp.error?.message || "Unknown error");
