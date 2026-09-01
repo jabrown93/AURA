@@ -18,10 +18,12 @@ func TestRecoverMediuxRuntimeStateRebuildsOnlyMediuxDerivedCaches(t *testing.T) 
 	})
 
 	var calls []string
+	var refreshForced bool
 	preloadMediuxUsers = func(context.Context) { calls = append(calls, "users") }
 	preloadMediuxItemsWithSets = func(context.Context) { calls = append(calls, "items") }
-	refreshLibraryItems = func(context.Context, bool) bool {
+	refreshLibraryItems = func(_ context.Context, force bool) bool {
 		calls = append(calls, "library")
+		refreshForced = force
 		return true
 	}
 
@@ -29,6 +31,9 @@ func TestRecoverMediuxRuntimeStateRebuildsOnlyMediuxDerivedCaches(t *testing.T) 
 
 	if want := []string{"users", "items", "library"}; !reflect.DeepEqual(calls, want) {
 		t.Fatalf("recovery calls = %v, want %v", calls, want)
+	}
+	if !refreshForced {
+		t.Fatal("recovery library refresh was not forced")
 	}
 }
 

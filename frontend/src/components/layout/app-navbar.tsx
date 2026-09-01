@@ -117,8 +117,8 @@ export function Navbar({ version = "dev" }: AppNavbarProps) {
     void fetchStatus();
   }, [fetchStatus]);
 
-  // Backend retries MediUX every 30 seconds. Poll only while warning is active,
-  // then stop as soon as recovery clears it.
+  // Poll while a dependency warning is active, then stop once backend recovery
+  // or a config update clears it.
   useEffect(() => {
     if (!shouldPollStatus) return;
     const interval = window.setInterval(() => void fetchStatus(), 30_000);
