@@ -269,6 +269,8 @@ func UpsertSavedItem(ctx context.Context, newItem models.DBSavedItem) (Err loggi
 	defer cacheMutationMu.Unlock()
 	if Err = Client.UpsertSavedItem(ctx, newItem); Err.Message == "" {
 		syncCachedSavedSetsLocked(ctx, models.MediaItem{TMDB_ID: newItem.MediaItem.TMDB_ID, LibraryTitle: newItem.MediaItem.LibraryTitle}, false)
+		// The write also drops the item's IgnoredItems row.
+		cache.LibraryStore.SetIgnored(newItem.MediaItem.LibraryTitle, newItem.MediaItem.TMDB_ID, false, "")
 	}
 	return Err
 }
