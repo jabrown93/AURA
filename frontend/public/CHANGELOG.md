@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.1.19](https://github.com/jabrown93/AURA/compare/v2.1.18...v2.1.19) (2026-09-07)
+
+
+### Bug Fixes
+
+* **deps:** update dependency lucide-react to v1.38.0 ([6115f64](https://github.com/jabrown93/AURA/commit/6115f64150c05be6a233c21092226a0c1b38e0eb))
+* **deps:** update dependency lucide-react to v1.39.0 ([4c15ef9](https://github.com/jabrown93/AURA/commit/4c15ef91e26c420562ca85ad2f034c0624b928f9))
+* **deps:** update dependency lucide-react to v1.40.0 ([7df0f43](https://github.com/jabrown93/AURA/commit/7df0f431f85a828c842629f9d61d5f18b358b7ea))
+* **deps:** update dependency motion to v13.2.0 ([bde83a5](https://github.com/jabrown93/AURA/commit/bde83a5ecaa27f9c1f81b39938a2976570b19f6f))
+* **deps:** update dependency next to v16.3.4 ([51d7087](https://github.com/jabrown93/AURA/commit/51d70870b67c814930530542c076e56af4faf490))
+* **deps:** update dependency react-hook-form to v7.87.0 ([549b857](https://github.com/jabrown93/AURA/commit/549b85789b1f2bc3d84ff31a38607535ae523965))
+* **deps:** update module github.com/coreos/go-oidc/v3 to v3.21.0 ([09090c7](https://github.com/jabrown93/AURA/commit/09090c708f9148c343066a5842a5a6c4fd10dc8f))
+* **deps:** update module github.com/go-jose/go-jose/v4 to v4.1.5 ([7262f9f](https://github.com/jabrown93/AURA/commit/7262f9f748f46733738b4d87dac0b88eb18e10fa))
+* **deps:** update module golang.org/x/crypto to v0.56.0 [security] ([a0a6590](https://github.com/jabrown93/AURA/commit/a0a659012ba9c2f1a2ac79b74efa6ba08da2ad95))
+
 ## [2.1.18](https://github.com/jabrown93/AURA/compare/v2.1.17...v2.1.18) (2026-09-01)
 
 
