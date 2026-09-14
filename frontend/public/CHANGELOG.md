@@ -1,5 +1,23 @@
 # Changelog
 
+## [2.1.20](https://github.com/jabrown93/AURA/compare/v2.1.19...v2.1.20) (2026-09-14)
+
+
+### Bug Fixes
+
+* **deps:** update dependency cronstrue to v3.25.0 ([d9e36e7](https://github.com/jabrown93/AURA/commit/d9e36e775aa2a9ba54ecad274a082d5bea5b1da9))
+* **deps:** update dependency cronstrue to v3.26.0 ([a63cad2](https://github.com/jabrown93/AURA/commit/a63cad2a90365f16e214e360e0513f668ef87857))
+* **deps:** update dependency lucide-react to v1.41.0 ([90e5f1d](https://github.com/jabrown93/AURA/commit/90e5f1d810a4b875975fff5fe7c89ed44ab34383))
+* **deps:** update dependency lucide-react to v1.43.0 ([a7a801c](https://github.com/jabrown93/AURA/commit/a7a801c8a666f5729be7f2ded65993717542d74f))
+* **deps:** update dependency lucide-react to v1.44.0 ([3e18d71](https://github.com/jabrown93/AURA/commit/3e18d7119420ebc7f09255c502911ae196ea94b9))
+* **deps:** update dependency zod to v4.6.0 ([fc9b1ba](https://github.com/jabrown93/AURA/commit/fc9b1ba2e725106a1e321499c89200cd15cd61e0))
+* **deps:** update dependency zod to v4.6.1 ([bbbe86d](https://github.com/jabrown93/AURA/commit/bbbe86d538549c13f6c4e5969177cda2f2042863))
+* **deps:** update dependency zod to v4.6.2 ([caf627a](https://github.com/jabrown93/AURA/commit/caf627ad4a280c2d2e6d5178782491443bd7705c))
+* **deps:** update module github.com/mattn/go-sqlite3 to v1.14.52 ([575de90](https://github.com/jabrown93/AURA/commit/575de901fbda88ecdc877fcd19f1eb83f9ee2816))
+* **deps:** update module golang.org/x/crypto to v0.57.0 ([537947e](https://github.com/jabrown93/AURA/commit/537947e1d671d7e946a9597bf8e9abaf06c2d1f9))
+* **deps:** update module golang.org/x/oauth2 to v0.37.0 ([39d3309](https://github.com/jabrown93/AURA/commit/39d33096f03758a955bdb66577db00f5a5e71aa1))
+* **deps:** update react monorepo to v19.3.0 ([4cb85c9](https://github.com/jabrown93/AURA/commit/4cb85c9c65aa34719df81f42cd1c4a9223773a08))
+
 ## [2.1.19](https://github.com/jabrown93/AURA/compare/v2.1.18...v2.1.19) (2026-09-07)
 
 
