@@ -1,5 +1,24 @@
 # Changelog
 
+## [2.1.21](https://github.com/jabrown93/AURA/compare/v2.1.20...v2.1.21) (2026-09-21)
+
+
+### Bug Fixes
+
+* **deps:** update dependency cronstrue to v3.27.0 ([0f2c104](https://github.com/jabrown93/AURA/commit/0f2c104963351039847235d5fe7faf678c37198a))
+* **deps:** update dependency js-yaml to v5.4.2 ([fe707e9](https://github.com/jabrown93/AURA/commit/fe707e9b034794bf9b77d7c52384e4a4733a4c89))
+* **deps:** update dependency lucide-react to v1.45.0 ([7dc9a6e](https://github.com/jabrown93/AURA/commit/7dc9a6e593950915f63b10a793f3950d710a0a35))
+* **deps:** update dependency lucide-react to v1.46.0 ([497a4ca](https://github.com/jabrown93/AURA/commit/497a4ca6f8ead8f1c2f1dd809b5c232dd889d06a))
+* **deps:** update dependency lucide-react to v1.47.0 ([5849324](https://github.com/jabrown93/AURA/commit/58493243714cf2e23cabed6f93e5ff26121a594e))
+* **deps:** update dependency motion to v13.3.0 ([236532c](https://github.com/jabrown93/AURA/commit/236532c6dcac0f4647e2623deb376346e31ecf44))
+* **deps:** update dependency motion to v13.4.0 ([86483fc](https://github.com/jabrown93/AURA/commit/86483fc7cb5a5c2b54730754ee2663da350d85d4))
+* **deps:** update dependency next to v16.3.5 ([#175](https://github.com/jabrown93/AURA/issues/175)) ([cc4c3fe](https://github.com/jabrown93/AURA/commit/cc4c3fecbb66305194ba89354cbdb59a8f8aaabb))
+* **deps:** update dependency react-hook-form to v7.88.0 ([8345e70](https://github.com/jabrown93/AURA/commit/8345e70fe93017ffe740033dfcd6f9ecf907efd3))
+* **deps:** update dependency tailwind-merge to v3.7.0 ([bfad7cf](https://github.com/jabrown93/AURA/commit/bfad7cf21280a8e90223424341a5936d5371b67d))
+* **deps:** update dependency zod to v4.6.3 ([c562237](https://github.com/jabrown93/AURA/commit/c56223745114e8c6b350dececd13d2c570dc04d6))
+* **deps:** update dependency zod to v4.6.4 ([51f5867](https://github.com/jabrown93/AURA/commit/51f58670109f1f27cc4490849ee26a6df0104879))
+* **deps:** update dependency zod to v4.6.5 ([dfd8f06](https://github.com/jabrown93/AURA/commit/dfd8f0688cd692a5600acf68c5879f17c2056559))
+
 ## [2.1.20](https://github.com/jabrown93/AURA/compare/v2.1.19...v2.1.20) (2026-09-14)
 
 
