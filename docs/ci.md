@@ -19,8 +19,7 @@ in-cluster jobs.
 | `ci.yml` | PR → `main`, push → `main`/`renovate/**` | Backend `go build`/`vet`/`test` + gofmt gate; frontend `npm ci`/`lint`/`build`. | No |
 | `codeql.yml` | push/PR → `main`/`beta`, weekly | CodeQL for `go` and `javascript-typescript` (build-mode `none`) via the reusable `jabrown93/.github` workflow. | No |
 | `version-release.yml` | push → `main`/`beta`, weekly (Mon 09:00 UTC), manual | semantic-release computes the next version, updates `VERSION.txt`/`version.json`/`frontend/public/CHANGELOG.md`, tags + creates a GitHub Release. Builds nothing — the tag it pushes triggers `release.yml`. Also resyncs `beta` to `main` after a stable release. | No |
-| `release.yml` | GitHub Release published, manual (`publish_tag`) | Builds the multi-arch image for that release's tag and pushes `:v<version>`+`:latest` (stable) or `:v<version>-beta.N`+`:beta` (prerelease). SPDX + CycloneDX SBOMs, provenance, cosign keyless sign. | No |
-| `edge.yml` | push → `main` | Builds the rolling `:edge`+`:edge-<sha>` image from main's tip, independent of releases. SPDX + CycloneDX SBOMs, provenance, cosign keyless sign. | No |
+| `release.yml` | GitHub Release published, manual (`publish_tag`) | Builds the multi-arch image for that release's tag and pushes `:v<version>`+`:latest` (stable) or `:v<version>-beta.N`+`:beta` (prerelease). Uses the shared `jabrown93/ci` `actions/docker-image` composite action: SPDX + CycloneDX SBOMs, provenance, cosign keyless sign. | No |
 | `fossa.yml` | push → `main`, manual | Advisory licence + dependency scan via the shared `jabrown93/ci` `fossa` action. | `FOSSA_API_KEY` |
 | `jekyll-gh-pages.yml` | push → `main` (`docs/**`), manual | Publish `docs/` to GitHub Pages. | Pages setting |
 
@@ -38,8 +37,6 @@ semantic-release`, so Renovate updates them like any other dependency:
 - **`beta`** — prereleases (`v<x.y.z>-beta.N`), published as `:beta`.
 - **Dependency bumps** (`chore(deps)`/`build(deps)`) do **not** release on push; the
   weekly Monday run sets `RELEASE_DEPS=true` and rolls them into one patch release.
-- **`:edge`** — every push to `main` publishes a rolling `ghcr.io/<owner>/aura:edge`
-  (and `:edge-<sha>`), independent of releases.
 
 ### Versioning and image building are separate workflows
 
@@ -60,12 +57,8 @@ hand, with no GitHub Release, therefore builds nothing — use `publish_tag` for
 
 [skip-ci-tags]: https://github.com/orgs/community/discussions/179637
 
-Two further consequences worth knowing:
+One further consequence worth knowing:
 
-- **`:edge` trails `:latest` by one commit after a release.** semantic-release's
-  version-bump commit carries `[skip ci]`, which GitHub honours natively, so `edge.yml`
-  does not fire for it. That commit only touches `VERSION.txt`/`version.json`/`CHANGELOG.md`.
-  The next real push to `main` brings `:edge` forward.
 - **`beta` is resynced by force-push, not merge.** A squash merge of `main` → `beta`
   would not make main's release tags ancestors of `beta`, so semantic-release would keep
   computing beta's next prerelease from a superseded baseline. After each stable release
@@ -111,7 +104,7 @@ The workflow that preceded it — `dt-sbom.yml` plus the `pr-license-check.yml` 
 in-cluster ARC runner. Those never ran: the `arc-oss-aura` runner set was never
 created, so the privileged half queued until GitHub expired it. Dependency-Track
 is decommissioned (jabrown93/homelab#3167) and all three workflows are deleted.
-Image SBOM publishing is unaffected — `release.yml`/`edge.yml` attach both
+Image SBOM publishing is unaffected — `release.yml` attaches both
 formats as OCI referrers, as above.
 
 ## Notes
