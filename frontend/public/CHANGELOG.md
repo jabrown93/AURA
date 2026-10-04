@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.1.23](https://github.com/jabrown93/AURA/compare/v2.1.22...v2.1.23) (2026-10-04)
+
+
+### Bug Fixes
+
+* **deps:** update dependency lucide-react to v1.49.0 ([0813031](https://github.com/jabrown93/AURA/commit/0813031839b6b8c36435a72e070446adf7a83196))
+* **deps:** update dependency motion to v13.4.4 ([a354481](https://github.com/jabrown93/AURA/commit/a35448112b189464a6ccc4885012d04ae3db0253))
+* **deps:** update dependency motion to v13.4.5 ([83f9d4d](https://github.com/jabrown93/AURA/commit/83f9d4d240e52775efdbb12bcbbc41f3ef99af9d))
+* **deps:** update dependency motion to v13.4.6 ([38fd85c](https://github.com/jabrown93/AURA/commit/38fd85c6aee3237185c7f01f3f75b3d1b7075d5b))
+* **deps:** update dependency motion to v13.5.0 ([6b3adb7](https://github.com/jabrown93/AURA/commit/6b3adb77a685da3d937d4002013b63ac336c9554))
+* **deps:** update dependency next to v16.3.7 ([bf49662](https://github.com/jabrown93/AURA/commit/bf496623029a1fc2cc931e8afd61704fe0a33e0d))
+* **deps:** update dependency next to v16.3.8 ([4d9b745](https://github.com/jabrown93/AURA/commit/4d9b745dd9f1560604139cdb4cc0b6a27f7e3901))
+* **deps:** update dependency react-hook-form to v7.89.0 ([5a231ba](https://github.com/jabrown93/AURA/commit/5a231baaa20433f8b59476ba26be3b1b0a2af540))
+* **mediux:** don't block outage recovery on the removed content_ids endpoint ([#180](https://github.com/jabrown93/AURA/issues/180)) ([f7a4d45](https://github.com/jabrown93/AURA/commit/f7a4d45e4fdd3f8540bcad9352d872021b165d02)), closes [mediux-team/AURA#143](https://github.com/mediux-team/AURA/issues/143)
+
 ## [2.1.22](https://github.com/jabrown93/AURA/compare/v2.1.21...v2.1.22) (2026-09-28)
 
 
