@@ -67,7 +67,7 @@ func TestRecoverMediuxRuntimeStateReportsEveryStageFailure(t *testing.T) {
 		wantMediuxReachable bool
 	}{
 		{name: "users preload", usersErr: logging.LogErrorInfo{Message: "users failed"}, libraryOK: true, wantSubstring: "users failed"},
-		{name: "items preload", itemsErr: logging.LogErrorInfo{Message: "items failed"}, libraryOK: true, wantSubstring: "items failed"},
+		{name: "users and library", usersErr: logging.LogErrorInfo{Message: "users failed"}, itemsErr: logging.LogErrorInfo{Message: "items failed"}, libraryOK: false, wantSubstring: "library"},
 		{name: "library refresh", libraryOK: false, wantSubstring: "library", wantMediuxReachable: true},
 	}
 
@@ -103,6 +103,53 @@ func TestRecoverMediuxRuntimeStateReportsEveryStageFailure(t *testing.T) {
 				t.Fatalf("MediuxReachable = %v, want %v", config.MediuxReachable, tt.wantMediuxReachable)
 			}
 		})
+	}
+}
+
+// MediUX removed the content_ids endpoint (mediux-team/AURA#143); a failed
+// items preload must not keep the recheck loop failing forever, nor mark the
+// caller's action as errored (that turns POST /api/config into an HTTP 500).
+func TestRecoverMediuxRuntimeStateToleratesItemsPreloadFailure(t *testing.T) {
+	oldPreloadUsers := preloadMediuxUsers
+	oldPreloadItems := preloadMediuxItemsWithSets
+	oldRefreshLibrary := refreshLibraryItems
+	t.Cleanup(func() {
+		preloadMediuxUsers = oldPreloadUsers
+		preloadMediuxItemsWithSets = oldPreloadItems
+		refreshLibraryItems = oldRefreshLibrary
+	})
+
+	var calls []string
+	preloadMediuxUsers = func(context.Context) logging.LogErrorInfo {
+		calls = append(calls, "users")
+		return logging.LogErrorInfo{}
+	}
+	preloadMediuxItemsWithSets = func(ctx context.Context) logging.LogErrorInfo {
+		calls = append(calls, "items")
+		_, action := logging.AddSubActionToContext(ctx, "Preloading MediUX Items with Sets", logging.LevelTrace)
+		action.SetError("lookup api.mediux.io: no such host", "", nil)
+		return *action.Error
+	}
+	refreshLibraryItems = func(context.Context, bool) bool {
+		calls = append(calls, "library")
+		return true
+	}
+
+	config.MediuxReachable = true
+	ctx, ld := logging.CreateLoggingContext(context.Background(), "MediUX Recovery Test")
+	callerAction := ld.AddAction("Update Config", logging.LevelInfo)
+	if Err := recoverMediuxRuntimeState(logging.WithCurrentAction(ctx, callerAction)); Err.Message != "" {
+		t.Fatalf("recoverMediuxRuntimeState() error = %q, want none", Err.Message)
+	}
+	callerAction.Complete()
+	if callerAction.Status == logging.StatusError {
+		t.Fatalf("caller action status = %q after items-only failure, want non-error (error: %+v)", callerAction.Status, callerAction.Error)
+	}
+	if want := []string{"users", "items", "library"}; !reflect.DeepEqual(calls, want) {
+		t.Fatalf("recovery calls = %v, want %v", calls, want)
+	}
+	if !config.MediuxReachable {
+		t.Fatal("MediuxReachable = false after items-only failure, want true")
 	}
 }
 

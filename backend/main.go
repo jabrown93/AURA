@@ -203,8 +203,8 @@ func handleMediuxRecheck(
 	return result, logging.LogErrorInfo{}
 }
 
-// recoverMediuxRuntimeState rebuilds MediUX-derived caches as one required
-// pipeline. Full library refresh recalculates HasMediuxSets after publication.
+// recoverMediuxRuntimeState rebuilds MediUX-derived caches. Users preload and
+// library refresh are required; full library refresh recalculates HasMediuxSets.
 func recoverMediuxRuntimeState(ctx context.Context) logging.LogErrorInfo {
 	ctx, logAction := logging.AddSubActionToContext(ctx, "Recovering MediUX Runtime State", logging.LevelInfo)
 	defer logAction.Complete()
@@ -224,9 +224,15 @@ func recoverMediuxRuntimeState(ctx context.Context) logging.LogErrorInfo {
 		recordFailure("users preload", Err)
 		mediuxStageFailed = true
 	}
-	if Err := preloadMediuxItemsWithSets(ctx); Err.Message != "" {
-		recordFailure("items preload", Err)
-		mediuxStageFailed = true
+	// Best-effort: MediUX removed the content_ids endpoint with no replacement
+	// yet (mediux-team/AURA#143), so requiring it kept the recheck loop erroring
+	// every 30s forever even though MediUX itself was reachable. It runs under a
+	// detached LogData because Complete() propagates child errors to ancestors,
+	// which would fail the caller's HTTP response (e.g. POST /api/config).
+	itemsLog := logging.NewLogData("Best-effort MediUX Items with Sets Preload")
+	itemsCtx := logging.WithCurrentAction(logging.WithLogData(ctx, itemsLog), itemsLog.AddAction("Preloading MediUX Items with Sets", logging.LevelTrace))
+	if Err := preloadMediuxItemsWithSets(itemsCtx); Err.Message != "" {
+		logging.LOGGER.Warn().Timestamp().Msgf("MediUX items-with-sets preload skipped: %s", Err.Message)
 	}
 	if !refreshLibraryItems(ctx, true) {
 		recordFailure("library refresh", logging.LogErrorInfo{Message: "failed to refresh media server library"})
