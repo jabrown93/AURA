@@ -226,8 +226,12 @@ func recoverMediuxRuntimeState(ctx context.Context) logging.LogErrorInfo {
 	}
 	// Best-effort: MediUX removed the content_ids endpoint with no replacement
 	// yet (mediux-team/AURA#143), so requiring it kept the recheck loop erroring
-	// every 30s forever even though MediUX itself was reachable.
-	if Err := preloadMediuxItemsWithSets(ctx); Err.Message != "" {
+	// every 30s forever even though MediUX itself was reachable. It runs under a
+	// detached LogData because Complete() propagates child errors to ancestors,
+	// which would fail the caller's HTTP response (e.g. POST /api/config).
+	itemsLog := logging.NewLogData("Best-effort MediUX Items with Sets Preload")
+	itemsCtx := logging.WithCurrentAction(logging.WithLogData(ctx, itemsLog), itemsLog.AddAction("Preloading MediUX Items with Sets", logging.LevelTrace))
+	if Err := preloadMediuxItemsWithSets(itemsCtx); Err.Message != "" {
 		logging.LOGGER.Warn().Timestamp().Msgf("MediUX items-with-sets preload skipped: %s", Err.Message)
 	}
 	if !refreshLibraryItems(ctx, true) {

@@ -107,7 +107,8 @@ func TestRecoverMediuxRuntimeStateReportsEveryStageFailure(t *testing.T) {
 }
 
 // MediUX removed the content_ids endpoint (mediux-team/AURA#143); a failed
-// items preload must not keep the recheck loop failing forever.
+// items preload must not keep the recheck loop failing forever, nor mark the
+// caller's action as errored (that turns POST /api/config into an HTTP 500).
 func TestRecoverMediuxRuntimeStateToleratesItemsPreloadFailure(t *testing.T) {
 	oldPreloadUsers := preloadMediuxUsers
 	oldPreloadItems := preloadMediuxItemsWithSets
@@ -123,9 +124,11 @@ func TestRecoverMediuxRuntimeStateToleratesItemsPreloadFailure(t *testing.T) {
 		calls = append(calls, "users")
 		return logging.LogErrorInfo{}
 	}
-	preloadMediuxItemsWithSets = func(context.Context) logging.LogErrorInfo {
+	preloadMediuxItemsWithSets = func(ctx context.Context) logging.LogErrorInfo {
 		calls = append(calls, "items")
-		return logging.LogErrorInfo{Message: "lookup api.mediux.io: no such host"}
+		_, action := logging.AddSubActionToContext(ctx, "Preloading MediUX Items with Sets", logging.LevelTrace)
+		action.SetError("lookup api.mediux.io: no such host", "", nil)
+		return *action.Error
 	}
 	refreshLibraryItems = func(context.Context, bool) bool {
 		calls = append(calls, "library")
@@ -133,8 +136,14 @@ func TestRecoverMediuxRuntimeStateToleratesItemsPreloadFailure(t *testing.T) {
 	}
 
 	config.MediuxReachable = true
-	if Err := recoverMediuxRuntimeState(recoveryTestContext()); Err.Message != "" {
+	ctx, ld := logging.CreateLoggingContext(context.Background(), "MediUX Recovery Test")
+	callerAction := ld.AddAction("Update Config", logging.LevelInfo)
+	if Err := recoverMediuxRuntimeState(logging.WithCurrentAction(ctx, callerAction)); Err.Message != "" {
 		t.Fatalf("recoverMediuxRuntimeState() error = %q, want none", Err.Message)
+	}
+	callerAction.Complete()
+	if callerAction.Status == logging.StatusError {
+		t.Fatalf("caller action status = %q after items-only failure, want non-error (error: %+v)", callerAction.Status, callerAction.Error)
 	}
 	if want := []string{"users", "items", "library"}; !reflect.DeepEqual(calls, want) {
 		t.Fatalf("recovery calls = %v, want %v", calls, want)
