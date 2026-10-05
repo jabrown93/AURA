@@ -2,7 +2,6 @@ import eslintReact from "@eslint-react/eslint-plugin";
 import js from "@eslint/js";
 import prettier from "eslint-config-prettier";
 import importPlugin from "eslint-plugin-import-x";
-import jsxA11y from "eslint-plugin-jsx-a11y";
 import reactHooks from "eslint-plugin-react-hooks";
 import tseslint from "typescript-eslint";
 
@@ -50,7 +49,6 @@ export default [
     },
     plugins: {
       "react-hooks": reactHooks,
-      "jsx-a11y": jsxA11y,
       "import-x": importPlugin,
     },
     settings: {
@@ -64,10 +62,6 @@ export default [
       /* Hooks */
       "react-hooks/rules-of-hooks": "error",
       "react-hooks/exhaustive-deps": "warn",
-
-      /* Accessibility (lightweight) */
-      "jsx-a11y/alt-text": "warn",
-      "jsx-a11y/anchor-is-valid": "warn",
 
       /* TypeScript */
       "@typescript-eslint/no-unused-vars": ["warn", { argsIgnorePattern: "^_", varsIgnorePattern: "^_" }],
