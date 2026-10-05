@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.1.24](https://github.com/jabrown93/AURA/compare/v2.1.23...v2.1.24) (2026-10-05)
+
+
+### Bug Fixes
+
+* **deps:** update dependency lucide-react to v1.50.0 ([975c03e](https://github.com/jabrown93/AURA/commit/975c03eb6fdecaadcc3e84588d959370d6ae02c1))
+* **deps:** update dependency motion to v13.5.1 ([642191c](https://github.com/jabrown93/AURA/commit/642191c73b69f77f3a4a715583516a75b65079bb))
+* **deps:** update dependency motion to v14 ([#181](https://github.com/jabrown93/AURA/issues/181)) ([872757a](https://github.com/jabrown93/AURA/commit/872757a2dc90ca77110ae84bbe652ebdf6e735aa))
+
 ## [2.1.23](https://github.com/jabrown93/AURA/compare/v2.1.22...v2.1.23) (2026-10-04)
 
 
