@@ -110,7 +110,7 @@ jobs:
           # The weekly scheduled run promotes dependency bumps to a patch release.
           # workflow_dispatch counts too: schedule only ever fires on the default
           # branch, so a manual run is the only way to sweep beta's suppressed
-          # fix(deps) commits, and dispatching this workflow by hand is itself the
+          # chore(deps) commits, and dispatching this workflow by hand is itself the
           # deliberate "release what's ready now" signal. Matches the expression in
           # jabrown93/.github's npm-release.yml / docker-release.yml.
           RELEASE_DEPS: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}

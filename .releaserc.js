@@ -5,16 +5,19 @@
 //   * push to `beta` -> prerelease (vX.Y.Z-beta.N)
 //
 // Routine runtime dependency bumps intentionally do NOT cut a release on ordinary
-// pushes. Renovate labels them fix(deps), which would otherwise trigger a patch via
-// the default rules, so it is explicitly suppressed here. The weekly scheduled run
-// (and a manual workflow_dispatch) sets RELEASE_DEPS=true, which promotes the
-// accumulated bumps to a single patch release.
+// pushes. Renovate labels them chore(deps), which would not otherwise trigger a
+// release under the default rules (chore doesn't release), so no suppression is
+// needed there — but we DO want them to batch into a weekly release, so this file
+// promotes them explicitly. The weekly scheduled run (and a manual
+// workflow_dispatch) sets RELEASE_DEPS=true, which promotes the accumulated
+// chore(deps) bumps to a single patch release.
 //
-// Only fix(deps) is promoted. chore(deps)/build(deps) are dev-only, test-only or
+// Only chore(deps) is promoted. chore(dev-deps) covers dev-only, test-only or
 // CI-only changes under the shared Renovate preset, so promoting them would cut a
 // release with no runtime change in it. They don't release by default, and are
-// deliberately left that way. Vulnerability fixes are typed fix(security), not
-// fix(deps), so they are unaffected by the suppression and release immediately.
+// deliberately left that way. fix releases immediately through the default rules
+// (no longer suppressed). Vulnerability fixes are typed fix(security), not
+// chore(deps), so they are unaffected and release immediately too.
 // See jabrown93/.github's README, "Weekly dependency releases".
 //
 // This file is CommonJS: the root package.json (CI-only tooling that pins
@@ -26,16 +29,17 @@
 const releaseDeps = process.env.RELEASE_DEPS === "true";
 
 // Custom rules are evaluated before commit-analyzer's defaults, so `release: false`
-// on fix(deps) suppresses the default fix->patch.
+// on chore(deps) suppresses it from releasing outside the weekly batch, while
+// `release: "patch"` (RELEASE_DEPS=true) promotes it.
 const depReleaseRules = [
   // Required: commit-analyzer evaluates every matching custom rule and keeps the
-  // highest release type, so without this a breaking fix(deps)! (or one with a
-  // BREAKING CHANGE: footer) would match ONLY the suppression rule below and never
-  // release at all. Listed first so the analyzer short-circuits on major.
-  { type: "fix", scope: "deps", breaking: true, release: "major" },
+  // highest release type, so without this a breaking chore(deps)! (or one with a
+  // BREAKING CHANGE: footer) would match ONLY the rule below and only release when
+  // RELEASE_DEPS=true. Listed first so the analyzer short-circuits on major.
+  { type: "chore", scope: "deps", breaking: true, release: "major" },
   releaseDeps
-    ? { type: "fix", scope: "deps", release: "patch" }
-    : { type: "fix", scope: "deps", release: false },
+    ? { type: "chore", scope: "deps", release: "patch" }
+    : { type: "chore", scope: "deps", release: false },
 ];
 
 // GitHub rejects a Release body over 125,000 characters (HTTP 422). Normal
