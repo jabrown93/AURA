@@ -14,12 +14,6 @@
       "matchManagers": ["npm"],
       "matchPackageNames": ["typescript"],
       "allowedVersions": "<7"
-    },
-    {
-      "description": "Hold ESLint below 10: eslint-plugin-jsx-a11y 6.x peers eslint <=9, so npm cannot resolve the lockfile. Lift once https://github.com/jsx-eslint/eslint-plugin-jsx-a11y/issues/1075 ships.",
-      "matchManagers": ["npm"],
-      "matchPackageNames": ["eslint"],
-      "allowedVersions": "<10"
     }
   ]
 }
