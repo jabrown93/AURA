@@ -105,7 +105,7 @@ export function AssetImage({
     return decodeBlurhashToDataURL(blurhash);
   }, [image]);
 
-  let imageSrc = "";
+  let imageSrc: string;
   if (imageType === "url") {
     imageSrc = image as string;
   } else if (imageType === "mediux") {
