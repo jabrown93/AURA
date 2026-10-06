@@ -1,6 +1,6 @@
 # Changelog
 
-## [2.1.24-beta.1](https://github.com/jabrown93/AURA/compare/v2.1.23...v2.1.24-beta.1) (2026-10-05)
+## [2.1.24](https://github.com/jabrown93/AURA/compare/v2.1.23...v2.1.24) (2026-10-05)
 
 
 ### Bug Fixes
