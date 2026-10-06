@@ -139,11 +139,26 @@ jobs:
           git push origin "HEAD:refs/heads/beta" \
             --force-with-lease="refs/heads/beta:${{ steps.beta_before.outputs.sha }}"
 
+      # merge-back merges main by name, not by SHA, so if main moved during this run
+      # it would carry commits semantic-release never evaluated (possibly a releasable
+      # fix) into beta ahead of their stable release. Skip instead: the newer commit's
+      # run is queued behind this one and merges back after its own release.
+      - name: Check main has not moved
+        if: steps.release.outputs.published != 'true' && github.ref_name == 'main'
+        id: main_tip
+        run: |
+          tip=$(git ls-remote origin refs/heads/main | cut -f1)
+          if [ "$tip" = "$(git rev-parse HEAD)" ]; then
+            echo "unchanged=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::main moved to $tip; its own run will merge it into beta"
+          fi
+
       # No release means main's new commits are non-releasable, so merging them
       # cannot make beta cut a prerelease. The merges API (not a PR) keeps main's
       # commits as beta ancestors; a conflict opens a PR instead of failing.
       - name: Merge main into beta
-        if: steps.release.outputs.published != 'true' && github.ref_name == 'main'
+        if: steps.main_tip.outputs.unchanged == 'true'
         uses: jabrown93/ci/actions/merge-back@fb273aa5f814f837727167724c752a4ff1254172 # merge-back-v1.0.0
         with:
           app-id: ${{ secrets.APP_ID }}
