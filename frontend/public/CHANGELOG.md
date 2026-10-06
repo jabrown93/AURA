@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.25](https://github.com/jabrown93/AURA/compare/v2.1.24...v2.1.25) (2026-10-06)
+
+
+### Bug Fixes
+
+* **frontend:** resolve eslint 10 recommended-rule violations ([#190](https://github.com/jabrown93/AURA/issues/190)) ([a39883e](https://github.com/jabrown93/AURA/commit/a39883e86a21b2995c6b25cdba09b03265327a54)), closes [#188](https://github.com/jabrown93/AURA/issues/188)
+
 ## [2.1.24](https://github.com/jabrown93/AURA/compare/v2.1.23...v2.1.24) (2026-10-05)
 
 
