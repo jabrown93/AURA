@@ -10,6 +10,14 @@ name: Version release
 #   push to beta            -> prerelease (vX.Y.Z-beta.N)
 #   schedule (weekly, Mon)  -> roll accumulated dependency bumps into one patch release
 #   workflow_dispatch       -> manual run (releases only if there are releasable commits)
+#
+# Every main run also brings beta up to date with main once semantic-release is
+# done: reset to main after a stable release, merge main in otherwise. Doing it
+# here instead of in a separate on-push workflow is load-bearing: a concurrent
+# merge-back carries main's unreleased fix into beta, beta cuts a duplicate
+# vX.Y.Z-beta.1 alongside main's vX.Y.Z, the reset loses its lease to that
+# merge, and the two bump commits then conflict on VERSION.txt/version.json/
+# CHANGELOG.md in every later merge-back.
 
 on:
   push:
@@ -130,3 +138,17 @@ jobs:
           echo "Resyncing beta to main @ v${{ steps.release.outputs.version }}"
           git push origin "HEAD:refs/heads/beta" \
             --force-with-lease="refs/heads/beta:${{ steps.beta_before.outputs.sha }}"
+
+      # No release means the commit semantic-release evaluated is non-releasable, so
+      # merging it cannot make beta cut a prerelease. source-sha pins the merge to that
+      # commit: a releasable push landing on main mid-run stays out of beta until its
+      # own run has released it. The merges API (not a PR) keeps main's commits as beta
+      # ancestors; a conflict opens a PR instead of failing.
+      - name: Merge main into beta
+        if: steps.release.outputs.published != 'true' && github.ref_name == 'main'
+        uses: jabrown93/ci/actions/merge-back@be05dac97d4c0823ebba45b94ff756e99a2b5d61 # merge-back-v1.1.0
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          app-private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          branches: beta
+          source-sha: ${{ github.sha }}
