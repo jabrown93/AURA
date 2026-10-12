@@ -1,6 +1,6 @@
 services:
     aura:
-        image: ghcr.io/jabrown93/aura:latest@sha256:91f2b230ef700ce7c35286101638a9343287f418f2e9d6b826d64364ebc09437 # Use the latest image from GitHub Container Registry
+        image: ghcr.io/jabrown93/aura:latest@sha256:28c316ac2538fba93194d8f908dadf16e172c453cf822ed522022d42ad29cd5c # Use the latest image from GitHub Container Registry
         container_name: aura # Name of the container
 
         # Automatically restart the container if it crashes or the server reboots
