@@ -1,5 +1,7 @@
 # Changelog
 
+## [2.1.26](https://github.com/jabrown93/AURA/compare/v2.1.25...v2.1.26) (2026-10-12)
+
 ## [2.1.25](https://github.com/jabrown93/AURA/compare/v2.1.24...v2.1.25) (2026-10-06)
 
 
