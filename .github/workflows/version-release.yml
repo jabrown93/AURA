@@ -146,7 +146,7 @@ jobs:
       # ancestors; a conflict opens a PR instead of failing.
       - name: Merge main into beta
         if: steps.release.outputs.published != 'true' && github.ref_name == 'main'
-        uses: jabrown93/ci/actions/merge-back@be05dac97d4c0823ebba45b94ff756e99a2b5d61 # merge-back-v1.1.0
+        uses: jabrown93/ci/actions/merge-back@df2ff71a8f502822a047dbfe42a8850f64e5ca7a # merge-back-v1.1.1
         with:
           app-id: ${{ secrets.APP_ID }}
           app-private-key: ${{ secrets.APP_PRIVATE_KEY }}
