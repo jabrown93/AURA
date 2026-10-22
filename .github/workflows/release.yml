@@ -93,7 +93,7 @@ jobs:
       # cosign keyless certificate names this repo's release.yml -- the identity the
       # homelab verify-ghcr-images Kyverno policy trusts.
       - name: Build, push, sign and attest image
-        uses: jabrown93/ci/actions/docker-image@f85e1598a9d004dbd5c424b53d99207eaf9a149b # docker-image-v1.0.2
+        uses: jabrown93/ci/actions/docker-image@d19858f858052611d4861eaa4f7a9af82d48ca1a # docker-image-v1.0.3
         with:
           image: ghcr.io/${{ github.repository_owner }}/aura
           version: ${{ steps.tag.outputs.version }}
