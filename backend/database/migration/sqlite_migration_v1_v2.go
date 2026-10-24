@@ -361,9 +361,25 @@ func v1_2_ConvertOldData(ctx context.Context, conn *sql.DB) logging.LogErrorInfo
 				logging.LOGGER.Trace().Timestamp().Str("PosterSetID", posterSet.ID).Int("num_images", len(posterSet.Images)).
 					Msg("Extracted PosterSet and images for migration")
 			}
+			if err := psRows.Err(); err != nil {
+				addToWarningFile(2, logging.LogErrorInfo{
+					Message: "Failed while iterating over PosterSetsBackup1 rows",
+					Detail: map[string]any{
+						"error":        err.Error(),
+						"TMDB_ID":      itemTMDB_ID,
+						"LibraryTitle": itemLibraryTitle,
+					},
+				})
+			}
 			psRows.Close()
 		}
 		newItems = append(newItems, newItem)
+	}
+	if err := rows.Err(); err != nil {
+		logAction.SetError("Failed while iterating over SavedItemsBackup1 rows", "", map[string]any{
+			"error": err.Error(),
+		})
+		return *logAction.Error
 	}
 	rows.Close()
 

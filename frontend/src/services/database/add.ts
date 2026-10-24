@@ -1,8 +1,8 @@
+import { markOpenMediaItemSetSaved } from "@/helper/update-open-media-item";
 import apiClient from "@/services/api-client";
 import { ReturnErrorMessage } from "@/services/api-error-return";
 
 import { log } from "@/lib/logger";
-import { useLibrarySectionsStore } from "@/lib/stores/global-store-library-sections";
 
 import type { APIResponse } from "@/types/api/api-response";
 import type { DBPosterSetDetail, DBSavedItem } from "@/types/database/db-poster-set";
@@ -72,11 +72,11 @@ export const AddNewItemToDB = async (
       );
     }
 
-    const { upsertMediaItemSavedSet } = useLibrarySectionsStore.getState();
     if (response.data.data?.saved_item.media_item) {
-      upsertMediaItemSavedSet({
+      markOpenMediaItemSetSaved({
         tmdbID: response.data.data.saved_item.media_item.tmdb_id,
         libraryTitle: response.data.data.saved_item.media_item.library_title,
+        edition: response.data.data.saved_item.media_item.edition,
         setID: posterSet.id,
         setUser: posterSet.user_created,
         selectedTypes: posterSet.selected_types,

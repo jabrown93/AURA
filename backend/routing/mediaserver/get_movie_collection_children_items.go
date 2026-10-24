@@ -24,7 +24,8 @@ type GetAllCollectionChildrenItems_Response struct {
 // @Accept       json
 // @Produce      json
 // @Param        rating_key query string true "Rating Key of the Collection"
-// @Security 	 BearerAuth
+// @Security     SessionCookie
+// @Security     ApiKeyAuth
 // @Failure      401  {object}  httpx.UnauthorizedResponse "Unauthorized (only when Auth.Enabled=true)"
 // @Success      200  {object}  httpx.JSONResponse{data=GetAllCollectionChildrenItems_Response}
 // @Failure      500  {object}  httpx.JSONResponse "Internal Server Error"
@@ -72,15 +73,21 @@ func GetAllCollectionChildrenItems(w http.ResponseWriter, r *http.Request) {
 	// Get Poster Sets for the collection items
 	// For Plex Servers, we need to get an array of unique TMDB IDs from the collection items
 	// For Emby/Jellyfin, we can use the existing TMDB IDs in the collection items
+	// For Silo, TMDB collections have their TMDB ID, other collections use their movies like Plex
 	switch config.Current.MediaServer.Type {
 	case "Plex":
-		uniqueMovieIDs := make([]string, 0)
-		for _, child := range collectionItem.MediaItems {
-			if child.Type == "movie" && child.TMDB_ID != "" {
-				uniqueMovieIDs = append(uniqueMovieIDs, child.TMDB_ID)
-			}
+		response.Sets, Err = mediux.GetCollectionImagesByMovieTMDBIDs(ctx, collectionMovieTMDBIDs(collectionItem))
+		if Err.Message != "" {
+			logAction.Status = logging.StatusWarn
+			break
 		}
-		response.Sets, Err = mediux.GetCollectionImagesByMovieTMDBIDs(ctx, uniqueMovieIDs)
+
+	case "Silo":
+		if collectionItem.TMDB_ID != "" {
+			response.Sets, Err = mediux.GetCollectionImagesByTMDBID(ctx, collectionItem.TMDB_ID)
+		} else {
+			response.Sets, Err = mediux.GetCollectionImagesByMovieTMDBIDs(ctx, collectionMovieTMDBIDs(collectionItem))
+		}
 		if Err.Message != "" {
 			logAction.Status = logging.StatusWarn
 			break
@@ -103,4 +110,15 @@ func GetAllCollectionChildrenItems(w http.ResponseWriter, r *http.Request) {
 
 	// Send the response with the collection items
 	httpx.SendResponse(w, ld, response)
+}
+
+// collectionMovieTMDBIDs returns the TMDB IDs of a collection's movies
+func collectionMovieTMDBIDs(collection *models.CollectionItem) []string {
+	ids := []string{}
+	for _, child := range collection.MediaItems {
+		if child.Type == "movie" && child.TMDB_ID != "" {
+			ids = append(ids, child.TMDB_ID)
+		}
+	}
+	return ids
 }

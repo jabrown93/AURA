@@ -1,5 +1,6 @@
 "use client";
 
+import { withoutEmptyFieldErrors } from "@/helper/validation/empty-field-errors";
 import { ValidateMediuxInfo } from "@/services/validation/mediux";
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
@@ -23,6 +24,9 @@ import type { AppConfigMediux } from "@/types/config/config";
 interface ConfigSectionMediuxProps {
   value: AppConfigMediux;
   editing: boolean;
+  showActions?: boolean; // Show actions hidden while editing, as Settings is always editable
+  hideEmptyFieldErrors?: boolean; // Don't turn the card red for empty fields during setup
+  onConnectionVerifiedChange?: (verified: boolean, checking: boolean) => void; // Reports whether the connection has been checked and works
   configAlreadyLoaded: boolean;
   dirtyFields?: Partial<Record<keyof AppConfigMediux, boolean>>;
   onChange: <K extends keyof AppConfigMediux>(field: K, value: AppConfigMediux[K]) => void;
@@ -34,6 +38,9 @@ const QUALITY_OPTIONS = ["optimized", "original"] as const;
 export const ConfigSectionMediux: React.FC<ConfigSectionMediuxProps> = ({
   value,
   editing,
+  showActions = false,
+  hideEmptyFieldErrors = false,
+  onConnectionVerifiedChange,
   configAlreadyLoaded,
   dirtyFields = {},
   onChange,
@@ -62,6 +69,13 @@ export const ConfigSectionMediux: React.FC<ConfigSectionMediuxProps> = ({
     return errs;
   }, [value.api_token, value.download_quality, remoteTokenError]);
 
+  // Errors that turn the card red
+  const displayErrors = React.useMemo(
+    () =>
+      hideEmptyFieldErrors ? withoutEmptyFieldErrors(errors, value as unknown as Record<string, unknown>) : errors,
+    [errors, hideEmptyFieldErrors, value]
+  );
+
   // Emit errors upward
   useEffect(() => {
     if (!errorsUpdate) return;
@@ -71,19 +85,25 @@ export const ConfigSectionMediux: React.FC<ConfigSectionMediuxProps> = ({
     errorsUpdate(errors);
   }, [errors, errorsUpdate]);
 
-  // Reset remote error when token text changes
+  // Reset remote error and connection status when token text changes
   useEffect(() => {
     setRemoteTokenError(null);
+    setConnectionStatus({ status: "unknown", color: GetConnectionColor("unknown") });
   }, [value.api_token]);
+
+  // Report whether the token has been checked and works
+  useEffect(() => {
+    onConnectionVerifiedChange?.(connectionStatus.status === "ok" && !runningRemoteValidation, runningRemoteValidation);
+  }, [connectionStatus.status, runningRemoteValidation, onConnectionVerifiedChange]);
 
   const runRemoteValidation = useCallback(
     async (showToast = true) => {
-      setRunningRemoteValidation(true);
+      // Nothing to check without a token
       if (!value.api_token.trim()) {
-        setRemoteTokenError("Token is required.");
-        setConnectionStatus({ status: "error", color: GetConnectionColor("error") });
+        setConnectionStatus({ status: "unknown", color: GetConnectionColor("unknown") });
         return;
       }
+      setRunningRemoteValidation(true);
 
       setTestingToken(true);
       const start = Date.now();
@@ -119,7 +139,9 @@ export const ConfigSectionMediux: React.FC<ConfigSectionMediuxProps> = ({
   }, [configAlreadyLoaded, runRemoteValidation]);
 
   return (
-    <Card className={`p-5 ${Object.values(errors).some(Boolean) ? "border-red-500" : "border-muted"}`}>
+    <Card
+      className={`gap-4 p-4 sm:p-5 ${Object.values(displayErrors).some(Boolean) ? "border-red-500" : "border-muted"}`}
+    >
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <h2 className={`text-xl font-semibold text-${connectionStatus.color}`}>MediUX</h2>
@@ -136,8 +158,8 @@ export const ConfigSectionMediux: React.FC<ConfigSectionMediuxProps> = ({
         <Button
           variant="outline"
           size="sm"
-          hidden={editing}
-          disabled={editing || testingToken}
+          hidden={editing && !showActions}
+          disabled={(editing && !showActions) || testingToken}
           onClick={() => runRemoteValidation()}
           className="cursor-pointer hover:text-primary"
         >

@@ -1,43 +1,56 @@
+import type { TYPE_DOWNLOAD_DEFAULT_TYPE_OPTIONS } from "@/types/ui-options";
+
 export interface AppConfig {
   auth: AppConfigAuth;
   logging: AppConfigLogging; // Logging configuration settings
-  media_server: AppConfigMediaServer; // Media server integration settings
+  media_server: AppConfigMediaServer; // The main media server
+  media_servers?: AppConfigMediaServer[]; // Every media server, including the main one
+  main_media_server?: string; // ID of the main media server
   mediux: AppConfigMediux; // MediUX integration settings
-  auto_download: AppConfigAutoDownload; // Auto-download settings
+  jobs: AppConfigJobs; // Background jobs scheduling configuration
+  backups: AppConfigBackups; // Database backup settings
   images: AppConfigImages;
   tmdb: AppConfigTMDB; // TMDB (The Movie Database) integration settings
   labels_and_tags: AppConfigLabelsAndTags; // Labels and tags management settings
   notifications: AppConfigNotifications; // Notification settings
   sonarr_radarr: AppConfigSonarrRadarrApps; // List of Sonarr/Radarr instances to integrate with
+  user_preferences: AppConfigUserPreferences; // User preferences, shared between sessions and devices
 }
 
 export interface AppConfigAuth {
   enabled: boolean; // Whether authentication is enabled
-  password: string; // Argon2id password hash; may be empty when OIDC is enabled. Returned masked.
-  oidc: AppConfigOIDC; // Single sign-on via an OpenID Connect provider
+  password_enabled: boolean; // Whether logging in with the password is allowed
+  password: string; // Hashed password for authentication
+  oidc: AppConfigAuthOIDC;
+  session_cookie_secure?: string; // "auto" | "always" | "never"
+  trust_proxy_for_cookie_secure?: boolean;
+  allowed_origins?: string[];
 }
 
-export interface AppConfigOIDC {
-  enabled: boolean; // Whether OIDC sign-in is offered
-  issuer_url: string; // Provider issuer used for discovery
-  client_id: string; // Client ID registered with the provider
-  client_secret: string; // Client secret registered with the provider
-  redirect_url: string; // Callback URL registered with the provider
-  scopes?: string[]; // Scopes to request; "openid" is always included
-  groups_claim?: string; // ID token claim holding group membership
-  allowed_groups?: string[]; // Groups permitted to sign in
-  allowed_emails?: string[]; // Email addresses permitted to sign in
-  allowed_subjects?: string[]; // Subject identifiers permitted to sign in
-  button_label?: string; // Label for the sign-in button
-  rp_initiated_logout: boolean; // Whether logout also ends the provider session
+export interface AppConfigAuthOIDC {
+  enabled: boolean;
+  issuer_url?: string;
+  client_id?: string;
+  client_secret?: string; // Masked (e.g. "***ab12") once a value is set - only sent back if changed.
+  redirect_urls?: string[]; // One for each address aura is opened at
+  allowed_emails?: string[];
+  allowed_domains?: string[];
+  // Fork: group-based authorization
+  groups_claim?: string;
+  allowed_groups?: string[];
 }
 
 export interface AppConfigLogging {
   level: string; // Logging level (e.g., DEBUG, INFO, WARN, ERROR)
   file?: string; // Log file path
+  keep_days?: number; // Number of days to keep old log files before they are deleted
+  keep_files?: number; // Number of old log files to keep before the oldest are deleted
 }
 
 export interface AppConfigMediaServer {
+  id?: string; // Unique ID of the media server
+  name?: string; // Name of the media server shown in aura
+  enabled?: boolean; // Whether aura uses this media server. The main server is always enabled
   type: string; // Type of media server (e.g., plex, emby, jellyfin)
   url: string; // Base URL of the media server
   api_token: string; // Authentication token for accessing the media server
@@ -45,6 +58,7 @@ export interface AppConfigMediaServer {
   user_id?: string; // User ID for accessing the media server (optional for Emby/Jellyfin)
   enable_sort_by_episode_added_date?: boolean; // Whether to enable sorting shows by latest episode added date (Plex only)
   enable_plex_event_listener?: boolean; // Whether to enable the Plex event listener for reapplying images on refresh (Plex only)
+  library_map?: Record<string, string>; // Which main server library each library matches, by title. Not used for the main server
 }
 
 export interface AppConfigMediaServerLibrary {
@@ -59,15 +73,40 @@ export interface AppConfigMediux {
   download_quality: string; // Preferred download quality (e.g., "original", "optimized")
 }
 
-export interface AppConfigAutoDownload {
-  enabled: boolean; // Whether auto-download is enabled
-  cron: string; // Cron expression for scheduling auto-downloads
+export interface AppConfigJobs {
+  auto_download: AppConfigJobSetting; // Schedule for auto-downloads
+  refresh_media_items_and_collections: AppConfigJobSetting; // Schedule for refreshing media items and collections from media server
+  check_for_media_item_changes: AppConfigJobSetting; // Schedule for checking rating keys and metadata changes
+  handle_temp_ignored_items: AppConfigJobSetting; // Schedule for checking if temporarily ignored items now have sets on MediUX
+  refresh_mediux_users: AppConfigJobSetting; // Schedule for refreshing tracked MediUX users/creators
+  check_mediux_site_link: AppConfigJobSetting; // Schedule for checking MediUX site link availability
+  backup_database: AppConfigJobSetting; // Schedule for backing up the database
+  upgrade_saved_sets: AppConfigJobSetting; // Schedule for upgrading saved sets to higher ranked favorite creators
+  kometa_import?: AppConfigJobSetting; // Fork: Kometa asset import
+  anidb_refresh?: AppConfigJobSetting; // Fork: AniDB mapping refresh
+}
+
+export interface AppConfigBackups {
+  keep: number; // Number of database backups to keep before the oldest are deleted
+}
+
+export interface AppConfigJobSetting {
+  enabled?: boolean; // Whether the job is enabled for automatic scheduling.
+  cron: string; // Cron expression for the job schedule.
 }
 
 export interface AppConfigImages {
   cache_images: AppConfigCacheImages;
   save_images_locally: AppConfigSaveImagesLocally;
-  kometa: AppConfigKometa;
+  kometa: AppConfigImagesKometa; // Fork: Kometa asset directory mode
+}
+
+// Fork: Kometa asset directory mode (Plex only)
+export interface AppConfigImagesKometa {
+  enabled: boolean;
+  asset_directory?: string;
+  library_asset_folders?: Record<string, string>; // Subfolder of asset_directory per library title
+  sonarr_radarr_fallback?: boolean; // Write assets named from the Sonarr/Radarr path when the media server lookup fails
 }
 
 export interface AppConfigCacheImages {
@@ -77,15 +116,16 @@ export interface AppConfigCacheImages {
 export interface AppConfigSaveImagesLocally {
   enabled: boolean; // Whether to save images locally.
   path: string; // Path to save images locally. If empty, images will be saved next to content.
-  episode_naming_convention: string; // Naming convention for episode images.
+  running_on_windows?: boolean; // Convert Windows paths from the media server like C:\Movies to /C/Movies
+  name_templates?: AppConfigImageNameTemplates; // File names for each image type
 }
 
-export interface AppConfigKometa {
-  enabled: boolean; // Whether to write downloaded images into the Kometa asset directory (Plex only).
-  asset_directory: string; // Path to the Kometa asset directory (folder-per-item layout).
-  library_asset_folders?: Record<string, string>; // Optional per-library subfolder (relative to asset_directory) keyed by Plex library title. A library with no entry writes flat to asset_directory.
-  import_cron: string; // Optional cron for importing existing Kometa assets. Empty = manual only.
-  sonarr_radarr_fallback: boolean; // When a media-server lookup fails but the item is in Sonarr/Radarr, still write images to the Kometa asset folder (folder name derived from the Sonarr/Radarr path).
+export interface AppConfigImageNameTemplates {
+  poster: string;
+  backdrop: string;
+  season_poster: string;
+  special_season_poster: string;
+  titlecard: string;
 }
 
 export interface AppConfigTMDB {
@@ -108,7 +148,7 @@ export interface AppConfigLabelsAndTagsApplication {
 export interface AppConfigNotifications {
   enabled: boolean;
   providers: AppConfigNotificationProviders[];
-  templates: AppConfigNotificationTemplate;
+  templates: Partial<AppConfigNotificationTemplate>;
 }
 
 export interface AppConfigNotificationProviders {
@@ -121,24 +161,20 @@ export interface AppConfigNotificationProviders {
 }
 
 export interface AppConfigNotificationDiscord {
-  enabled: boolean;
   webhook: string;
 }
 
 export interface AppConfigNotificationPushover {
-  enabled: boolean;
   user_key: string;
   api_token: string;
 }
 
 export interface AppConfigNotificationGotify {
-  enabled: boolean;
   url: string;
   api_token: string;
 }
 
 export interface AppConfigNotificationWebhook {
-  enabled: boolean;
   url: string;
   headers: { [key: string]: string }; // Key-value pairs for custom headers
 }
@@ -148,13 +184,16 @@ export interface AppConfigNotificationTemplate {
   test_notification: AppConfigNotificationCustomNotification;
   autodownload: AppConfigNotificationCustomNotification;
   download_queue: AppConfigNotificationCustomNotification;
+  new_item_auto_download: AppConfigNotificationCustomNotification;
   new_sets_available_for_ignored_items: AppConfigNotificationCustomNotification;
   check_for_media_item_changes_job: AppConfigNotificationCustomNotification;
   sonarr_notification: AppConfigNotificationCustomNotification;
+  silo_plugin: AppConfigNotificationCustomNotification;
 }
 
 export interface NotificationTemplateVariablesCatalog {
   template_variables: Record<string, string[]>;
+  default_templates?: AppConfigNotificationTemplate;
 }
 
 export interface AppConfigNotificationCustomNotification {
@@ -173,3 +212,19 @@ export interface AppConfigSonarrRadarrApp {
   url: string; // Base URL of the Sonarr/Radarr server.
   api_token: string; // API key for accessing the Sonarr/Radarr server.
 }
+
+export interface AppConfigUserPreferences {
+  download_defaults: TYPE_DOWNLOAD_DEFAULT_TYPE_OPTIONS[]; // Image types selected by default in the Download Modal
+  show_only_download_defaults: boolean; // Whether to only show the default image types in the Download Modal
+  show_date_modified: boolean; // Whether to show the date modified on poster sets
+  default_add_to_queue: boolean; // Whether "Add to Queue" is checked by default in the Download Modal
+  default_auto_add_new_collection_items?: boolean; // Whether "Auto Add New Collection Items" is checked by default in the Download Modal
+  default_add_to_db_only: boolean; // Whether "Add to Database Only" is checked by default in the Download Modal
+  auto_download_new_items: boolean; // Whether new items get images from the favorite creators automatically
+  auto_upgrade_sets: boolean; // Whether to automatically upgrade sets to a better version when available
+  favorite_creators: string[]; // MediUX usernames ranked best first
+  page_views?: Record<string, PageView>; // Each page's sort and filter options, so they're the same on every device
+}
+
+// PageView is a page's sort and filter options
+export type PageView = Record<string, unknown>;

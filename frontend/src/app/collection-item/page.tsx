@@ -1,6 +1,8 @@
 "use client";
 
 import CollectionsDownloadModal from "@/app/collection-item/collection-download-modal";
+import type { CollectionItem } from "@/app/collections/page";
+import { comparePopularity } from "@/helper/compare-popularity";
 import { formatLastUpdatedDate } from "@/helper/format-date-last-updates";
 import { makePlural } from "@/helper/make_plural";
 import { ReturnErrorMessage } from "@/services/api-error-return";
@@ -40,7 +42,6 @@ import { useCollectionItemPageStore } from "@/lib/stores/page-store-collection-i
 import { useCollectionsPageStore } from "@/lib/stores/page-store-collections";
 
 import type { APIResponse } from "@/types/api/api-response";
-import type { CollectionItem } from "@/types/media-and-posters/collection-item";
 import type { CollectionItemSetRef } from "@/types/media-and-posters/sets";
 import type { MediuxUserInfo } from "@/types/mediux/mediux-user-follow-hide";
 
@@ -70,6 +71,9 @@ export default function CollectionItemPage() {
   // Error States
   const [hasError, setHasError] = useState(false);
   const [error, setError] = useState<APIResponse<unknown> | null>(null);
+
+  // Image Version State (for forcing image reloads)
+  const imageVersion = useState(Date.now());
 
   // UI States from Store
   const { sortOrder, setSortOrder, sortOption, setSortOption, showHiddenUsers, setShowHiddenUsers } =
@@ -231,14 +235,11 @@ export default function CollectionItemPage() {
       }
 
       if (sortOption === "popularity") {
-        const aPopularity = a.popularity || 0;
-        const bPopularity = b.popularity || 0;
-        if (aPopularity === bPopularity) {
-          const dateA = new Date(a.date_updated || a.date_created || "");
-          const dateB = new Date(b.date_updated || b.date_created || "");
-          return dateB.getTime() - dateA.getTime();
-        }
-        return sortOrder === "asc" ? aPopularity - bPopularity : bPopularity - aPopularity;
+        const byRank = comparePopularity(a.popularity, b.popularity, sortOrder);
+        if (byRank !== 0) return byRank;
+        const dateA = new Date(a.date_updated || a.date_created || "");
+        const dateB = new Date(b.date_updated || b.date_created || "");
+        return dateB.getTime() - dateA.getTime();
       }
 
       const dateA = new Date(a.date_updated || a.date_created || "");
@@ -342,7 +343,7 @@ export default function CollectionItemPage() {
   return (
     <>
       <DimmedBackground
-        backdropURL={`/api/images/media/collection?rating_key=${collectionItem?.rating_key}&image_type=backdrop&v=${collectionItem?.artwork_version}`}
+        backdropURL={`/api/images/media/collection?rating_key=${collectionItem?.rating_key}&image_type=backdrop&cb=${imageVersion}`}
       />
 
       <div className="p-4 lg:p-6">
@@ -471,11 +472,7 @@ export default function CollectionItemPage() {
                     <div className="relative w-full mb-1">
                       {/* Download Button - absolute top right */}
                       <div className="absolute top-0 right-0 z-10">
-                        <CollectionsDownloadModal
-                          item={collectionItem}
-                          set={set}
-                          onArtworkApplied={setCollectionItem}
-                        />
+                        <CollectionsDownloadModal item={collectionItem} set={set} />
                       </div>
                       {/* Set Name */}
                       <P className="text-primary-dynamic text-sm font-semibold w-full mb-1 truncate pr-10">

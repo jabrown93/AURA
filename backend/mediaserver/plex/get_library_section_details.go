@@ -1,7 +1,6 @@
 package plex
 
 import (
-	"aura/config"
 	"aura/logging"
 	"aura/models"
 	"aura/utils/httpx"
@@ -20,7 +19,7 @@ func (p *Plex) GetLibrarySectionDetails(ctx context.Context, library *models.Lib
 	found = false
 
 	// Construct the URL for the Plex library sections API request
-	u, err := url.Parse(config.Current.MediaServer.URL)
+	u, err := url.Parse(p.Config.URL)
 	if err != nil {
 		logAction.SetError("Failed to parse base URL", "Ensure the URL is valid", map[string]any{"error": err.Error()})
 		return found, *logAction.Error
@@ -29,7 +28,7 @@ func (p *Plex) GetLibrarySectionDetails(ctx context.Context, library *models.Lib
 	URL := u.String()
 
 	// Make the HTTP Request to Plex
-	resp, respBody, Err := makeRequest(ctx, config.Current.MediaServer, URL, "GET", nil)
+	resp, respBody, Err := makeRequest(ctx, p.Config, URL, "GET", nil)
 	if Err.Message != "" {
 		logAction.SetErrorFromInfo(Err)
 		return found, *logAction.Error
@@ -40,7 +39,7 @@ func (p *Plex) GetLibrarySectionDetails(ctx context.Context, library *models.Lib
 	var plexResp PlexLibrarySectionsWrapper
 	Err = httpx.DecodeResponseToJSON(ctx, respBody, &plexResp, "Plex Library Sections Response")
 	if Err.Message != "" {
-		return found, *logAction.Error
+		return found, Err
 	}
 
 	// Find the specific library section and update its details

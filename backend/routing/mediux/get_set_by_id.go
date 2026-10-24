@@ -24,7 +24,9 @@ type GetSetByID_Response struct {
 // @Param        set_type query string true "Type of the item set (show, movie, or collection)"
 // @Param        tmdb_id query string false "TMDB ID of the media item (required for collection sets)"
 // @Param        item_library_title query string true "Title of the library the set belongs to"
-// @Security 	 BearerAuth
+// @Param        edition query string false "Edition of the media item (e.g. Director's Cut), empty for the standard edition"
+// @Security     SessionCookie
+// @Security     ApiKeyAuth
 // @Failure      401  {object}  httpx.UnauthorizedResponse "Unauthorized (only when Auth.Enabled=true"
 // @Success	  200  {object}  httpx.JSONResponse{data=GetSetByID_Response}
 // @Failure	  500  {object}  httpx.JSONResponse "Internal Server Error"
@@ -45,6 +47,7 @@ func GetSetByID(w http.ResponseWriter, r *http.Request) {
 	setType := r.URL.Query().Get("set_type")
 	tmdbID := r.URL.Query().Get("tmdb_id")
 	itemLibraryTitle := r.URL.Query().Get("item_library_title")
+	edition := r.URL.Query().Get("edition")
 	// Validate the set ID, library section, item type, and TMDB ID
 	if setID == "" || setType == "" || itemLibraryTitle == "" || (setType != "show" && setType != "movie" && setType != "collection") {
 		actionGetQueryParams.SetError("Missing Query Parameters", "One or more required query parameters are missing or invalid",
@@ -67,7 +70,7 @@ func GetSetByID(w http.ResponseWriter, r *http.Request) {
 
 	switch setType {
 	case "show":
-		showSet, includedItems, Err := mediux.GetShowSetByID(ctx, setID, itemLibraryTitle)
+		showSet, includedItems, Err := mediux.GetShowSetByID(ctx, setID, itemLibraryTitle, edition)
 		if Err.Message != "" {
 			httpx.SendResponse(w, ld, response)
 			return
@@ -75,7 +78,7 @@ func GetSetByID(w http.ResponseWriter, r *http.Request) {
 		response.Set = showSet
 		response.IncludedItems = includedItems
 	case "movie":
-		movieSet, includedItems, Err := mediux.GetMovieSetByID(ctx, setID, itemLibraryTitle)
+		movieSet, includedItems, Err := mediux.GetMovieSetByID(ctx, setID, itemLibraryTitle, edition)
 		if Err.Message != "" {
 			httpx.SendResponse(w, ld, response)
 			return
@@ -84,7 +87,7 @@ func GetSetByID(w http.ResponseWriter, r *http.Request) {
 		response.IncludedItems = includedItems
 
 	case "collection":
-		collectionSet, includedItems, Err := mediux.GetMovieCollectionSetByID(ctx, setID, tmdbID, itemLibraryTitle, true)
+		collectionSet, includedItems, Err := mediux.GetMovieCollectionSetByID(ctx, setID, tmdbID, itemLibraryTitle, edition, true)
 		if Err.Message != "" {
 			httpx.SendResponse(w, ld, response)
 			return

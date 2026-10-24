@@ -13,10 +13,3 @@ func Error_BaseUrlParsing(err error) (message, help string, detail map[string]an
 	detail = map[string]any{"error": err.Error()}
 	return message, help, detail
 }
-
-func Error_NoResponseData(siteType string, passedHelp string) (message, help string, detail map[string]any) {
-	message = siteType + " returned no response data"
-	help = passedHelp
-	detail = map[string]any{}
-	return message, help, detail
-}

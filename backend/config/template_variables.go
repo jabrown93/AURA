@@ -5,9 +5,11 @@ const (
 	TemplateTypeTestNotification                = "test_notification"
 	TemplateTypeAutodownload                    = "autodownload"
 	TemplateTypeDownloadQueue                   = "download_queue"
+	TemplateTypeNewItemAutoDownload             = "new_item_auto_download"
 	TemplateTypeNewSetsAvailableForIgnoredItems = "new_sets_available_for_ignored_items"
 	TemplateTypeCheckForMediaItemChangesJob     = "check_for_media_item_changes_job"
 	TemplateTypeSonarrNotification              = "sonarr_notification"
+	TemplateTypeSiloPlugin                      = "silo_plugin"
 )
 
 var BaseTemplateVariables = []string{
@@ -50,7 +52,8 @@ var DownloadReasonVariables = []string{
 }
 
 type NotificationTemplateVariableCatalog struct {
-	TemplateVariables map[string][]string `json:"template_variables"`
+	TemplateVariables map[string][]string         `json:"template_variables"`
+	DefaultTemplates  Config_NotificationTemplate `json:"default_templates"` // The built-in templates, for Restore Default
 }
 
 func AllowedTemplateVariables(templateType string) []string {
@@ -67,7 +70,7 @@ func AllowedTemplateVariables(templateType string) []string {
 			ImageVariables,
 			DownloadReasonVariables,
 		)
-	case TemplateTypeDownloadQueue:
+	case TemplateTypeDownloadQueue, TemplateTypeNewItemAutoDownload, TemplateTypeSiloPlugin:
 		return mergeTemplateVariableGroups(
 			BaseTemplateVariables,
 			MediaItemVariables,
@@ -115,10 +118,13 @@ func GetNotificationTemplateVariableCatalog() NotificationTemplateVariableCatalo
 			TemplateTypeTestNotification:                AllowedTemplateVariables(TemplateTypeTestNotification),
 			TemplateTypeAutodownload:                    AllowedTemplateVariables(TemplateTypeAutodownload),
 			TemplateTypeDownloadQueue:                   AllowedTemplateVariables(TemplateTypeDownloadQueue),
+			TemplateTypeNewItemAutoDownload:             AllowedTemplateVariables(TemplateTypeNewItemAutoDownload),
 			TemplateTypeNewSetsAvailableForIgnoredItems: AllowedTemplateVariables(TemplateTypeNewSetsAvailableForIgnoredItems),
 			TemplateTypeCheckForMediaItemChangesJob:     AllowedTemplateVariables(TemplateTypeCheckForMediaItemChangesJob),
 			TemplateTypeSonarrNotification:              AllowedTemplateVariables(TemplateTypeSonarrNotification),
+			TemplateTypeSiloPlugin:                      AllowedTemplateVariables(TemplateTypeSiloPlugin),
 		},
+		DefaultTemplates: DefaultNotificationTemplates(),
 	}
 }
 
@@ -137,10 +143,4 @@ func mergeTemplateVariableGroups(groups ...[]string) []string {
 	}
 
 	return merged
-}
-
-func cloneStringSlice(in []string) []string {
-	out := make([]string, len(in))
-	copy(out, in)
-	return out
 }

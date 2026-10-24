@@ -45,19 +45,6 @@ func (c *MediuxItemCache) StoreMediuxItems(movies, shows []models.MediuxContentI
 	c.mu.Unlock()
 }
 
-func (c *MediuxItemCache) GetMediuxItems() []models.MediuxContentID {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	itemList := make([]models.MediuxContentID, 0)
-	for _, items := range c.items {
-		for _, item := range items {
-			itemList = append(itemList, *item)
-		}
-	}
-	return itemList
-}
-
 func (c *MediuxItemCache) GetCountMediuxItems() (movieCount int, showsCount int) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -77,32 +64,4 @@ func (c *MediuxItemCache) CheckItemExists(itemType string, tmdbID string) bool {
 		}
 	}
 	return false
-}
-
-func (c *MediuxItemCache) AddItem(itemType string, tmdbID string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	// Prevent duplicates
-	for _, item := range c.items[itemType] {
-		if item.ID == tmdbID {
-			return
-		}
-	}
-	c.items[itemType] = append(c.items[itemType], &models.MediuxContentID{
-		ID: tmdbID,
-	})
-}
-
-func (c *MediuxItemCache) RemoveItem(itemType string, tmdbID string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	items := c.items[itemType]
-	for i, item := range items {
-		if item.ID == tmdbID {
-			c.items[itemType] = append(items[:i], items[i+1:]...)
-			break
-		}
-	}
 }

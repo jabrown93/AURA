@@ -1,612 +1,356 @@
 "use client";
 
-import { formatExactDateTime } from "@/helper/format-date-last-updates";
-import { makePlural } from "@/helper/make_plural";
-import { ReturnErrorMessage } from "@/services/api-error-return";
-import { GetAllCollectionQueueItems } from "@/services/downloads/collection-queue-get";
+import { GetDownloadHistory } from "@/services/downloads/history-get";
+import { RemoveAllDownloadHistory } from "@/services/downloads/history-remove";
 import { GetAllDownloadQueueItems } from "@/services/downloads/queue-get";
-import { RemoveItemFromQueue } from "@/services/downloads/queue-remove";
-import { RetryItemInQueue } from "@/services/downloads/queue-retry";
-import { GetDownloadQueueStatus, type GetDownloadQueueStatus_Response } from "@/services/downloads/queue-status";
-import { Globe, RefreshCcw, Trash2 } from "lucide-react";
+import { RemoveAllFromQueue } from "@/services/downloads/queue-remove";
+import { subscribeToDownloadQueue } from "@/services/downloads/queue-stream";
 import { toast } from "sonner";
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 
-import CollectionQueueEntry from "@/components/shared/collection-queue-entry";
+import Link from "next/link";
+
+import { CustomPagination } from "@/components/shared/custom-pagination";
 import { ConfirmDestructiveDialogActionButton } from "@/components/shared/dialog-destructive-action";
-import DownloadQueueEntry from "@/components/shared/download-queue-entry";
+import DownloadEntryCard from "@/components/shared/download-entry";
+import { DownloadHistoryRetryAll } from "@/components/shared/download-history-retry-all";
+import { DownloadQueueProgressPanel } from "@/components/shared/download-queue-progress";
 import { ErrorMessage } from "@/components/shared/error-message";
 import Loader from "@/components/shared/loader";
-import { RefreshButton } from "@/components/shared/refresh-button";
 import { ResponsiveGrid } from "@/components/shared/responsive-grid";
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import { H2, H3 } from "@/components/ui/typography";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { H2 } from "@/components/ui/typography";
 
-import { cn } from "@/lib/cn";
+import { useFailedDownloadsStore } from "@/lib/stores/global-store-failed-downloads";
+import { useDownloadQueuePageStore } from "@/lib/stores/page-store-download-queue";
 
 import type { APIResponse } from "@/types/api/api-response";
-import type { CollectionQueueItem } from "@/types/database/db-collection-queue";
-import type { DBSavedItem } from "@/types/database/db-poster-set";
+import type { DownloadHistoryEntry, DownloadQueueJob, DownloadQueueProgress } from "@/types/database/download-queue";
+import { ITEMS_PER_PAGE_OPTIONS } from "@/types/ui-options";
 
-// Stable key for a queue entry, matching the backend's file identity (LibraryTitle + TMDB ID).
-const errorEntryKey = (entry: DBSavedItem) => `${entry.media_item.tmdb_id}|||${entry.media_item.library_title}`;
+// PerPageSelect picks how many cards each page shows
+const PerPageSelect: React.FC<{ value: number; onChange: (value: number) => void }> = ({ value, onChange }) => (
+  <div className="flex items-center gap-2">
+    <Label className="text-sm text-muted-foreground whitespace-nowrap">Per page</Label>
+    <Select value={String(value)} onValueChange={(v) => onChange(Number(v))}>
+      <SelectTrigger className="h-8 w-20">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {ITEMS_PER_PAGE_OPTIONS.map((option) => (
+          <SelectItem key={option} value={String(option)}>
+            {option}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  </div>
+);
+
+// pageOf returns one page of the list, and the number of pages
+const pageOf = <T,>(list: T[], page: number, perPage: number) => ({
+  items: list.slice((page - 1) * perPage, page * perPage),
+  totalPages: Math.max(1, Math.ceil(list.length / perPage)),
+});
 
 const DownloadQueuePage: React.FC = () => {
-  // Refs - Fetching
-  const isFetchingRef = useRef(false);
+  // States - Queue
+  const [jobs, setJobs] = useState<DownloadQueueJob[]>([]);
+  const [progress, setProgress] = useState<DownloadQueueProgress | null>(null);
+  const [queueLoading, setQueueLoading] = useState(true);
+  const [queueError, setQueueError] = useState<APIResponse<unknown> | null>(null);
 
-  // States - Queue Entries
-  const [inProgressEntries, setInProgressEntries] = useState<DBSavedItem[]>([]);
-  const [errorEntries, setErrorEntries] = useState<DBSavedItem[]>([]);
-  const [warningEntries, setWarningEntries] = useState<DBSavedItem[]>([]);
+  // States - History
+  const [historyEntries, setHistoryEntries] = useState<DownloadHistoryEntry[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(true);
+  const [historyError, setHistoryError] = useState<APIResponse<unknown> | null>(null);
+  const [maxRetries, setMaxRetries] = useState(0);
 
-  // States - Collection Queue Entries
-  const [collectionInProgress, setCollectionInProgress] = useState<CollectionQueueItem[]>([]);
-  const [collectionErrors, setCollectionErrors] = useState<CollectionQueueItem[]>([]);
-  const [collectionWarnings, setCollectionWarnings] = useState<CollectionQueueItem[]>([]);
+  // States - Pages, each tab has its own
+  const [queuePage, setQueuePage] = useState(1);
+  const queuePerPage = useDownloadQueuePageStore((state) => state.queuePerPage);
+  const setQueuePerPage = useDownloadQueuePageStore((state) => state.setQueuePerPage);
+  const [historyPage, setHistoryPage] = useState(1);
+  const historyPerPage = useDownloadQueuePageStore((state) => state.failedPerPage);
+  const setHistoryPerPage = useDownloadQueuePageStore((state) => state.setFailedPerPage);
 
-  // States - Queue Status
-  const [queueStatus, setQueueStatus] = useState<GetDownloadQueueStatus_Response>({
-    time: "",
-    status: "",
-    message: "",
-    warnings: [],
-    errors: [],
-  });
-  const [secondsToNextRun, setSecondsToNextRun] = useState<number>(0);
+  const setFailedCount = useFailedDownloadsStore((state) => state.setFailedCount);
 
-  // States - Loading & Error
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<APIResponse<unknown> | null>(null);
+  // A quiet fetch updates the list without the loader, for changes while the page is open
+  const fetchHistory = useCallback(
+    async (quiet = false) => {
+      try {
+        if (!quiet) setHistoryLoading(true);
+        const response = await GetDownloadHistory();
+        if (response.status === "error") {
+          setHistoryError(response);
+          return;
+        }
+        setHistoryEntries(response.data?.entries || []);
+        setMaxRetries(response.data?.max_retries ?? 0);
+        setHistoryError(null);
+        setFailedCount(response.data?.total ?? response.data?.entries?.length ?? 0);
+      } finally {
+        setHistoryLoading(false);
+      }
+    },
+    [setFailedCount]
+  );
 
-  // States - Bulk edit (Error section only)
-  const [bulkMode, setBulkMode] = useState(false);
-  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
-  const [bulkActionRunning, setBulkActionRunning] = useState(false);
-
-  // Fetch Queue Entries
+  // Initial queue load (SSE also sends a snapshot on connect, but this avoids a loading flash on slow connections)
   const fetchQueueEntries = useCallback(async () => {
-    if (isFetchingRef.current) return;
-    isFetchingRef.current = true;
-
     try {
-      setLoading(true);
-
-      const [response, collectionResponse] = await Promise.all([
-        GetAllDownloadQueueItems(),
-        GetAllCollectionQueueItems(),
-      ]);
-
+      setQueueLoading(true);
+      const response = await GetAllDownloadQueueItems();
       if (response.status === "error") {
-        setError(response);
+        setQueueError(response);
         return;
       }
-
-      setInProgressEntries(response.data?.in_progress_entries || []);
-      setErrorEntries(response.data?.error_entries || []);
-      setWarningEntries(response.data?.warning_entries || []);
-
-      // The collection queue is a secondary concern: if it fails to load, still
-      // show the media-item queue rather than erroring the whole page.
-      if (collectionResponse.status !== "error") {
-        setCollectionInProgress(collectionResponse.data?.in_progress_entries || []);
-        setCollectionErrors(collectionResponse.data?.error_entries || []);
-        setCollectionWarnings(collectionResponse.data?.warning_entries || []);
-      }
-      setError(null);
-    } catch (error) {
-      setError(ReturnErrorMessage<unknown>(error));
+      setJobs(response.data?.jobs || []);
+      setQueueError(null);
     } finally {
-      isFetchingRef.current = false;
-      setLoading(false);
+      setQueueLoading(false);
     }
   }, []);
 
   useEffect(() => {
     fetchQueueEntries();
-  }, [fetchQueueEntries, queueStatus.status]);
+    fetchHistory();
+  }, [fetchQueueEntries, fetchHistory]);
 
-  // --- Bulk edit helpers (Error section) ---
-
-  // Exit bulk mode automatically once there are no error entries left to act on.
+  // Live updates over SSE, replacing the old 2s HTTP polling.
   useEffect(() => {
-    if (errorEntries.length === 0 && bulkMode) {
-      setBulkMode(false);
-      setSelectedKeys(new Set());
-    }
-  }, [errorEntries.length, bulkMode]);
-
-  const toggleBulkMode = () => {
-    setSelectedKeys(new Set());
-    setBulkMode((prev) => !prev);
-  };
-
-  const toggleSelected = (key: string, checked: boolean) => {
-    setSelectedKeys((prev) => {
-      const next = new Set(prev);
-      if (checked) {
-        next.add(key);
-      } else {
-        next.delete(key);
-      }
-      return next;
+    const unsubscribe = subscribeToDownloadQueue({
+      onSnapshot: (snapshotJobs) => {
+        setJobs(snapshotJobs ?? []);
+        setProgress(null);
+        setQueueLoading(false);
+        setQueueError(null);
+      },
+      onJobAdded: (job) => {
+        // The snapshot query can race a real add, so the job may already be
+        // in state by the time this event arrives - don't append a duplicate.
+        setJobs((prev) => (prev.some((j) => j.id === job.id) ? prev : [...prev, job]));
+        // A retried failure counts its retry
+        fetchHistory(true);
+      },
+      onJobStarted: (job) => {
+        setProgress(null);
+        // The started job is processing, and is added if it was missing
+        const started: DownloadQueueJob = { ...job, status: "processing" };
+        setJobs((prev) =>
+          prev.some((j) => j.id === job.id) ? prev.map((j) => (j.id === job.id ? started : j)) : [...prev, started]
+        );
+      },
+      onJobProgress: (jobProgress) => {
+        setProgress(jobProgress);
+      },
+      onJobFinished: (job) => {
+        // Server always clears the job on finish, so drop it here too.
+        setProgress((prev) => (prev?.job_id === job.id ? null : prev));
+        setJobs((prev) => prev.filter((j) => j.id !== job.id));
+        // A job finishing means a new history entry may exist.
+        fetchHistory(true);
+      },
+      onJobRemoved: (job) => {
+        setJobs((prev) => prev.filter((j) => j.id !== job.id));
+      },
+      onQueueCleared: () => {
+        setJobs([]);
+        setProgress(null);
+      },
     });
-  };
 
-  // Deduplicate by backend identity so each media item is acted on once even if
-  // multiple error files exist for it.
-  const getSelectedErrorEntries = (): DBSavedItem[] => {
-    const byKey = new Map<string, DBSavedItem>();
-    for (const entry of errorEntries) {
-      const key = errorEntryKey(entry);
-      if (selectedKeys.has(key) && !byKey.has(key)) {
-        byKey.set(key, entry);
-      }
-    }
-    return Array.from(byKey.values());
-  };
+    return unsubscribe;
+  }, [fetchHistory]);
 
-  const handleBulkRetry = async () => {
-    const entries = getSelectedErrorEntries();
-    if (entries.length === 0) return;
-
-    setBulkActionRunning(true);
-    const toastId = "bulk-retry-error-entries";
-    toast.loading(`Retrying 0 of ${entries.length}...`, { id: toastId });
-
-    let succeeded = 0;
-    const failures: string[] = [];
-    for (const [index, entry] of entries.entries()) {
-      toast.loading(`Retrying ${index + 1} of ${entries.length} - ${entry.media_item.title}`, { id: toastId });
-      const response = await RetryItemInQueue(entry);
-      if (response.status === "error") {
-        failures.push(entry.media_item.title);
-      } else {
-        succeeded++;
-      }
-    }
-
-    if (failures.length === 0) {
-      toast.success(`Retried ${succeeded} ${makePlural(succeeded, "item")}`, { id: toastId });
+  const onClearQueue = async () => {
+    const response = await RemoveAllFromQueue();
+    if (response.status === "error") {
+      toast.error(`Error clearing queue: ${response.error?.message || "Unknown error occurred."}`);
     } else {
-      toast.error(`Retried ${succeeded} of ${entries.length}; failed: ${failures.join(", ")}`, { id: toastId });
+      toast.success(response.data?.result || "Cleared the download queue.");
     }
-
-    setBulkMode(false);
-    setSelectedKeys(new Set());
-    setBulkActionRunning(false);
-    await fetchQueueEntries();
   };
 
-  const handleBulkDelete = async () => {
-    const entries = getSelectedErrorEntries();
-    if (entries.length === 0) return;
-
-    setBulkActionRunning(true);
-    const toastId = "bulk-delete-error-entries";
-    toast.loading(`Deleting 0 of ${entries.length}...`, { id: toastId });
-
-    let succeeded = 0;
-    const failures: string[] = [];
-    for (const [index, entry] of entries.entries()) {
-      toast.loading(`Deleting ${index + 1} of ${entries.length} - ${entry.media_item.title}`, { id: toastId });
-      const safeEntry: DBSavedItem = {
-        ...entry,
-        poster_sets: Array.isArray(entry.poster_sets) ? entry.poster_sets : [],
-      };
-      const response = await RemoveItemFromQueue(safeEntry);
-      if (response.status === "error") {
-        failures.push(entry.media_item.title);
-      } else {
-        succeeded++;
-      }
-    }
-
-    if (failures.length === 0) {
-      toast.success(`Deleted ${succeeded} ${makePlural(succeeded, "item")}`, { id: toastId });
+  const onClearHistory = async () => {
+    const response = await RemoveAllDownloadHistory();
+    if (response.status === "error") {
+      toast.error(`Error clearing history: ${response.error?.message || "Unknown error occurred."}`);
     } else {
-      toast.error(`Deleted ${succeeded} of ${entries.length}; failed: ${failures.join(", ")}`, { id: toastId });
+      toast.success(response.data?.result || "Cleared the download history.");
     }
-
-    setBulkMode(false);
-    setSelectedKeys(new Set());
-    setBulkActionRunning(false);
-    await fetchQueueEntries();
+    await fetchHistory();
   };
 
+  // Finished jobs get recorded to History, so the queue only shows pending/processing.
+  const activeJobs = jobs
+    .filter((j) => j.status === "pending" || j.status === "processing")
+    .sort((a, b) => (a.status === b.status ? 0 : a.status === "processing" ? -1 : 1));
+
+  const processingJob = activeJobs.find((j) => j.status === "processing");
+
+  const queuePageItems = pageOf(activeJobs, queuePage, queuePerPage);
+  const historyPageItems = pageOf(historyEntries, historyPage, historyPerPage);
+
+  // A page that's gone, after jobs finish or entries are removed, shows the last page
   useEffect(() => {
-    const fetchStatus = async () => {
-      try {
-        const statusResponse = await GetDownloadQueueStatus();
-        if (statusResponse.status === "error") {
-          throw new Error("Error fetching status");
-        }
-        const status = statusResponse.data || {
-          time: new Date().toISOString(),
-          status: "Error",
-          message: "Unable to get status from server",
-          warnings: [],
-          errors: ["No status data"],
-        };
-        setQueueStatus(status);
-      } catch {
-        const errorResponse: GetDownloadQueueStatus_Response = {
-          time: new Date().toISOString(),
-          status: "Error",
-          message: "Failed to fetch status",
-          warnings: [],
-          errors: [],
-        };
-        setQueueStatus(errorResponse);
-      }
-    };
-
-    fetchStatus();
-    const interval = setInterval(fetchStatus, 1000 * 2); // Refresh every 2 seconds
-
-    return () => clearInterval(interval);
-  }, []);
-
+    if (queuePage > queuePageItems.totalPages) setQueuePage(queuePageItems.totalPages);
+  }, [queuePage, queuePageItems.totalPages]);
   useEffect(() => {
-    const updateNextRunTime = () => {
-      const now = new Date();
-      const next = new Date(now);
-      next.setSeconds(0, 0);
-      if (now.getSeconds() !== 0 || now.getMilliseconds() !== 0) {
-        next.setMinutes(now.getMinutes() + 1);
-      }
-
-      const diff = Math.max(0, Math.floor((next.getTime() - now.getTime()) / 1000));
-      setSecondsToNextRun(diff);
-    };
-
-    updateNextRunTime();
-    const interval = setInterval(updateNextRunTime, 1000);
-
-    return () => clearInterval(interval);
-  }, []);
-
-  if (loading) {
-    return <Loader className="mt-10" message="Loading download queue entries..." />;
-  }
-
-  if (error) {
-    return (
-      <div className="flex flex-col items-center p-6 gap-4">
-        <ErrorMessage error={error} />
-      </div>
-    );
-  }
-
-  const hasCollectionEntries =
-    collectionInProgress.length > 0 || collectionErrors.length > 0 || collectionWarnings.length > 0;
-
-  const defaultAccordionValues = [
-    inProgressEntries.length > 0 ? "in_progress" : null,
-    errorEntries.length > 0 ? "error_entries" : null,
-    warningEntries.length > 0 ? "warning_entries" : null,
-    collectionInProgress.length > 0 ? "collection_in_progress" : null,
-    collectionErrors.length > 0 ? "collection_error_entries" : null,
-    collectionWarnings.length > 0 ? "collection_warning_entries" : null,
-  ].filter(Boolean) as string[];
-
-  // Derived bulk-selection state for the Error section.
-  const uniqueErrorKeys = Array.from(new Set(errorEntries.map(errorEntryKey)));
-  const selectedErrorCount = uniqueErrorKeys.filter((key) => selectedKeys.has(key)).length;
-  const allErrorsSelected = uniqueErrorKeys.length > 0 && selectedErrorCount === uniqueErrorKeys.length;
+    if (historyPage > historyPageItems.totalPages) setHistoryPage(historyPageItems.totalPages);
+  }, [historyPage, historyPageItems.totalPages]);
 
   return (
     <div className="container mx-auto p-4 min-h-screen flex flex-col items-center">
       <H2 className="text-3xl font-bold mb-4">Download Queue</H2>
 
-      {typeof secondsToNextRun === "number" && (
-        <div className="w-full max-w-4xl mb-2 text-xs text-muted-foreground text-right flex items-center justify-end gap-2">
-          <span className="font-mono">Next Run: {secondsToNextRun}s</span>
-          <span title="HTTP Polling">
-            <Globe className="inline-block h-4 w-4 text-blue-500" />
-          </span>
-        </div>
-      )}
-      <pre
-        className={cn(
-          "w-full max-w-4xl mb-4 p-3 rounded text-xs whitespace-pre-wrap border",
-          queueStatus.status === "Error"
-            ? "border-red-400 text-red-500"
-            : queueStatus.status === "Warning"
-              ? "border-yellow-400 text-yellow-500"
-              : queueStatus.status === "Success"
-                ? "border-green-400 text-green-500"
-                : queueStatus.status === "Idle - Queue Empty"
-                  ? "border-gray-400 text-gray-500"
-                  : "border-primary text-primary"
-        )}
-      >
-        {queueStatus.time && (
-          <div>
-            <b>Last Run:</b> {formatExactDateTime(queueStatus.time)}
-          </div>
-        )}
-        {queueStatus.status && (
-          <div>
-            <b>Status:</b> {queueStatus.status}
-          </div>
-        )}
-        {queueStatus.message && <div className="mt-2 mb-2">{queueStatus.message}</div>}
-        {queueStatus.warnings && queueStatus.warnings.length > 0 && (
-          <div className="mt-1">
-            <b className="text-yellow-500">Warnings:</b>
-            <ul className="list-disc ml-5 text-yellow-500">
-              {queueStatus.warnings.map((w, i) => (
-                <li key={i}>{w}</li>
-              ))}
-            </ul>
-          </div>
-        )}
-        {queueStatus.errors && queueStatus.errors.length > 0 && (
-          <div className="mt-1">
-            <b className="text-red-500">Errors:</b>
-            <ul className="list-disc ml-5 text-red-500">
-              {queueStatus.errors.map((e, i) => (
-                <li key={i}>{e}</li>
-              ))}
-            </ul>
-          </div>
-        )}
-      </pre>
+      <Tabs defaultValue="queue" className="w-full">
+        <TabsList className="mx-auto">
+          <TabsTrigger value="queue">Queue</TabsTrigger>
+          <TabsTrigger value="history">Failed</TabsTrigger>
+        </TabsList>
 
-      {inProgressEntries.length === 0 &&
-        errorEntries.length === 0 &&
-        warningEntries.length === 0 &&
-        !hasCollectionEntries && <p className="text-gray-500">No download queue entries found</p>}
-
-      <div className="w-full">
-        <Accordion type="multiple" className="mb-4" defaultValue={defaultAccordionValues}>
-          {inProgressEntries.length > 0 && (
-            <AccordionItem value="in_progress">
-              <AccordionTrigger
-                className={cn(
-                  "cursor-pointer",
-                  "hover:underline-none focus:underline-none underline-none hover:no-underline focus:no-underline justify-center"
+        <TabsContent value="queue" className="w-full">
+          {queueLoading ? (
+            <Loader className="mt-10" message="Loading download queue entries..." />
+          ) : queueError ? (
+            <div className="flex flex-col items-center p-6 gap-4">
+              <ErrorMessage error={queueError} />
+            </div>
+          ) : (
+            <>
+              <div className="w-full flex items-center justify-end gap-2 mb-2">
+                {activeJobs.length > 0 && (
+                  <PerPageSelect
+                    value={queuePerPage}
+                    onChange={(value) => {
+                      setQueuePerPage(value);
+                      setQueuePage(1);
+                    }}
+                  />
                 )}
-              >
-                <H3>In Progress Entries</H3>
-              </AccordionTrigger>
-              <AccordionContent>
-                {inProgressEntries.length === 0 ? (
-                  <p className="text-gray-500">No entries in progress.</p>
-                ) : (
-                  <ResponsiveGrid size="regular">
-                    {inProgressEntries.map((entry) => (
-                      <DownloadQueueEntry
-                        key={entry.media_item.tmdb_id}
-                        entry={entry}
-                        fetchQueueEntries={fetchQueueEntries}
-                      />
-                    ))}
-                  </ResponsiveGrid>
-                )}
-              </AccordionContent>
-            </AccordionItem>
-          )}
+                <ConfirmDestructiveDialogActionButton
+                  variant="outline"
+                  className="text-destructive border-1 shadow-none hover:text-red-500 cursor-pointer"
+                  confirmText="Clear Queue"
+                  title="Clear Download Queue?"
+                  description="Are you sure you want to remove all items from the download queue? Items currently downloading will not be interrupted. This action cannot be undone."
+                  onConfirm={onClearQueue}
+                  disabled={jobs.length === 0}
+                >
+                  Clear Queue
+                </ConfirmDestructiveDialogActionButton>
+              </div>
 
-          {errorEntries.length > 0 && (
-            <AccordionItem value="error_entries">
-              <AccordionTrigger
-                className={cn(
-                  "cursor-pointer",
-                  "hover:underline-none focus:underline-none underline-none hover:no-underline focus:no-underline justify-center"
-                )}
-              >
-                <H3>Error Entries</H3>
-              </AccordionTrigger>
-              <AccordionContent>
-                {errorEntries.length === 0 ? (
-                  <p className="text-gray-500">No error entries.</p>
-                ) : (
-                  <>
-                    {/* Bulk edit toggle + action bar */}
-                    <div className="mb-3 flex flex-col gap-2">
-                      <div className="flex justify-end">
-                        <Button
-                          variant={bulkMode ? "destructive" : "secondary"}
-                          onClick={toggleBulkMode}
-                          disabled={bulkActionRunning}
-                          className={cn(
-                            "flex items-center gap-1 text-xs sm:text-sm cursor-pointer",
-                            bulkMode
-                              ? "border-red-600 bg-red-600/10 hover:bg-red-600/20"
-                              : "border border-1 border-yellow-500 hover:bg-yellow-800"
-                          )}
-                        >
-                          {bulkMode ? "Cancel Bulk Edit" : "Bulk Edit"}
-                        </Button>
-                      </div>
+              {processingJob && (
+                <DownloadQueueProgressPanel
+                  progress={progress?.job_id === processingJob.id ? progress : null}
+                  processingTitle={processingJob.media_item_title}
+                  waiting={activeJobs.length - 1}
+                />
+              )}
 
-                      {bulkMode && (
-                        <div className="flex flex-wrap items-center gap-3 rounded-md border p-3">
-                          <div className="flex items-center gap-2 select-none">
-                            <Checkbox
-                              id="select-all-error-entries"
-                              checked={allErrorsSelected}
-                              onCheckedChange={(checked) =>
-                                setSelectedKeys(checked ? new Set(uniqueErrorKeys) : new Set())
-                              }
-                              disabled={bulkActionRunning}
-                              aria-label={allErrorsSelected ? "Deselect all error entries" : "Select all error entries"}
-                              className="h-5 w-5 border-1 border-primary cursor-pointer"
-                            />
-                            <label
-                              htmlFor="select-all-error-entries"
-                              className={cn("text-sm", bulkActionRunning ? "cursor-not-allowed" : "cursor-pointer")}
-                            >
-                              {allErrorsSelected ? "Deselect All" : "Select All"}
-                            </label>
-                          </div>
-
-                          <span className="text-sm text-muted-foreground">
-                            {selectedErrorCount} of {uniqueErrorKeys.length} selected
-                          </span>
-
-                          <div className="ml-auto flex items-center gap-2">
-                            <Button
-                              variant="secondary"
-                              onClick={handleBulkRetry}
-                              disabled={selectedErrorCount === 0 || bulkActionRunning}
-                              className="flex items-center gap-1 text-xs sm:text-sm cursor-pointer"
-                            >
-                              <RefreshCcw className="h-4 w-4" />
-                              Retry Selected
-                            </Button>
-                            <ConfirmDestructiveDialogActionButton
-                              variant="outline"
-                              className="flex items-center gap-1 text-destructive border-1 shadow-none hover:text-red-500 cursor-pointer text-xs sm:text-sm disabled:opacity-50"
-                              disabled={selectedErrorCount === 0 || bulkActionRunning}
-                              confirmText="Delete Selected"
-                              title={`Delete ${selectedErrorCount} selected error ${makePlural(selectedErrorCount, "item")}?`}
-                              description="Are you sure you want to delete the selected error entries from the download queue? This action cannot be undone."
-                              onConfirm={handleBulkDelete}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                              Delete Selected
-                            </ConfirmDestructiveDialogActionButton>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-
-                    <ResponsiveGrid size="regular">
-                      {errorEntries.map((entry, index) => {
-                        const key = errorEntryKey(entry);
-                        return (
-                          <DownloadQueueEntry
-                            key={`${key}-${index}`}
-                            entry={entry}
-                            fetchQueueEntries={fetchQueueEntries}
-                            selectable={bulkMode}
-                            selected={selectedKeys.has(key)}
-                            onToggleSelected={(checked) => toggleSelected(key, checked)}
-                            showFailureDetails
-                          />
-                        );
-                      })}
-                    </ResponsiveGrid>
-                  </>
-                )}
-              </AccordionContent>
-            </AccordionItem>
-          )}
-
-          {warningEntries.length > 0 && (
-            <AccordionItem value="warning_entries">
-              <AccordionTrigger
-                className={cn(
-                  "cursor-pointer",
-                  "hover:underline-none focus:underline-none underline-none hover:no-underline focus:no-underline justify-center"
-                )}
-              >
-                <H3>Warning Entries</H3>
-              </AccordionTrigger>
-              <AccordionContent>
-                {warningEntries.length === 0 ? (
-                  <p className="text-gray-500">No warning entries.</p>
-                ) : (
+              {activeJobs.length === 0 ? (
+                <p className="text-gray-500">
+                  No download queue entries found. Add some items to the queue to get started.
+                </p>
+              ) : (
+                <>
                   <ResponsiveGrid size="larger">
-                    {warningEntries.map((entry) => (
-                      <DownloadQueueEntry
-                        key={entry.media_item.tmdb_id}
+                    {queuePageItems.items.map((job) => (
+                      <DownloadEntryCard key={job.id} mode="queue" job={job} fetchQueueEntries={fetchQueueEntries} />
+                    ))}
+                  </ResponsiveGrid>
+                  <CustomPagination
+                    currentPage={queuePage}
+                    totalPages={queuePageItems.totalPages}
+                    setCurrentPage={setQueuePage}
+                    scrollToTop={true}
+                    filterItemsLength={activeJobs.length}
+                    itemsPerPage={queuePerPage}
+                  />
+                </>
+              )}
+            </>
+          )}
+        </TabsContent>
+
+        <TabsContent value="history" className="w-full">
+          {historyLoading ? (
+            <Loader className="mt-10" message="Loading failed downloads..." />
+          ) : historyError ? (
+            <div className="flex flex-col items-center p-6 gap-4">
+              <ErrorMessage error={historyError} />
+            </div>
+          ) : (
+            <>
+              <div className="w-full flex flex-wrap items-center justify-between gap-2 mb-2">
+                <p className="text-sm text-muted-foreground">
+                  Successful downloads show on the{" "}
+                  <Link href="/saved-sets" className="text-primary hover:underline">
+                    Saved Sets
+                  </Link>{" "}
+                  page.
+                </p>
+                <div className="flex items-center gap-2 ml-auto">
+                  {historyEntries.length > 0 && (
+                    <PerPageSelect
+                      value={historyPerPage}
+                      onChange={(value) => {
+                        setHistoryPerPage(value);
+                        setHistoryPage(1);
+                      }}
+                    />
+                  )}
+                  {/* Fork: bulk retry */}
+                  <DownloadHistoryRetryAll entries={historyEntries} onDone={() => fetchHistory(true)} />
+                  <ConfirmDestructiveDialogActionButton
+                    variant="outline"
+                    className="text-destructive border-1 shadow-none hover:text-red-500 cursor-pointer"
+                    confirmText="Clear Failed"
+                    title="Clear Failed Downloads?"
+                    description="Are you sure you want to remove all failed downloads from this list? This action cannot be undone."
+                    onConfirm={onClearHistory}
+                    disabled={historyEntries.length === 0}
+                  >
+                    Clear Failed
+                  </ConfirmDestructiveDialogActionButton>
+                </div>
+              </div>
+
+              {historyEntries.length === 0 ? (
+                <p className="text-gray-500">No failed downloads.</p>
+              ) : (
+                <>
+                  <ResponsiveGrid size="larger">
+                    {historyPageItems.items.map((entry) => (
+                      <DownloadEntryCard
+                        key={entry.id}
+                        mode="history"
                         entry={entry}
-                        fetchQueueEntries={fetchQueueEntries}
-                        showFailureDetails
+                        maxRetries={maxRetries}
+                        fetchHistory={() => fetchHistory(true)}
                       />
                     ))}
                   </ResponsiveGrid>
-                )}
-              </AccordionContent>
-            </AccordionItem>
+                  <CustomPagination
+                    currentPage={historyPage}
+                    totalPages={historyPageItems.totalPages}
+                    setCurrentPage={setHistoryPage}
+                    scrollToTop={true}
+                    filterItemsLength={historyEntries.length}
+                    itemsPerPage={historyPerPage}
+                  />
+                </>
+              )}
+            </>
           )}
-
-          {collectionInProgress.length > 0 && (
-            <AccordionItem value="collection_in_progress">
-              <AccordionTrigger
-                className={cn(
-                  "cursor-pointer",
-                  "hover:underline-none focus:underline-none underline-none hover:no-underline focus:no-underline justify-center"
-                )}
-              >
-                <H3>Collection Entries - In Progress</H3>
-              </AccordionTrigger>
-              <AccordionContent>
-                <ResponsiveGrid size="regular">
-                  {collectionInProgress.map((entry, index) => (
-                    <CollectionQueueEntry
-                      key={`${entry.collection_item.rating_key}-${index}`}
-                      entry={entry}
-                      fetchEntries={fetchQueueEntries}
-                    />
-                  ))}
-                </ResponsiveGrid>
-              </AccordionContent>
-            </AccordionItem>
-          )}
-
-          {collectionErrors.length > 0 && (
-            <AccordionItem value="collection_error_entries">
-              <AccordionTrigger
-                className={cn(
-                  "cursor-pointer",
-                  "hover:underline-none focus:underline-none underline-none hover:no-underline focus:no-underline justify-center"
-                )}
-              >
-                <H3>Collection Entries - Errors</H3>
-              </AccordionTrigger>
-              <AccordionContent>
-                <ResponsiveGrid size="regular">
-                  {collectionErrors.map((entry, index) => (
-                    <CollectionQueueEntry
-                      key={`${entry.collection_item.rating_key}-${index}`}
-                      entry={entry}
-                      fetchEntries={fetchQueueEntries}
-                      showFailureDetails
-                      showRetry
-                    />
-                  ))}
-                </ResponsiveGrid>
-              </AccordionContent>
-            </AccordionItem>
-          )}
-
-          {collectionWarnings.length > 0 && (
-            <AccordionItem value="collection_warning_entries">
-              <AccordionTrigger
-                className={cn(
-                  "cursor-pointer",
-                  "hover:underline-none focus:underline-none underline-none hover:no-underline focus:no-underline justify-center"
-                )}
-              >
-                <H3>Collection Entries - Warnings</H3>
-              </AccordionTrigger>
-              <AccordionContent>
-                <ResponsiveGrid size="larger">
-                  {collectionWarnings.map((entry, index) => (
-                    <CollectionQueueEntry
-                      key={`${entry.collection_item.rating_key}-${index}`}
-                      entry={entry}
-                      fetchEntries={fetchQueueEntries}
-                      showFailureDetails
-                    />
-                  ))}
-                </ResponsiveGrid>
-              </AccordionContent>
-            </AccordionItem>
-          )}
-        </Accordion>
-      </div>
-
-      {/* Refresh Button */}
-      <RefreshButton onClick={() => fetchQueueEntries()} />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 };

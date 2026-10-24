@@ -2,7 +2,6 @@ package ej
 
 import (
 	"aura/cache"
-	"aura/config"
 	"aura/logging"
 	"aura/models"
 	"aura/utils/httpx"
@@ -14,19 +13,19 @@ import (
 
 func (e *EJ) GetMovieCollections(ctx context.Context, library models.LibrarySection) (collections []models.CollectionItem, Err logging.LogErrorInfo) {
 	ctx, logAction := logging.AddSubActionToContext(ctx, fmt.Sprintf("%s: Fetching Movie Collections for Library '%s' [ID: %s]",
-		config.Current.MediaServer.Type, library.Title, library.ID), logging.LevelDebug)
+		e.Config.Type, library.Title, library.ID), logging.LevelDebug)
 	defer logAction.Complete()
 
 	collections = []models.CollectionItem{}
 	Err = logging.LogErrorInfo{}
 
 	// Construct the URL for the Emby/Jellyfin API request
-	u, err := url.Parse(config.Current.MediaServer.URL)
+	u, err := url.Parse(e.Config.URL)
 	if err != nil {
 		logAction.SetError("Failed to parse base URL", "Ensure the URL is valid", map[string]any{"error": err.Error()})
 		return collections, *logAction.Error
 	}
-	u.Path = path.Join(u.Path, "Users", config.Current.MediaServer.UserID, "Items")
+	u.Path = path.Join(u.Path, "Users", e.Config.UserID, "Items")
 	query := u.Query()
 	query.Add("Recursive", "true")
 	query.Add("SortBy", "Name")
@@ -37,7 +36,7 @@ func (e *EJ) GetMovieCollections(ctx context.Context, library models.LibrarySect
 	URL := u.String()
 
 	// Make the HTTP Request to Emby/Jellyfin
-	resp, respBody, Err := makeRequest(ctx, config.Current.MediaServer, URL, "GET", nil)
+	resp, respBody, Err := makeRequest(ctx, e.Config, URL, "GET", nil)
 	if Err.Message != "" {
 		logAction.SetErrorFromInfo(Err)
 		return collections, *logAction.Error
@@ -48,7 +47,7 @@ func (e *EJ) GetMovieCollections(ctx context.Context, library models.LibrarySect
 	var ejResp EmbyJellyLibraryItemsResponse
 	Err = httpx.DecodeResponseToJSON(ctx, respBody, &ejResp, "Emby/Jellyfin Movie Collections Response")
 	if Err.Message != "" {
-		return collections, *logAction.Error
+		return collections, Err
 	}
 
 	// Now we loop through the items and build out the collection items
@@ -65,16 +64,16 @@ func (e *EJ) GetMovieCollections(ctx context.Context, library models.LibrarySect
 		logging.DevMsgf("Processing BoxSet '%s' (ID: %s)", item.Name, item.ID)
 
 		// Construct the URL for the Emby/Jellyfin API request
-		itemURL, err := url.Parse(config.Current.MediaServer.URL)
+		itemURL, err := url.Parse(e.Config.URL)
 		if err != nil {
 			subAction.SetError("Failed to parse base URL for item details", "Ensure the URL is valid", map[string]any{"error": err.Error()})
 			continue
 		}
-		itemURL.Path = path.Join(itemURL.Path, "Users", config.Current.MediaServer.UserID, "Items", item.ID)
+		itemURL.Path = path.Join(itemURL.Path, "Users", e.Config.UserID, "Items", item.ID)
 		detailURL := itemURL.String()
 
 		// Make the HTTP Request to Emby/Jellyfin for item details
-		detailResp, detailRespBody, detailErr := makeRequest(ctx, config.Current.MediaServer, detailURL, "GET", nil)
+		detailResp, detailRespBody, detailErr := makeRequest(ctx, e.Config, detailURL, "GET", nil)
 		if detailErr.Message != "" {
 			subAction.SetError("Failed to fetch BoxSet details", detailErr.Message, nil)
 			continue

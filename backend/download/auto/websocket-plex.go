@@ -69,6 +69,7 @@ func StartOrRestartPlexWebSocketClient() {
 	plexWSStopChan = stopChan
 
 	go func(stop <-chan struct{}) {
+		defer logging.RecoverPanic("Plex Event Listener")
 		for {
 			if config.Current.MediaServer.Type != "Plex" ||
 				!config.Current.MediaServer.EnablePlexEventListener {
@@ -288,7 +289,7 @@ func processPlexRefreshMessage(messageInfo PlexRefreshMessage) {
 
 	if cachedMediaItem, found := getCachedRefreshedMediaItem(refreshedItem.MediaItem.RatingKey); found {
 		refreshedItem.MediaItem = cachedMediaItem
-		go reApplySavedImages(refreshedItem)
+		logging.Go("Re-apply Saved Images", func() { reApplySavedImages(refreshedItem) })
 		return
 	}
 
@@ -334,7 +335,7 @@ func processPlexRefreshMessage(messageInfo PlexRefreshMessage) {
 		Str("item_type", refreshedItem.ItemType).
 		Msgf("Plex Event Listener: Detected metadata refresh for item %s", utils.MediaItemInfo(refreshedItem.MediaItem))
 
-	go reApplySavedImages(refreshedItem)
+	logging.Go("Re-apply Saved Images", func() { reApplySavedImages(refreshedItem) })
 }
 
 // handlePotentialNewMovie resolves a movie that fired a Plex metadata event but wasn't in
@@ -491,7 +492,7 @@ func reApplySavedImages(item PlexRefreshedItem) {
 				}
 
 				matchedImages = append(matchedImages, image)
-				applyErr := mediaserver.DownloadApplyImageToMediaItem(logCtx, &item.MediaItem, image)
+				applyErr := mediaserver.DownloadApplyImageToMainMediaServer(logCtx, &item.MediaItem, image)
 				if applyErr.Message != "" {
 					logging.LOGGER.Error().Timestamp().
 						Str("error", applyErr.Message).
@@ -823,83 +824,6 @@ func normalizeTitle(title string) string {
 	return strings.Join(strings.Fields(b.String()), " ")
 }
 
-type plexRefreshEvent struct {
-	Subtitle         string
-	EpisodeRatingKey string
-	SeriesRatingKey  string
-	SectionID        int
-	MetadataState    string
-}
-
-func extractCompletedPlexRefreshes(message []byte) ([]plexRefreshEvent, error) {
-	var root map[string]any
-	if err := json.Unmarshal(message, &root); err != nil {
-		return nil, fmt.Errorf("invalid JSON payload: %w", err)
-	}
-
-	entries := getTimelineEntries(root)
-	if len(entries) == 0 {
-		// Non-timeline notifications are common; skip silently.
-		return nil, nil
-	}
-
-	refreshes := make([]plexRefreshEvent, 0)
-	for _, entryAny := range entries {
-		entry, ok := asMap(entryAny)
-		if !ok {
-			continue
-		}
-
-		metadataState := strings.ToLower(asString(entry["metadataState"]))
-		timelineState := asInt(firstNonNil(entry["state"], entry["timelineState"]))
-		if !isCompletedMetadataState(metadataState, timelineState) {
-			continue
-		}
-
-		sectionID := asInt(firstNonNil(entry["sectionID"], entry["librarySectionID"]))
-		if sectionID == 0 {
-			continue
-		}
-
-		seriesRatingKey := asString(entry["grandparentRatingKey"])
-		episodeRatingKey := asString(entry["ratingKey"])
-		if episodeRatingKey == "" {
-			episodeRatingKey = asString(entry["itemID"])
-		}
-		if episodeRatingKey == "" {
-			episodeRatingKey = parseRatingKeyFromPath(asString(entry["key"]))
-		}
-
-		if seriesRatingKey == "" {
-			seriesRatingKey = asString(entry["parentRatingKey"])
-		}
-		if seriesRatingKey == "" {
-			seriesRatingKey = episodeRatingKey
-		}
-		if seriesRatingKey == "" {
-			seriesRatingKey = asString(entry["itemID"])
-		}
-		if seriesRatingKey == "" {
-			seriesRatingKey = parseRatingKeyFromPath(asString(entry["key"]))
-		}
-		if seriesRatingKey == "" {
-			continue
-		}
-
-		subtitle := buildEpisodeSubtitle(entry)
-
-		refreshes = append(refreshes, plexRefreshEvent{
-			Subtitle:         subtitle,
-			EpisodeRatingKey: episodeRatingKey,
-			SeriesRatingKey:  seriesRatingKey,
-			SectionID:        sectionID,
-			MetadataState:    metadataState,
-		})
-	}
-
-	return refreshes, nil
-}
-
 func isCompletedMetadataState(metadataState string, timelineState int) bool {
 	switch metadataState {
 	case "processed", "finished", "complete", "completed", "loaded":
@@ -941,18 +865,6 @@ func parseRatingKeyFromPath(keyPath string) string {
 		}
 	}
 	return ""
-}
-
-func buildEpisodeSubtitle(entry map[string]any) string {
-	showTitle := asString(firstNonNil(entry["grandparentTitle"], entry["parentTitle"], entry["title"]))
-	seasonNum := asInt(firstNonNil(entry["parentIndex"], entry["seasonIndex"]))
-	episodeNum := asInt(firstNonNil(entry["index"], entry["episodeIndex"]))
-
-	if showTitle != "" && seasonNum > 0 && episodeNum > 0 {
-		return fmt.Sprintf("%s S%02d E%02d", showTitle, seasonNum, episodeNum)
-	}
-
-	return showTitle
 }
 
 func firstNonNil(values ...any) any {

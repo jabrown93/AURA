@@ -12,30 +12,16 @@ import (
 var LibraryStore *MediaServerLibraryCache
 
 type MediaServerLibraryCache struct {
-	sections               map[string]*models.LibrarySection // Key: Library Title
-	mu                     sync.RWMutex
-	generationFloor        int64
-	dbMutationGeneration   uint64
-	itemMutationGeneration map[mediaItemMutationKey]uint64
-	lastFullUpdate         int64
-}
-
-type mediaItemMutationKey struct {
-	sectionTitle string
-	ratingKey    string
-	fallbackKey  string
+	sections       map[string]*models.LibrarySection // Key: Library Title
+	mu             sync.RWMutex
+	LastFullUpdate int64
 }
 
 // NewLibraryCache creates a new LibraryCache instance
 func Cache_NewLibraryCache() *MediaServerLibraryCache {
-	return newLibraryCache(processArtworkVersionFloor)
-}
-
-func newLibraryCache(generationFloor int64) *MediaServerLibraryCache {
 	return &MediaServerLibraryCache{
-		sections:               make(map[string]*models.LibrarySection),
-		generationFloor:        generationFloor,
-		itemMutationGeneration: make(map[mediaItemMutationKey]uint64),
+		sections:       make(map[string]*models.LibrarySection),
+		LastFullUpdate: 0,
 	}
 }
 
@@ -43,148 +29,90 @@ func init() {
 	LibraryStore = Cache_NewLibraryCache()
 }
 
-// DBMutationGeneration captures cache mutations to database-owned item fields.
-func (c *MediaServerLibraryCache) DBMutationGeneration() uint64 {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.dbMutationGeneration
+// Library caches of the other media servers, by media server ID. LibraryStore is the main media server's cache.
+var (
+	serverLibraryStoresMu sync.Mutex
+	serverLibraryStores   = map[string]*MediaServerLibraryCache{}
+)
+
+// ServerLibraryStore returns the library cache of a media server that isn't the main one
+func ServerLibraryStore(serverID string) *MediaServerLibraryCache {
+	serverLibraryStoresMu.Lock()
+	defer serverLibraryStoresMu.Unlock()
+	store, found := serverLibraryStores[serverID]
+	if !found {
+		store = Cache_NewLibraryCache()
+		serverLibraryStores[serverID] = store
+	}
+	return store
 }
 
-// UpdateSection atomically replaces one complete authoritative snapshot.
+// MediaServerLibraryStore returns the library cache of any media server
+func MediaServerLibraryStore(serverID string, isMain bool) *MediaServerLibraryCache {
+	if isMain {
+		return LibraryStore
+	}
+	return ServerLibraryStore(serverID)
+}
+
+// KeepServerLibraryStores removes the library caches of media servers that are no longer used
+func KeepServerLibraryStores(serverIDs []string) {
+	serverLibraryStoresMu.Lock()
+	defer serverLibraryStoresMu.Unlock()
+	keep := map[string]bool{}
+	for _, id := range serverIDs {
+		keep[id] = true
+	}
+	for id := range serverLibraryStores {
+		if !keep[id] {
+			delete(serverLibraryStores, id)
+		}
+	}
+}
+
+// UpdateSection updates or adds a LibrarySection in the cache.
+// If the section already exists, its metadata and media items are updated.
+// New media items are appended to the section.
+// If the section does not exist, it is added to the cache.
 func (c *MediaServerLibraryCache) UpdateSection(section *models.LibrarySection) {
-	c.UpdateSectionFromDBSnapshot(section, c.DBMutationGeneration())
-}
-
-// UpdateSectionFromDBSnapshot preserves only database-owned fields mutated after
-// snapshotGeneration was captured.
-func (c *MediaServerLibraryCache) UpdateSectionFromDBSnapshot(section *models.LibrarySection, snapshotGeneration uint64) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.replaceSectionLocked(section, snapshotGeneration)
-}
-
-// ReplaceAllSections atomically publishes a successful authoritative refresh.
-func (c *MediaServerLibraryCache) ReplaceAllSections(sections []*models.LibrarySection, updatedAt int64) {
-	c.ReplaceAllSectionsFromDBSnapshot(sections, updatedAt, c.DBMutationGeneration())
-}
-
-// ReplaceAllSectionsFromDBSnapshot publishes a successful full refresh and
-// prunes sections absent from that refresh.
-func (c *MediaServerLibraryCache) ReplaceAllSectionsFromDBSnapshot(sections []*models.LibrarySection, updatedAt int64, snapshotGeneration uint64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	replacement := make(map[string]*models.LibrarySection, len(sections))
-	retainedGenerations := make(map[mediaItemMutationKey]uint64)
-	for _, section := range sections {
-		c.replaceSectionLocked(section, snapshotGeneration)
-		replacement[section.Title] = c.sections[section.Title]
-		for key, generation := range c.itemMutationGeneration {
-			if key.sectionTitle == section.Title {
-				retainedGenerations[key] = generation
+	// Check if section already exists
+	// If it does, we need to update it
+	if existing, exists := c.sections[section.Title]; exists {
+		// Update metadata
+		existing.Type = section.Type
+		existing.ID = section.ID
+		existing.Paths = section.Paths
+
+		// Create a map of existing items for O(1) lookup.
+		// Keyed by TMDB_ID+Edition so multiple editions of the same TMDB item
+		// (e.g. Theatrical vs Director's Cut) don't collapse into one entry.
+		existingItems := make(map[string]*models.MediaItem)
+		for i := range existing.MediaItems {
+			existingItems[mediaItemCacheKey(&existing.MediaItems[i])] = &existing.MediaItems[i]
+		}
+
+		// Update existing items and collect new ones
+		var newItems []models.MediaItem
+		for _, newItem := range section.MediaItems {
+			if existingItem, found := existingItems[mediaItemCacheKey(&newItem)]; found {
+				// Update existing item
+				*existingItem = newItem
+			} else {
+				// Collect new item for appending
+				newItems = append(newItems, newItem)
 			}
 		}
-	}
-	c.sections = replacement
-	c.itemMutationGeneration = retainedGenerations
-	c.lastFullUpdate = updatedAt
-}
 
-func (c *MediaServerLibraryCache) replaceSectionLocked(section *models.LibrarySection, snapshotGeneration uint64) {
-	prepared := cloneLibrarySection(section)
-	var existingItems []models.MediaItem
-	if existing, found := c.sections[section.Title]; found {
-		existingItems = existing.MediaItems
+		// Append new items
+		existing.MediaItems = append(existing.MediaItems, newItems...)
+		existing.TotalSize = len(existing.MediaItems)
+	} else {
+		// If section does not exist, add it to the cache
+		c.sections[section.Title] = section
 	}
-
-	existingByRatingKey := make(map[string]*models.MediaItem, len(existingItems))
-	existingFallbacks := make(map[string][]*models.MediaItem, len(existingItems))
-	for i := range existingItems {
-		item := &existingItems[i]
-		if item.RatingKey != "" {
-			existingByRatingKey[item.RatingKey] = item
-		}
-		if key := mediaItemFallbackKey(item); key != "" {
-			existingFallbacks[key] = append(existingFallbacks[key], item)
-		}
-	}
-	preparedFallbackCounts := make(map[string]int, len(prepared.MediaItems))
-	for i := range prepared.MediaItems {
-		if key := mediaItemFallbackKey(&prepared.MediaItems[i]); key != "" {
-			preparedFallbackCounts[key]++
-		}
-	}
-
-	existingGenerations := make(map[mediaItemMutationKey]uint64)
-	for key, generation := range c.itemMutationGeneration {
-		if key.sectionTitle == section.Title {
-			existingGenerations[key] = generation
-			delete(c.itemMutationGeneration, key)
-		}
-	}
-	items := make([]models.MediaItem, 0, len(prepared.MediaItems))
-	itemIndexes := make(map[string]int, len(prepared.MediaItems))
-	for i := range prepared.MediaItems {
-		item := &prepared.MediaItems[i]
-		item.ArtworkVersion = hydratedVersion(max(item.UpdatedAt, item.ArtworkVersion), c.generationFloor)
-		existing := existingByRatingKey[item.RatingKey]
-		if existing == nil {
-			key := mediaItemFallbackKey(item)
-			if candidates := existingFallbacks[key]; key != "" && len(candidates) == 1 && preparedFallbackCounts[key] == 1 {
-				existing = candidates[0]
-			}
-		}
-		if existing != nil {
-			generation := existingGenerations[mediaItemMutationKeyFor(section.Title, existing)]
-			if generation > snapshotGeneration {
-				preserveDBOwnedMediaItemState(item, existing)
-				c.itemMutationGeneration[mediaItemMutationKeyFor(section.Title, item)] = generation
-			}
-			preserveMediaItemVersion(item, existing)
-		}
-		section.MediaItems[i].UpdatedAt = item.UpdatedAt
-		section.MediaItems[i].ArtworkVersion = item.ArtworkVersion
-		if index, duplicate := itemIndexes[item.RatingKey]; item.RatingKey != "" && duplicate {
-			item.UpdatedAt = max(item.UpdatedAt, items[index].UpdatedAt)
-			item.ArtworkVersion = max(item.ArtworkVersion, items[index].ArtworkVersion)
-			items[index] = *item
-			continue
-		}
-		if item.RatingKey != "" {
-			itemIndexes[item.RatingKey] = len(items)
-		}
-		items = append(items, *item)
-	}
-	prepared.MediaItems = items
-	prepared.TotalSize = len(items)
-	c.sections[prepared.Title] = prepared
-}
-
-func mediaItemFallbackKey(item *models.MediaItem) string {
-	if item.TMDB_ID == "" {
-		return ""
-	}
-	return item.Type + "\x00" + item.TMDB_ID
-}
-
-func mediaItemMutationKeyFor(sectionTitle string, item *models.MediaItem) mediaItemMutationKey {
-	key := mediaItemMutationKey{sectionTitle: sectionTitle, ratingKey: item.RatingKey}
-	if item.RatingKey == "" {
-		key.fallbackKey = mediaItemFallbackKey(item)
-	}
-	return key
-}
-
-func preserveDBOwnedMediaItemState(item, existing *models.MediaItem) {
-	item.DBSavedSets = append([]models.DBSavedSet(nil), existing.DBSavedSets...)
-	item.IgnoredInDB = existing.IgnoredInDB
-	item.IgnoredMode = existing.IgnoredMode
-	item.IgnoredSets = append([]string(nil), existing.IgnoredSets...)
-}
-
-func preserveMediaItemVersion(item, existing *models.MediaItem) {
-	item.UpdatedAt = max(item.UpdatedAt, existing.UpdatedAt)
-	item.ArtworkVersion = max(item.ArtworkVersion, existing.ArtworkVersion)
 }
 
 // UpdateMediaItem updates a specific media item in a section
@@ -192,161 +120,96 @@ func (c *MediaServerLibraryCache) UpdateMediaItem(sectionTitle string, item *mod
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	// Check if section exists
 	if section, exists := c.sections[sectionTitle]; exists {
-		var existingItem *models.MediaItem
-		if item.RatingKey != "" {
-			for i := range section.MediaItems {
-				if section.MediaItems[i].RatingKey == item.RatingKey {
-					existingItem = &section.MediaItems[i]
-					break
-				}
-			}
-		}
-		if existingItem == nil {
-			key := mediaItemFallbackKey(item)
-			for i := range section.MediaItems {
-				if key != "" && mediaItemFallbackKey(&section.MediaItems[i]) == key {
-					if existingItem != nil {
-						existingItem = nil
-						break
-					}
-					existingItem = &section.MediaItems[i]
-				}
-			}
-		}
-		item.ArtworkVersion = hydratedVersion(max(item.UpdatedAt, item.ArtworkVersion), c.generationFloor)
-		if existingItem != nil {
-			oldKey := mediaItemMutationKeyFor(sectionTitle, existingItem)
-			generation := c.itemMutationGeneration[oldKey]
-			preserveDBOwnedMediaItemState(item, existingItem)
-			preserveMediaItemVersion(item, existingItem)
-			*existingItem = cloneMediaItem(item)
-			if generation != 0 {
-				delete(c.itemMutationGeneration, oldKey)
-				c.itemMutationGeneration[mediaItemMutationKeyFor(sectionTitle, existingItem)] = generation
-			}
-		} else {
-			section.MediaItems = append(section.MediaItems, cloneMediaItem(item))
-			section.TotalSize = len(section.MediaItems)
-		}
-	}
-}
-
-// AdvanceMediaItemArtworkVersion advances the cached parent image version atomically.
-// ratingKey is the parent key even when Plex applies artwork to a season or episode.
-func (c *MediaServerLibraryCache) AdvanceMediaItemArtworkVersion(ratingKey string, now int64) (int64, bool) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	for _, section := range c.sections {
+		// Find the item directly instead of building a lookup of every item each time
 		for i := range section.MediaItems {
-			if section.MediaItems[i].RatingKey == ratingKey {
-				section.MediaItems[i].ArtworkVersion = nextVersion(section.MediaItems[i].ArtworkVersion, now)
-				return section.MediaItems[i].ArtworkVersion, true
+			if section.MediaItems[i].TMDB_ID == item.TMDB_ID && section.MediaItems[i].Edition == item.Edition {
+				// Update existing item
+				section.MediaItems[i] = *item
+				return
 			}
 		}
+		// Append new item
+		section.MediaItems = append(section.MediaItems, *item)
+		section.TotalSize = len(section.MediaItems)
 	}
-	return 0, false
 }
 
-func (c *MediaServerLibraryCache) nextDBMutationGenerationLocked() uint64 {
-	c.dbMutationGeneration++
-	return c.dbMutationGeneration
-}
-
-func (c *MediaServerLibraryCache) SetIgnored(sectionTitle, tmdbID string, ignored bool, mode string, ignoredSets ...[]string) bool {
+// UpdateMediaItemDBState sets an item's saved sets and ignored state, as they are in the database
+func (c *MediaServerLibraryCache) UpdateMediaItemDBState(sectionTitle, tmdbID, edition string, sets []models.DBSavedSet, ignored bool, ignoredMode string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	section, exists := c.sections[sectionTitle]
 	if !exists {
-		return false
-	}
-	matched := false
-	for i := range section.MediaItems {
-		if section.MediaItems[i].TMDB_ID == tmdbID {
-			matched = true
-			break
-		}
-	}
-	if !matched {
-		return false
-	}
-	generation := c.nextDBMutationGenerationLocked()
-	var sets []string
-	if ignored && len(ignoredSets) > 0 {
-		sets = ignoredSets[0]
+		return
 	}
 	for i := range section.MediaItems {
 		item := &section.MediaItems[i]
-		if item.TMDB_ID == tmdbID {
+		if item.TMDB_ID == tmdbID && item.Edition == edition {
+			item.DBSavedSets = sets
 			item.IgnoredInDB = ignored
-			item.IgnoredMode = mode
-			item.IgnoredSets = append([]string(nil), sets...)
-			c.itemMutationGeneration[mediaItemMutationKeyFor(sectionTitle, item)] = generation
+			item.IgnoredMode = ignoredMode
 		}
 	}
-	return true
 }
 
-func (c *MediaServerLibraryCache) UpdateMediaItemDBSavedSets(sectionTitle string, item *models.MediaItem, dbSavedSets []models.DBSavedSet) {
-	c.updateMediaItemDBSavedSets(sectionTitle, item, dbSavedSets, false)
-}
-
-func (c *MediaServerLibraryCache) UpsertMediaItemDBSavedSets(sectionTitle string, item *models.MediaItem, dbSavedSets []models.DBSavedSet) {
-	c.updateMediaItemDBSavedSets(sectionTitle, item, dbSavedSets, true)
-}
-
-func (c *MediaServerLibraryCache) updateMediaItemDBSavedSets(sectionTitle string, item *models.MediaItem, dbSavedSets []models.DBSavedSet, insertMissing bool) {
+// RemoveItemsNotSeen removes the items of a section that a full load of it didn't see
+func (c *MediaServerLibraryCache) RemoveItemsNotSeen(sectionTitle string, seen map[string]bool) (removed int) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	section, exists := c.sections[sectionTitle]
 	if !exists {
-		return
+		return 0
 	}
-	matched := false
-	for i := range section.MediaItems {
-		if section.MediaItems[i].TMDB_ID == item.TMDB_ID {
-			matched = true
-			break
+	kept := section.MediaItems[:0]
+	for _, item := range section.MediaItems {
+		if seen[mediaItemCacheKey(&item)] {
+			kept = append(kept, item)
 		}
 	}
-	if !matched && !insertMissing {
-		return
-	}
-	generation := c.nextDBMutationGenerationLocked()
-	for i := range section.MediaItems {
-		existingItem := &section.MediaItems[i]
-		if existingItem.TMDB_ID == item.TMDB_ID {
-			existingItem.DBSavedSets = append([]models.DBSavedSet(nil), dbSavedSets...)
-			c.itemMutationGeneration[mediaItemMutationKeyFor(sectionTitle, existingItem)] = generation
-		}
-	}
-	if !matched {
-		inserted := cloneMediaItem(item)
-		inserted.DBSavedSets = append([]models.DBSavedSet(nil), dbSavedSets...)
-		section.MediaItems = append(section.MediaItems, inserted)
-		section.TotalSize = len(section.MediaItems)
-		c.itemMutationGeneration[mediaItemMutationKeyFor(sectionTitle, &inserted)] = generation
-	}
+	removed = len(section.MediaItems) - len(kept)
+	section.MediaItems = kept
+	section.TotalSize = len(kept)
+	return removed
 }
 
-// GetSectionByTitle retrieves a detached section copy by Title.
+// SectionItemKeys returns the cache keys of a section's items
+func (c *MediaServerLibraryCache) SectionItemKeys(sectionTitle string) map[string]bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	keys := map[string]bool{}
+	if section, exists := c.sections[sectionTitle]; exists {
+		for i := range section.MediaItems {
+			keys[mediaItemCacheKey(&section.MediaItems[i])] = true
+		}
+	}
+	return keys
+}
+
+// SectionItemCount returns how many items a section has
+func (c *MediaServerLibraryCache) SectionItemCount(sectionTitle string) int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if section, exists := c.sections[sectionTitle]; exists {
+		return len(section.MediaItems)
+	}
+	return 0
+}
+
+// MediaItemCacheKey is how the cache tells items apart
+func MediaItemCacheKey(item *models.MediaItem) string {
+	return mediaItemCacheKey(item)
+}
+
+// GetSectionByTitle retrieves a section by Title
 func (c *MediaServerLibraryCache) GetSectionByTitle(title string) (*models.LibrarySection, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	section, exists := c.sections[title]
-	if !exists {
-		return &models.LibrarySection{}, false
-	}
-	return cloneLibrarySection(section), true
-}
-
-func (c *MediaServerLibraryCache) GetLastFullUpdate() int64 {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.lastFullUpdate
+	return section, exists
 }
 
 func (c *MediaServerLibraryCache) GetRatingKeyByTMDBID(libraryTitle, tmdbID string) (string, bool) {
@@ -374,7 +237,7 @@ func (c *MediaServerLibraryCache) GetAllSectionsSortedByTitle() []*models.Librar
 
 	sections := make([]*models.LibrarySection, 0, len(c.sections))
 	for _, section := range c.sections {
-		sections = append(sections, cloneLibrarySection(section))
+		sections = append(sections, section)
 	}
 
 	sort.Slice(sections, func(i, j int) bool {
@@ -384,11 +247,22 @@ func (c *MediaServerLibraryCache) GetAllSectionsSortedByTitle() []*models.Librar
 	return sections
 }
 
-// RemoveSectionByTitle removes a section from the cache by Title
-func (c *MediaServerLibraryCache) RemoveSectionByTitle(title string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	delete(c.sections, title)
+// ForEachMediaItem calls fn for every item, sections in title order. fn must not change the cache
+func (c *MediaServerLibraryCache) ForEachMediaItem(fn func(section models.LibrarySectionBase, item *models.MediaItem)) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	titles := make([]string, 0, len(c.sections))
+	for title := range c.sections {
+		titles = append(titles, title)
+	}
+	sort.Strings(titles)
+	for _, title := range titles {
+		section := c.sections[title]
+		for i := range section.MediaItems {
+			fn(section.LibrarySectionBase, &section.MediaItems[i])
+		}
+	}
 }
 
 // ClearAllSections removes all sections from the cache
@@ -398,7 +272,16 @@ func (c *MediaServerLibraryCache) ClearAllSections() {
 	c.sections = make(map[string]*models.LibrarySection)
 }
 
-// GetMediaItemFromSectionByTMDBID retrieves a media item by TMDB ID from a specific section
+// mediaItemCacheKey uniquely identifies a media item within a section cache.
+// Edition is included so multiple editions of the same TMDB item (e.g.
+// Theatrical vs Director's Cut) are tracked as distinct cache entries.
+func mediaItemCacheKey(item *models.MediaItem) string {
+	return item.TMDB_ID + "|" + item.Edition
+}
+
+// GetMediaItemFromSectionByTMDBID retrieves a media item by TMDB ID from a specific section.
+// If multiple editions exist for the TMDB ID, an arbitrary one is returned -
+// callers that need a specific edition should use GetMediaItemFromSectionByTMDBIDAndEdition.
 func (c *MediaServerLibraryCache) GetMediaItemFromSectionByTMDBID(sectionTitle, tmdbID string) (*models.MediaItem, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -408,13 +291,57 @@ func (c *MediaServerLibraryCache) GetMediaItemFromSectionByTMDBID(sectionTitle, 
 		return &models.MediaItem{}, false
 	}
 
-	for i := range section.MediaItems {
-		if section.MediaItems[i].TMDB_ID == tmdbID {
-			item := cloneMediaItem(&section.MediaItems[i])
+	var newestItem *models.MediaItem
+	for _, item := range section.MediaItems {
+		if item.TMDB_ID == tmdbID {
+			newestItem = &item
+			break
+		}
+	}
+
+	if newestItem != nil {
+		return newestItem, true
+	}
+	return &models.MediaItem{}, false
+}
+
+// GetMediaItemFromSectionByTMDBIDAndEdition retrieves a specific edition of a
+// media item by TMDB ID from a specific section.
+func (c *MediaServerLibraryCache) GetMediaItemFromSectionByTMDBIDAndEdition(sectionTitle, tmdbID, edition string) (*models.MediaItem, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	section, exists := c.sections[sectionTitle]
+	if !exists {
+		return &models.MediaItem{}, false
+	}
+
+	for _, item := range section.MediaItems {
+		if item.TMDB_ID == tmdbID && item.Edition == edition {
 			return &item, true
 		}
 	}
+
 	return &models.MediaItem{}, false
+}
+
+// GetMediaItemsByTMDBID returns the items with the TMDB ID in every library
+func (c *MediaServerLibraryCache) GetMediaItemsByTMDBID(tmdbID string) []models.MediaItem {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	items := []models.MediaItem{}
+	if tmdbID == "" {
+		return items
+	}
+	for _, section := range c.sections {
+		for _, item := range section.MediaItems {
+			if item.TMDB_ID == tmdbID {
+				items = append(items, item)
+			}
+		}
+	}
+	return items
 }
 
 func (c *MediaServerLibraryCache) GetMediaItemByRatingKey(ratingKey string) (*models.MediaItem, bool) {
@@ -422,11 +349,47 @@ func (c *MediaServerLibraryCache) GetMediaItemByRatingKey(ratingKey string) (*mo
 	defer c.mu.RUnlock()
 
 	for _, section := range c.sections {
-		for i := range section.MediaItems {
-			if section.MediaItems[i].RatingKey == ratingKey {
-				item := cloneMediaItem(&section.MediaItems[i])
+		for _, item := range section.MediaItems {
+			if item.RatingKey == ratingKey {
 				return &item, true
 			}
+		}
+	}
+
+	return &models.MediaItem{}, false
+}
+
+// GetMediaItemsByRatingKey retrieves the media item with this rating key from every section it is in.
+// Some media servers (e.g. Silo) use the same rating key for an item in every library it is in.
+func (c *MediaServerLibraryCache) GetMediaItemsByRatingKey(ratingKey string) []models.MediaItem {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	items := []models.MediaItem{}
+	for _, section := range c.sections {
+		for _, item := range section.MediaItems {
+			if item.RatingKey == ratingKey {
+				items = append(items, item)
+			}
+		}
+	}
+	return items
+}
+
+// GetMediaItemFromSectionByRatingKey retrieves a media item by rating key from a specific section.
+// Some media servers (e.g. Silo) use the same rating key for an item in every library it is in.
+func (c *MediaServerLibraryCache) GetMediaItemFromSectionByRatingKey(sectionTitle, ratingKey string) (*models.MediaItem, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	section, exists := c.sections[sectionTitle]
+	if !exists {
+		return &models.MediaItem{}, false
+	}
+
+	for _, item := range section.MediaItems {
+		if item.RatingKey == ratingKey {
+			return &item, true
 		}
 	}
 
@@ -444,12 +407,10 @@ func (c *MediaServerLibraryCache) GetMediaItemFromSectionByTitleAndYear(sectionT
 	}
 
 	cleanedSearchTitle := cleanStringForComparison(stripYearFromTitle(itemTitle))
-	for i := range section.MediaItems {
-		item := &section.MediaItems[i]
+	for _, item := range section.MediaItems {
 		cleanedTitle := cleanStringForComparison(stripYearFromTitle(item.Title))
 		if cleanedTitle == cleanedSearchTitle && item.Year == year {
-			copy := cloneMediaItem(item)
-			return &copy, true
+			return &item, true
 		}
 	}
 
@@ -475,51 +436,11 @@ func (c *MediaServerLibraryCache) GetItemsCount() int {
 func (c *MediaServerLibraryCache) GetAllMediaItems() []models.MediaItem {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-
-	titles := make([]string, 0, len(c.sections))
-	for title := range c.sections {
-		titles = append(titles, title)
-	}
-	sort.Strings(titles)
-
 	var allItems []models.MediaItem
-	for _, title := range titles {
-		for i := range c.sections[title].MediaItems {
-			allItems = append(allItems, cloneMediaItem(&c.sections[title].MediaItems[i]))
-		}
+	for _, section := range c.sections {
+		allItems = append(allItems, section.MediaItems...)
 	}
 	return allItems
-}
-
-func cloneLibrarySection(section *models.LibrarySection) *models.LibrarySection {
-	clone := *section
-	clone.Paths = append([]string(nil), section.Paths...)
-	clone.MediaItems = make([]models.MediaItem, len(section.MediaItems))
-	for i := range section.MediaItems {
-		clone.MediaItems[i] = cloneMediaItem(&section.MediaItems[i])
-	}
-	return &clone
-}
-
-func cloneMediaItem(item *models.MediaItem) models.MediaItem {
-	clone := *item
-	clone.DBSavedSets = append([]models.DBSavedSet(nil), item.DBSavedSets...)
-	clone.IgnoredSets = append([]string(nil), item.IgnoredSets...)
-	clone.Guids = append([]models.MediaItemGuid(nil), item.Guids...)
-	if item.Movie != nil {
-		movie := *item.Movie
-		clone.Movie = &movie
-	}
-	if item.Series != nil {
-		series := *item.Series
-		series.Seasons = make([]models.MediaItemSeason, len(item.Series.Seasons))
-		for i := range item.Series.Seasons {
-			series.Seasons[i] = item.Series.Seasons[i]
-			series.Seasons[i].Episodes = append([]models.MediaItemEpisode(nil), item.Series.Seasons[i].Episodes...)
-		}
-		clone.Series = &series
-	}
-	return clone
 }
 
 // IsEmpty checks if the cache is empty

@@ -1,11 +1,12 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
+
 import Image from "next/image";
 
+import { ResponsiveGrid } from "@/components/shared/responsive-grid";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-
-import { cn } from "@/lib/cn";
 
 // Single skeleton card
 export const HomeMediaItemCardSkeleton: React.FC = () => (
@@ -37,18 +38,34 @@ export const HomeMediaItemCardSkeleton: React.FC = () => (
   </Card>
 );
 
-// Grid of skeleton cards, centered and responsive
+// Grid of skeleton cards, laid out like the Home page's cards.
+// Phones show two rows, wider screens one row of as many cards as fit.
 export const HomeMediaItemCardSkeletonGrid: React.FC = () => {
-  const cols = "grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5";
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const [columns, setColumns] = useState(2);
+
+  // The grid's columns change with the screen size and view density, so they're measured
+  useEffect(() => {
+    const grid = wrapperRef.current?.querySelector<HTMLElement>(".grid");
+    if (!grid) return;
+    const measure = () => {
+      const count = getComputedStyle(grid).gridTemplateColumns.split(" ").filter(Boolean).length;
+      setColumns(Math.max(1, count));
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(grid);
+    return () => observer.disconnect();
+  }, []);
+
+  const cards = columns <= 2 ? columns * 2 : columns;
   return (
-    <div className="flex justify-center">
-      <div className={cn("grid gap-4", cols)}>
-        {Array.from({ length: 10 }).map((_, i) => (
-          <div key={i} className="flex flex-col gap-1.5">
-            <HomeMediaItemCardSkeleton />
-          </div>
+    <div ref={wrapperRef}>
+      <ResponsiveGrid size="regular">
+        {Array.from({ length: cards }).map((_, i) => (
+          <HomeMediaItemCardSkeleton key={i} />
         ))}
-      </div>
+      </ResponsiveGrid>
     </div>
   );
 };

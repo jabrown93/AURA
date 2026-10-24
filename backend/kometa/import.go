@@ -133,7 +133,7 @@ func processItem(ctx context.Context, plexClient *plex.Plex, assetDir string, fo
 
 	// Precedence guard: load AURA's existing records first so owned types are skipped
 	// before their bytes ever reach Plex.
-	ignored, _, existingSets, logErr := database.CheckIfMediaItemExists(ctx, item.TMDB_ID, item.LibraryTitle)
+	ignored, _, existingSets, logErr := database.CheckIfMediaItemExists(ctx, item.TMDB_ID, item.LibraryTitle, item.Edition)
 	if logErr.Message != "" {
 		// Without the existing sets the guard cannot run; skip the item entirely rather
 		// than risk overwriting a MediUX-managed image on Plex.

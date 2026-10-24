@@ -5,24 +5,27 @@ import (
 	"aura/config"
 	"aura/database"
 	"aura/logging"
-	"aura/mediaserver/plex"
+	"aura/mediaserver/ej"
 	"aura/models"
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"sync"
 	"time"
 )
 
+// libraryPageSize is how many items are asked for at a time
+var libraryPageSize = 1000
+
 var (
-	warmupMu                         sync.Mutex
-	warmupDone                       bool
-	getAllLibrarySectionsAndItemsRun = getAllLibrarySectionsAndItemsImpl
+	warmupMu   sync.Mutex
+	warmupDone bool
 )
 
 func GetAllLibrarySectionsAndItems(ctx context.Context, force bool) (success bool) {
-	// Serialize full refreshes so recovery cannot rebuild the same cache while a
+	// Fork: hold the lock for the whole run so outage recovery can't rebuild the cache while a
 	// scheduled or user-triggered refresh is already replacing it.
 	warmupMu.Lock()
 	defer warmupMu.Unlock()
@@ -30,7 +33,7 @@ func GetAllLibrarySectionsAndItems(ctx context.Context, force bool) (success boo
 		return true
 	}
 
-	success = getAllLibrarySectionsAndItemsRun(ctx)
+	success = getAllLibrarySectionsAndItemsImpl(ctx)
 	if success {
 		warmupDone = true
 	}
@@ -41,183 +44,225 @@ func getAllLibrarySectionsAndItemsImpl(ctx context.Context) (success bool) {
 	ctx, logAction := logging.AddSubActionToContext(ctx, "Fetching All Library Sections and Items", logging.LevelDebug)
 	defer logAction.Complete()
 
-	configuredSections := append([]models.LibrarySection(nil), config.Current.MediaServer.Libraries...)
+	// Main media server
+	success = loadLibrariesIntoCache(ctx, config.Current.MediaServer, cache.LibraryStore, true)
+	if !success {
+		return false
+	}
+	cache.CollectionsStore.LastFullUpdate = time.Now().Unix()
+
+	// Other media servers load in the background, so a slow or unreachable one doesn't hold up aura
+	logging.Go("Refresh Other Media Servers", RefreshOtherMediaServers)
+	return true
+}
+
+// loadLibrariesIntoCache loads the libraries and items of a media server into a library cache.
+// Collections and progress are only for the main media server.
+func loadLibrariesIntoCache(ctx context.Context, server config.Config_MediaServer, store *cache.MediaServerLibraryCache, isMain bool) (success bool) {
+	ctx, logAction := logging.AddSubActionToContext(ctx, fmt.Sprintf("Loading Libraries: %s", server.Name), logging.LevelDebug)
+	defer logAction.Complete()
+
+	msClient, Err := NewMediaServerClient(&server)
+	if Err.Message != "" {
+		logAction.SetErrorFromInfo(Err)
+		return false
+	}
+
+	configuredSections := slices.Clone(server.Libraries)
+
+	// Sort sections by Title to ensure consistent order
 	sort.SliceStable(configuredSections, func(i, j int) bool {
 		return configuredSections[i].Title < configuredSections[j].Title
 	})
 
 	logAction.AppendResult("num_sections", len(configuredSections))
 
-	success = true
+	if isMain {
+		titles := []string{}
+		lastTotals := map[string]int{}
+		for _, section := range configuredSections {
+			titles = append(titles, section.Title)
+			lastTotals[section.Title] = store.SectionItemCount(section.Title)
+		}
+		startLibraryProgress(titles, lastTotals)
+		defer func() { finishLibraryProgress(success) }()
+	}
+
 	ejRanCollections := false
-	dbSnapshotGeneration := cache.LibraryStore.DBMutationGeneration()
-	snapshots := make([]*models.LibrarySection, 0, len(configuredSections))
+	// The collections found while loading, and whether every library's collections loaded
+	loadedCollections := map[string]bool{}
+	collectionsLoaded := true
+	// When each library that loaded in full started loading
+	loadedSince := map[string]int64{}
+	// Items the main cache didn't have, a library loading for the first time has none
+	newItems := []models.MediaItem{}
+
 	for _, section := range configuredSections {
-		found, Err := GetLibrarySectionDetails(ctx, &section)
+		sectionStartedAt := time.Now().Unix()
+		found, Err := msClient.GetLibrarySectionDetails(ctx, &section)
 		if Err.Message != "" || !found {
-			success = false
+			if isMain {
+				updateLibraryLoad(section.Title, 0, 0, true)
+			}
 			continue
 		}
 
-		if (section.Type == "movie" || section.Type == "mixed") && !ejRanCollections {
-			GetMovieCollections(ctx, section)
-			if config.Current.MediaServer.Type == "Emby" || config.Current.MediaServer.Type == "Jellyfin" {
+		// Update the collections cache for this section
+		if isMain && (section.Type == "movie" || section.Type == "mixed") && !ejRanCollections {
+			collections, collectionsErr := loadMovieCollections(ctx, server, section)
+			if collectionsErr.Message != "" {
+				collectionsLoaded = false
+			}
+			for _, collection := range collections {
+				loadedCollections[collection.RatingKey] = true
+			}
+			if server.Type == "Emby" || server.Type == "Jellyfin" {
 				ejRanCollections = true
 			}
 		}
 
-		snapshot, ok := buildSectionSnapshot(ctx, section)
-		if !ok {
-			return false
+		// Plex adds each movie to its collections while the library loads, they keep their movies until it's done
+		if isMain && server.Type == "Plex" && (section.Type == "movie" || section.Type == "mixed") {
+			cache.CollectionsStore.StartLoadingMembers(section.Title)
+			defer cache.CollectionsStore.StopLoadingMembers(section.Title)
 		}
-		snapshots = append(snapshots, snapshot)
-	}
-	updatedAt := time.Now().Unix()
-	database.WithMediaItemStates(ctx, func(states map[database.MediaItemKey]database.MediaItemState) {
-		for _, snapshot := range snapshots {
-			applyMediaItemStates(snapshot.MediaItems, states)
+
+		pageSize := libraryPageSize
+		start := 0
+		expectedTotal := 0
+		seen := map[string]bool{}
+		known := map[string]bool{}
+		if isMain {
+			known = store.SectionItemKeys(section.Title)
 		}
-		if !success {
-			// A skipped section is absent from snapshots and full publication prunes
-			// what it does not carry, so publish only the sections that succeeded.
-			for _, snapshot := range snapshots {
-				cache.LibraryStore.UpdateSectionFromDBSnapshot(snapshot, dbSnapshotGeneration)
+
+		for {
+
+			items, totalSize, fetched, Err := msClient.GetLibrarySectionItems(ctx, section, strconv.Itoa(start), strconv.Itoa(pageSize))
+			if Err.Message != "" {
+				return false
 			}
-			return
+			logging.LOGGER.Info().Timestamp().
+				Str("media_server", server.Name).
+				Str("section_title", section.Title).
+				Str("section_id", section.ID).
+				Int("fetched_items", fetched).
+				Int("kept_items", len(items)).
+				Int("start_index", start).
+				Int("total_size", totalSize).
+				Msg("Fetched library section items")
+
+			if totalSize > 0 {
+				expectedTotal = totalSize
+			}
+			if fetched == 0 {
+				break
+			}
+
+			for i := range items {
+				key := cache.MediaItemCacheKey(&items[i])
+				seen[key] = true
+				if len(known) > 0 && !known[key] {
+					newItems = append(newItems, items[i])
+				}
+			}
+			if len(items) > 0 {
+				sectionForCache := section
+				sectionForCache.TotalSize = expectedTotal
+				sectionForCache.MediaItems = items
+
+				// Update Library Cache
+				store.UpdateSection(&sectionForCache)
+
+				// Save the main media server's items to the database
+				if isMain {
+					if saveErr := database.SaveLibraryItems(ctx, items, time.Now().Unix()); saveErr.Message != "" {
+						logAction.AppendWarning("save_library_items_error", saveErr.Message)
+					}
+				}
+			}
+
+			// The next page starts after every entry sent, skipped ones too
+			start += fetched
+			if isMain {
+				updateLibraryLoad(section.Title, start, expectedTotal, false)
+			}
+
+			if expectedTotal > 0 && start >= expectedTotal {
+				break
+			}
+
 		}
-		cache.LibraryStore.ReplaceAllSectionsFromDBSnapshot(snapshots, updatedAt, dbSnapshotGeneration)
-	})
-	if !success {
-		return false
+		// Items that are no longer on the media server
+		if removed := store.RemoveItemsNotSeen(section.Title, seen); removed > 0 {
+			logAction.AppendResult(fmt.Sprintf("removed_from_%s", section.Title), removed)
+		}
+		if isMain {
+			updateLibraryLoad(section.Title, start, max(expectedTotal, start), true)
+			loadedSince[section.Title] = sectionStartedAt
+			cache.CollectionsStore.FinishLoadingMembers(section.Title)
+		}
+
 	}
-	cache.CollectionsStore.LastFullUpdate = updatedAt
+
+	if isMain {
+		usedLibraries := []string{}
+		for _, section := range configuredSections {
+			usedLibraries = append(usedLibraries, section.Title)
+		}
+		if finishErr := database.FinishLibraryLoad(ctx, usedLibraries, loadedSince); finishErr.Message != "" {
+			logAction.AppendWarning("finish_library_load_error", finishErr.Message)
+		}
+		if collectionsLoaded {
+			finishCollectionsLoad(ctx, msClient, server, loadedCollections)
+		}
+		if len(newItems) > 0 && OnNewItems != nil {
+			logAction.AppendResult("new_items", len(newItems))
+			OnNewItems(ctx, newItems)
+		}
+	}
+	store.LastFullUpdate = time.Now().Unix()
 	return true
 }
 
-// RefreshSectionItems re-fetches and caches the media items for a single configured
-// library section, found by title. It lets callers pick up newly added items (e.g. a
-// movie just imported by Radarr) without waiting for the periodic full refresh.
-func RefreshSectionItems(ctx context.Context, sectionTitle string) (success bool) {
-	ctx, logAction := logging.AddSubActionToContext(ctx, fmt.Sprintf("Refreshing Library Section Items for '%s'", sectionTitle), logging.LevelDebug)
+// finishCollectionsLoad removes the collections that are gone, gets the movies in each collection, and saves them
+func finishCollectionsLoad(ctx context.Context, msClient MediaServerInterface, server config.Config_MediaServer, loadedCollections map[string]bool) {
+	ctx, logAction := logging.AddSubActionToContext(ctx, "Saving Collections", logging.LevelDebug)
 	defer logAction.Complete()
 
-	// Share the full-refresh lock so a single-section refresh cannot publish
-	// between a full refresh's fetch and its replacement of every section.
-	// ponytail: one refresh lock; per-section locks if refresh throughput matters.
-	warmupMu.Lock()
-	defer warmupMu.Unlock()
+	cache.CollectionsStore.Retain(loadedCollections)
 
-	for _, section := range config.Current.MediaServer.Libraries {
-		if section.Title != sectionTitle {
-			continue
-		}
-		found, Err := GetLibrarySectionDetails(ctx, &section)
-		if Err.Message != "" || !found {
-			return false
-		}
-		return fetchAndCacheSectionItems(ctx, section)
-	}
-	return false
-}
-
-// fetchAndCacheSectionItems publishes only after every page succeeds.
-func fetchAndCacheSectionItems(ctx context.Context, section models.LibrarySection) bool {
-	dbSnapshotGeneration := cache.LibraryStore.DBMutationGeneration()
-	snapshot, ok := buildSectionSnapshot(ctx, section)
-	if !ok {
-		return false
-	}
-	publishSectionSnapshot(ctx, snapshot, dbSnapshotGeneration)
-	return true
-}
-
-// publishSectionSnapshot re-reads database-owned item state immediately before
-// publication so items missing from the live cache cannot publish state that a
-// mutation superseded while the snapshot was staged.
-func publishSectionSnapshot(ctx context.Context, snapshot *models.LibrarySection, dbSnapshotGeneration uint64) {
-	database.WithMediaItemStates(ctx, func(states map[database.MediaItemKey]database.MediaItemState) {
-		applyMediaItemStates(snapshot.MediaItems, states)
-		cache.LibraryStore.UpdateSectionFromDBSnapshot(snapshot, dbSnapshotGeneration)
-	})
-}
-
-// applyMediaItemStates overwrites database-owned fields from states. A nil map
-// means the state read failed, so the items keep what they already carry.
-func applyMediaItemStates(items []models.MediaItem, states map[database.MediaItemKey]database.MediaItemState) {
-	if states == nil {
-		return
-	}
-	for i := range items {
-		state := states[database.MediaItemKey{TMDBID: items[i].TMDB_ID, LibraryTitle: items[i].LibraryTitle}]
-		items[i].DBSavedSets = append([]models.DBSavedSet(nil), state.SavedSets...)
-		items[i].IgnoredInDB = state.Ignored
-		items[i].IgnoredMode = state.IgnoreMode
-		items[i].IgnoredSets = append([]string(nil), state.IgnoredSets...)
-	}
-}
-
-func buildSectionSnapshot(ctx context.Context, section models.LibrarySection) (*models.LibrarySection, bool) {
-	msClient, Err := NewMediaServerClient(&config.Current.MediaServer)
-	if Err.Message != "" {
-		return nil, false
-	}
-
-	states, stateErr := database.GetAllMediaItemStates(ctx)
-	if stateErr.Message != "" {
-		logging.LOGGER.Warn().Timestamp().Str("section_title", section.Title).Str("error", stateErr.Message).Msg("Failed to bulk-fetch media item database state")
-		states = map[database.MediaItemKey]database.MediaItemState{}
-	}
-	if plexClient, ok := msClient.(*plex.Plex); ok {
-		if prepareErr := plexClient.PrepareLatestEpisodeAddedAt(ctx, section); prepareErr.Message != "" {
-			logging.LOGGER.Warn().Timestamp().Str("section_title", section.Title).Str("error", prepareErr.Message).Msg("Failed to fetch latest episode dates")
+	// Plex added the movies while the libraries loaded, the other media servers are asked for each collection
+	if server.Type != "Plex" {
+		for _, collection := range cache.CollectionsStore.GetAllCollections() {
+			if Err := msClient.GetMovieCollectionChildrenItems(ctx, &collection); Err.Message != "" {
+				logAction.AppendWarning(fmt.Sprintf("collection_%s", collection.RatingKey), Err.Message)
+				continue
+			}
+			cache.CollectionsStore.SetCollectionMembers(collection.RatingKey, collection.MediaItems)
 		}
 	}
-	return fetchSectionSnapshot(ctx, msClient, section, states)
+
+	collections := cache.CollectionsStore.GetAllCollections()
+	logAction.AppendResult("collections", len(collections))
+	if Err := database.SaveCollections(ctx, collections); Err.Message != "" {
+		logAction.AppendWarning("save_collections_error", Err.Message)
+	}
 }
 
-func fetchSectionSnapshot(ctx context.Context, msClient MediaServerInterface, section models.LibrarySection, states map[database.MediaItemKey]database.MediaItemState) (*models.LibrarySection, bool) {
-	const pageSize = 1000
-	start := 0
-	expectedTotal := 0
-	allItems := make([]models.MediaItem, 0)
-	for {
-		items, rawItemCount, totalSize, Err := msClient.GetLibrarySectionItems(ctx, section, strconv.Itoa(start), strconv.Itoa(pageSize))
+// loadMovieCollections gets the collections for a movie library. Emby and Jellyfin keep every collection
+// in their own Collections library, so that library is used instead.
+func loadMovieCollections(ctx context.Context, server config.Config_MediaServer, section models.LibrarySection) ([]models.CollectionItem, logging.LogErrorInfo) {
+	if server.Type == "Emby" || server.Type == "Jellyfin" {
+		collectionSection, Err := ej.GetMovieCollectionSection(ctx, server)
 		if Err.Message != "" {
-			return nil, false
+			return nil, Err
 		}
-		applyMediaItemStates(items, states)
-		tmdbIDs := make([]string, 0, len(items))
-		for i := range items {
-			tmdbIDs = append(tmdbIDs, items[i].TMDB_ID)
+		// No Collections library, so there are no collections
+		if collectionSection.ID == "" {
+			return []models.CollectionItem{}, logging.LogErrorInfo{}
 		}
-		if updateErr := database.UpdateMediaItemsOnServer(ctx, section.Title, tmdbIDs, true); updateErr.Message != "" {
-			logging.LOGGER.Warn().Timestamp().Str("section_title", section.Title).Str("error", updateErr.Message).Msg("Failed to bulk-update media item server flags")
-		}
-		logging.LOGGER.Info().Timestamp().
-			Str("section_title", section.Title).
-			Str("section_id", section.ID).
-			Int("fetched_items", len(items)).
-			Int("start_index", start).
-			Int("total_size", totalSize).
-			Msg("Fetched library section items")
-
-		if totalSize > 0 {
-			expectedTotal = totalSize
-		}
-		allItems = append(allItems, items...)
-		if rawItemCount == 0 {
-			break
-		}
-
-		start += rawItemCount
-		if expectedTotal > 0 && start >= expectedTotal {
-			break
-		}
-		if expectedTotal == 0 && rawItemCount < pageSize {
-			break
-		}
+		section = collectionSection
 	}
-	section.MediaItems = allItems
-	section.TotalSize = len(allItems)
-	return &section, true
+	return GetMovieCollections(ctx, section)
 }

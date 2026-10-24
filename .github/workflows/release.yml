@@ -86,8 +86,11 @@ jobs:
           if [[ "${tag}" == *-* ]]; then
             channel="beta"
           fi
-          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
-          echo "channel=${channel}" >> "$GITHUB_OUTPUT"
+          {
+            echo "version=${tag#v}"
+            echo "channel=${channel}"
+            echo "build_date=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } >> "$GITHUB_OUTPUT"
 
       # Composite action, not a reusable workflow: its steps run in this job, so the
       # cosign keyless certificate names this repo's release.yml -- the identity the
@@ -98,4 +101,9 @@ jobs:
           image: ghcr.io/${{ github.repository_owner }}/aura
           version: ${{ steps.tag.outputs.version }}
           channel: ${{ steps.tag.outputs.channel }}
+          # Shown in the footer. A manual republish runs on main, so its github.sha isn't the tag's commit.
+          build-args: |
+            APP_COMMIT=${{ github.event_name == 'release' && github.sha || '' }}
+            APP_BUILD_NUMBER=${{ github.run_number }}
+            APP_BUILD_DATE=${{ steps.tag.outputs.build_date }}
           github-token: ${{ secrets.GITHUB_TOKEN }}

@@ -26,7 +26,9 @@ type GetMediaItemDetails_Response struct {
 // @Produce      json
 // @Param        rating_key query string true "Rating Key of the Media Item"
 // @Param        return_type query string false "Return Type (full or item, default is full)"
-// @Security 	 BearerAuth
+// @Param        library_title query string false "Title of the library the Media Item is in"
+// @Security     SessionCookie
+// @Security     ApiKeyAuth
 // @Failure      401  {object}  httpx.UnauthorizedResponse "Unauthorized (only when Auth.Enabled=true)"
 // @Success      200  {object}  httpx.JSONResponse{data=GetMediaItemDetails_Response}
 // @Failure      500  {object}  httpx.JSONResponse "Internal Server Error"
@@ -40,6 +42,7 @@ func GetMediaItemDetails(w http.ResponseWriter, r *http.Request) {
 	actionGetQueryParams := logAction.AddSubAction("Get Query Params", logging.LevelTrace)
 	ratingKey := r.URL.Query().Get("rating_key")
 	returnType := r.URL.Query().Get("return_type")
+	libraryTitle := r.URL.Query().Get("library_title")
 	if ratingKey == "" {
 		actionGetQueryParams.SetError("Missing query parameter: rating_key", "Make sure to provide a valid rating_key", nil)
 		httpx.SendResponse(w, ld, response)
@@ -50,7 +53,16 @@ func GetMediaItemDetails(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get the Media Item from the cache
-	mediaItem, found := cache.LibraryStore.GetMediaItemByRatingKey(ratingKey)
+	// If the library title is provided, get the item from that library, as some media servers (e.g. Silo)
+	// use the same rating key for an item in every library it is in
+	var mediaItem *models.MediaItem
+	var found bool
+	if libraryTitle != "" {
+		mediaItem, found = cache.LibraryStore.GetMediaItemFromSectionByRatingKey(libraryTitle, ratingKey)
+	}
+	if !found {
+		mediaItem, found = cache.LibraryStore.GetMediaItemByRatingKey(ratingKey)
+	}
 	if !found {
 		actionGetQueryParams.SetError("Media item not found in cache", "Make sure the rating_key is correct and the media server is connected", map[string]any{
 			"rating_key": ratingKey,
@@ -88,7 +100,7 @@ func GetMediaItemDetails(w http.ResponseWriter, r *http.Request) {
 	// Get the all sets for this TMDB ID
 	switch mediaItem.Type {
 	case "show":
-		showSets, showItems, Err := mediux.GetShowItemSets(ctx, mediaItem.TMDB_ID, mediaItem.LibraryTitle)
+		showSets, showItems, Err := mediux.GetShowItemSets(ctx, mediaItem.TMDB_ID, mediaItem.LibraryTitle, mediaItem.Edition)
 		if Err.Message != "" {
 			logAction.Status = logging.StatusWarn
 			break
@@ -98,13 +110,13 @@ func GetMediaItemDetails(w http.ResponseWriter, r *http.Request) {
 	case "movie":
 		setItems := map[string]models.IncludedItem{}
 		// For Movies, we get Movie Sets and Movie Collection Sets
-		movieSets, Err := mediux.GetMovieItemSets(ctx, mediaItem.TMDB_ID, mediaItem.LibraryTitle, &setItems)
+		movieSets, Err := mediux.GetMovieItemSets(ctx, mediaItem.TMDB_ID, mediaItem.LibraryTitle, mediaItem.Edition, &setItems)
 		if Err.Message != "" {
 			logAction.Status = logging.StatusWarn
 			break
 		}
 		response.PosterSets.Sets = movieSets
-		collectionSets, Err := mediux.GetMovieItemCollectionSets(ctx, mediaItem.TMDB_ID, mediaItem.LibraryTitle, &setItems)
+		collectionSets, Err := mediux.GetMovieItemCollectionSets(ctx, mediaItem.TMDB_ID, mediaItem.LibraryTitle, mediaItem.Edition, &setItems)
 		if Err.Message != "" {
 			logAction.Status = logging.StatusWarn
 			break

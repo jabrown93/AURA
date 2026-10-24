@@ -1,36 +1,21 @@
 package mediaserver
 
 import (
-	"aura/cache"
 	"aura/config"
 	"aura/logging"
 	"aura/mediaserver/ej"
 	"aura/mediaserver/plex"
+	"aura/mediaserver/silo"
 	"aura/models"
 	"context"
 	"fmt"
-	"net/http"
-	"time"
 )
-
-// IsItemNotFound reports whether a media-server lookup error means the item is genuinely absent
-// (an HTTP 404), as opposed to a transient/auth/server failure (timeout, 401, 5xx, connection
-// error). Callers use this to decide whether it is safe to take a "the item is gone" path
-// instead of leaving the operation failed for retry. The status code is carried in the error's
-// Detail by the media-server HTTP wrappers.
-func IsItemNotFound(Err logging.LogErrorInfo) bool {
-	if Err.Detail == nil {
-		return false
-	}
-	code, ok := Err.Detail["status_code"].(int)
-	return ok && code == http.StatusNotFound
-}
 
 type MediaServerInterface interface {
 	// Test Connection (returns the Server Version if connection is successful)
 	TestConnection(ctx context.Context, msConfig config.Config_MediaServer) (connectionOk bool, serverName string, serverVersion string, Err logging.LogErrorInfo)
 
-	// Get Admin User (this is for Emby/Jellyfin)
+	// Get Admin User (this is for Emby/Jellyfin/Silo)
 	GetAdminUser(ctx context.Context, msConfig config.Config_MediaServer) (userID string, Err logging.LogErrorInfo)
 
 	///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -41,8 +26,11 @@ type MediaServerInterface interface {
 	// Get full details about a specific library section
 	GetLibrarySectionDetails(ctx context.Context, library *models.LibrarySection) (found bool, Err logging.LogErrorInfo)
 
-	// Get items in a specific library section
-	GetLibrarySectionItems(ctx context.Context, section models.LibrarySection, sectionStartIndex string, limit string) (items []models.MediaItem, rawItemCount int, totalSize int, Err logging.LogErrorInfo)
+	// Get items in a specific library section, the section's total and how many entries were sent
+	GetLibrarySectionItems(ctx context.Context, section models.LibrarySection, sectionStartIndex string, limit string) (items []models.MediaItem, totalSize int, fetched int, Err logging.LogErrorInfo)
+
+	// Get items in a specific library section, newest first
+	GetNewestLibrarySectionItems(ctx context.Context, section models.LibrarySection, sectionStartIndex string, limit string) (items []models.MediaItem, totalSize int, fetched int, Err logging.LogErrorInfo)
 
 	// Get Movie Collections for a specific library section
 	GetMovieCollections(ctx context.Context, section models.LibrarySection) (collections []models.CollectionItem, Err logging.LogErrorInfo)
@@ -71,19 +59,13 @@ type MediaServerInterface interface {
 	// Handle Labels (Plex Exclusive)
 	AddLabelToMediaItem(ctx context.Context, item models.MediaItem, selectedTypes models.SelectedTypes) (Err logging.LogErrorInfo)
 
-	// Rate a specific media item (Plex Exclusive)
+	// Rate a specific media item (Plex and Silo)
 	RateMediaItem(ctx context.Context, item *models.MediaItem, rating float64) (Err logging.LogErrorInfo)
 
 	///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 	// Download an image for a specific Media Item
 	DownloadApplyImageToMediaItem(ctx context.Context, item *models.MediaItem, imageFile models.ImageFile) (Err logging.LogErrorInfo)
-
-	// Download an image and write it to the Kometa asset directory only, without applying
-	// it to the media server. Used to pre-stage assets for seasons/episodes that are not
-	// yet present on the server (naming-convention only). Servers without Kometa asset
-	// support, or when Kometa mode is disabled, treat this as a no-op skip.
-	SaveImageAsKometaAssetOnly(ctx context.Context, item *models.MediaItem, imageFile models.ImageFile) (Err logging.LogErrorInfo)
 
 	// Apply a collection image to a specific Collection Item
 	ApplyCollectionImage(ctx context.Context, collectionItem *models.CollectionItem, imageFile models.ImageFile) (Err logging.LogErrorInfo)
@@ -104,6 +86,8 @@ func NewMediaServerClient(mediaServerConfig *config.Config_MediaServer) (MediaSe
 		return &plex.Plex{Config: *cfg}, logging.LogErrorInfo{}
 	case "Jellyfin", "Emby":
 		return &ej.EJ{Config: *cfg}, logging.LogErrorInfo{}
+	case "Silo":
+		return &silo.Silo{Config: *cfg}, logging.LogErrorInfo{}
 	default:
 		return nil, logging.LogErrorInfo{
 			Message: fmt.Sprintf("unsupported media server type: %s", cfg.Type),
@@ -199,54 +183,76 @@ func RefreshMediaItemMetadata(ctx context.Context, item *models.MediaItem, refre
 	return msClient.RefreshMediaItemMetadata(ctx, item, refreshRatingKey, updateImage)
 }
 
+// AddLabelToMediaItem adds labels on every Plex media server
 func AddLabelToMediaItem(ctx context.Context, item models.MediaItem, selectedTypes models.SelectedTypes) (Err logging.LogErrorInfo) {
-	if config.Current.MediaServer.Type != "Plex" {
-		return logging.LogErrorInfo{}
-	} else if len(config.Current.LabelsAndTags.Applications) == 0 {
+	if len(config.Current.LabelsAndTags.Applications) == 0 {
 		return logging.LogErrorInfo{}
 	}
-	msClient, Err := NewMediaServerClient(&config.Current.MediaServer)
-	if Err.Message != "" {
-		return Err
+	if config.Current.MediaServer.Type == "Plex" {
+		msClient, Err := NewMediaServerClient(&config.Current.MediaServer)
+		if Err.Message != "" {
+			return Err
+		}
+		Err = msClient.AddLabelToMediaItem(ctx, item, selectedTypes)
+		if Err.Message != "" {
+			return Err
+		}
 	}
-	return msClient.AddLabelToMediaItem(ctx, item, selectedTypes)
+
+	applyToOtherMediaServers(item, "labels", isPlex, func(ctx context.Context, msClient MediaServerInterface, otherItem *models.MediaItem) logging.LogErrorInfo {
+		return msClient.AddLabelToMediaItem(ctx, *otherItem, selectedTypes)
+	})
+	return logging.LogErrorInfo{}
 }
 
+// RateMediaItem rates the item on every Plex and Silo media server
 func RateMediaItem(ctx context.Context, item *models.MediaItem, rating float64) (Err logging.LogErrorInfo) {
-	if config.Current.MediaServer.Type != "Plex" {
-		return logging.LogErrorInfo{}
+	if supportsRating(config.Current.MediaServer) {
+		msClient, Err := NewMediaServerClient(&config.Current.MediaServer)
+		if Err.Message != "" {
+			return Err
+		}
+		Err = msClient.RateMediaItem(ctx, item, rating)
+		if Err.Message != "" {
+			return Err
+		}
 	}
-	msClient, Err := NewMediaServerClient(&config.Current.MediaServer)
-	if Err.Message != "" {
-		return Err
-	}
-	return msClient.RateMediaItem(ctx, item, rating)
+
+	applyToOtherMediaServers(*item, "the rating", supportsRating, func(ctx context.Context, msClient MediaServerInterface, otherItem *models.MediaItem) logging.LogErrorInfo {
+		return msClient.RateMediaItem(ctx, otherItem, rating)
+	})
+	return logging.LogErrorInfo{}
+}
+
+func isPlex(server config.Config_MediaServer) bool {
+	return server.Type == "Plex"
+}
+
+func supportsRating(server config.Config_MediaServer) bool {
+	return server.Type == "Plex" || server.Type == "Silo"
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 func DownloadApplyImageToMediaItem(ctx context.Context, item *models.MediaItem, imageFile models.ImageFile) (Err logging.LogErrorInfo) {
-	msClient, Err := NewMediaServerClient(&config.Current.MediaServer)
+	Err = DownloadApplyImageToMainMediaServer(ctx, item, imageFile)
 	if Err.Message != "" {
 		return Err
 	}
-	if Err = msClient.DownloadApplyImageToMediaItem(ctx, item, imageFile); Err.Message == "" {
-		now := time.Now().UnixMicro()
-		version := max(max(item.ArtworkVersion, item.UpdatedAt)+1, now)
-		if cachedVersion, ok := cache.LibraryStore.AdvanceMediaItemArtworkVersion(item.RatingKey, now); ok {
-			version = cachedVersion
-		}
-		item.ArtworkVersion = version
-	}
-	return Err
+
+	applyToOtherMediaServers(*item, fmt.Sprintf("the %s image", imageFile.Type), nil, func(ctx context.Context, msClient MediaServerInterface, otherItem *models.MediaItem) logging.LogErrorInfo {
+		return msClient.DownloadApplyImageToMediaItem(ctx, otherItem, imageFile)
+	})
+	return logging.LogErrorInfo{}
 }
 
-func SaveImageAsKometaAssetOnly(ctx context.Context, item *models.MediaItem, imageFile models.ImageFile) (Err logging.LogErrorInfo) {
+// DownloadApplyImageToMainMediaServer applies an image on the main media server only
+func DownloadApplyImageToMainMediaServer(ctx context.Context, item *models.MediaItem, imageFile models.ImageFile) (Err logging.LogErrorInfo) {
 	msClient, Err := NewMediaServerClient(&config.Current.MediaServer)
 	if Err.Message != "" {
 		return Err
 	}
-	return msClient.SaveImageAsKometaAssetOnly(ctx, item, imageFile)
+	return msClient.DownloadApplyImageToMediaItem(ctx, item, imageFile)
 }
 
 func ApplyCollectionImage(ctx context.Context, collectionItem *models.CollectionItem, imageFile models.ImageFile) (Err logging.LogErrorInfo) {
@@ -254,13 +260,5 @@ func ApplyCollectionImage(ctx context.Context, collectionItem *models.Collection
 	if Err.Message != "" {
 		return Err
 	}
-	if Err = msClient.ApplyCollectionImage(ctx, collectionItem, imageFile); Err.Message == "" {
-		now := time.Now().UnixMicro()
-		version := max(max(collectionItem.ArtworkVersion, collectionItem.UpdatedAt)+1, now)
-		if cachedVersion, ok := cache.CollectionsStore.AdvanceCollectionArtworkVersion(collectionItem.RatingKey, now); ok {
-			version = cachedVersion
-		}
-		collectionItem.ArtworkVersion = version
-	}
-	return Err
+	return msClient.ApplyCollectionImage(ctx, collectionItem, imageFile)
 }

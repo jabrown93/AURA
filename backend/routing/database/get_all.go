@@ -35,7 +35,8 @@ type getAllItemsResponse struct {
 // @Param        page_number        query     int     false  "Page number for pagination (default: 1)"
 // @Param        sort_option        query     string  false  "Sort option (e.g., date_downloaded, title, year)"
 // @Param        sort_order         query     string  false  "Sort order (asc or desc)"
-// @Security 	 BearerAuth
+// @Security     SessionCookie
+// @Security     ApiKeyAuth
 // @Failure      401  {object}  httpx.UnauthorizedResponse "Unauthorized (only when Auth.Enabled=true)"
 // @Success      200               {object}   httpx.JSONResponse{data=getAllItemsResponse}
 // @Failure      500  			   {object}   httpx.JSONResponse "Internal Server Error"

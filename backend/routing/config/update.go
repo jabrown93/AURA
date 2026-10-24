@@ -8,6 +8,7 @@ import (
 	"aura/mediaserver"
 	"aura/mediux"
 	"aura/models"
+	routes_auth "aura/routing/auth"
 	sonarr_radarr "aura/sonarr-radarr"
 	"aura/utils/httpx"
 	"context"
@@ -17,6 +18,7 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"time"
 )
 
 type updateConfigRequest struct {
@@ -28,23 +30,6 @@ type updateConfigResponse struct {
 	Status  AppConfigStatus `json:"status"`
 }
 
-// RecoverMediuxRuntimeState is set by main so config updates can rebuild runtime
-// caches without importing the main package.
-var RecoverMediuxRuntimeState func(context.Context) logging.LogErrorInfo
-
-// recoverMediuxAfterTokenCorrection rebuilds runtime state for a corrected token.
-// The token itself is already validated and saved, so a failed rebuild is not a
-// config update failure: it stays visible through the status flags and the
-// background recheck loop keeps retrying.
-func recoverMediuxAfterTokenCorrection(ctx context.Context, tokenCorrected bool) {
-	if !tokenCorrected || RecoverMediuxRuntimeState == nil {
-		return
-	}
-	if Err := RecoverMediuxRuntimeState(ctx); Err.Message != "" {
-		logging.LOGGER.Warn().Timestamp().Msgf("MediUX runtime recovery after token correction failed: %s", Err.Message)
-	}
-}
-
 // UpdateConfig godoc
 // @Summary      Update Config
 // @Description  Update the application configuration
@@ -52,7 +37,8 @@ func recoverMediuxAfterTokenCorrection(ctx context.Context, tokenCorrected bool)
 // @Accept       json
 // @Produce      json
 // @Param        newConfig  body      updateConfigRequest  true  "New Configuration"
-// @Security 	 BearerAuth
+// @Security     SessionCookie
+// @Security     ApiKeyAuth
 // @Failure      401  {object}  httpx.UnauthorizedResponse "Unauthorized (only when Auth.Enabled=true)"
 // @Success      200        {object}  httpx.JSONResponse{data=routes_config.updateConfigResponse}
 // @Failure      500        {object}  httpx.JSONResponse "Internal Server Error"
@@ -73,49 +59,82 @@ func UpdateAppConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	newConfig := req.Config
 
+	// Keep the current User Preferences, as they are saved separately
+	response = updateFullConfig(ctx, ld, logAction, newConfig, true)
+	httpx.SendResponse(w, ld, response)
+}
+
+// updateFullConfig checks, saves and applies a full config from onboarding or an imported file.
+// If keepUserPreferences is true, the current User Preferences are kept.
+func updateFullConfig(ctx context.Context, ld *logging.LogData, logAction *logging.LogAction, newConfig config.Config, keepUserPreferences bool) (response updateConfigResponse) {
+	// Only one config update at a time, so updates can't overwrite each other
+	config.UpdateLock.Lock()
+	defer config.UpdateLock.Unlock()
+
+	// Keep the current media servers if they weren't sent, as the setup page only has the main one
+	if newConfig.MediaServers == nil {
+		current := config.Current.Clone()
+		newConfig.MediaServers, newConfig.MainMediaServer = current.MediaServers, current.MainMediaServer
+	}
+
 	authChanged, authValid := checkConfigDifferences_Auth(ctx, config.Current.Auth, &newConfig.Auth)
 	loggingChanged, loggingValid := checkConfigDifferences_Logging(ctx, config.Current.Logging, &newConfig.Logging)
 	mediaServerChanged, mediaServerValid, newMediaServerName := checkConfigDifferences_MediaServer(ctx, config.Current.MediaServer, &newConfig.MediaServer)
+	mediaServersChanged, mediaServersValid := checkConfigDifferences_MediaServers(ctx, config.Current, &newConfig)
 	mediuxChanged, mediuxValid := checkConfigDifferences_Mediux(ctx, config.Current.Mediux, &newConfig.Mediux)
-	mediuxTokenCorrected := !config.MediuxValid && config.Current.Mediux.ApiToken != newConfig.Mediux.ApiToken
-	autoDownloadChanged, autoDownloadValid := checkConfigDifferences_Autodownload(ctx, config.Current.AutoDownload, &newConfig.AutoDownload)
+	jobsChanged, jobsChangedKeys, jobsValid := checkConfigDifferences_Jobs(ctx, config.Current.Jobs, &newConfig.Jobs)
+	backupsChanged, backupsValid := checkConfigDifferences_Backups(ctx, config.Current.Backups, &newConfig.Backups)
 	imagesChanged, imagesValid := checkConfigDifferences_Images(ctx, config.Current.Images, &newConfig.Images, newConfig.MediaServer)
 	tmdbChanged, tmdbValid := checkConfigDifferences_TMDB(ctx, config.Current.TMDB, &newConfig.TMDB)
 	labelsAndTagsChanged, labelsAndTagsValid := checkConfigDifferences_LabelsAndTags(ctx, config.Current.LabelsAndTags, &newConfig.LabelsAndTags)
 	notificationsChanged, notificationsValid := checkConfigDifferences_Notifications(ctx, config.Current.Notifications, &newConfig.Notifications)
 	sonarrRadarrChanged, sonarrRadarrValid := checkConfigDifferences_SonarrRadarr(ctx, config.Current.SonarrRadarr, &newConfig.SonarrRadarr, newConfig.MediaServer)
-	databaseChanged, databaseValid := checkConfigDifferences_Database(ctx, config.Current.Database, &newConfig.Database)
 
-	if !authValid || !loggingValid || !mediaServerValid || !mediuxValid || !autoDownloadValid || !imagesValid || !tmdbValid || !labelsAndTagsValid || !notificationsValid || !sonarrRadarrValid || !databaseValid {
-		ld.Status = logging.StatusError
-		logAction.SetError("Invalid configuration", "The provided configuration is invalid. Check the results for details.", map[string]any{
-			"auth_valid":            authValid,
-			"logging_valid":         loggingValid,
-			"media_server_valid":    mediaServerValid,
-			"mediux_valid":          mediuxValid,
-			"auto_download_valid":   autoDownloadValid,
-			"images_valid":          imagesValid,
-			"tmdb_valid":            tmdbValid,
-			"labels_and_tags_valid": labelsAndTagsValid,
-			"notifications_valid":   notificationsValid,
-			"sonarr_radarr_valid":   sonarrRadarrValid,
-			"database_valid":        databaseValid,
-		})
-		response.Message = "Invalid configuration. Check the results for details."
-		httpx.SendResponse(w, ld, response)
-		return
+	userPreferencesChanged, userPreferencesValid := false, true
+	if keepUserPreferences {
+		newConfig.UserPreferences = config.Current.UserPreferences
+	} else {
+		userPreferencesChanged, userPreferencesValid = checkConfigDifferences_UserPreferences(ctx, config.Current.UserPreferences, &newConfig.UserPreferences)
 	}
 
-	if !authChanged && !loggingChanged && !mediaServerChanged && !mediuxChanged &&
-		!autoDownloadChanged && !imagesChanged && !tmdbChanged && !labelsAndTagsChanged &&
-		!notificationsChanged && !sonarrRadarrChanged && !databaseChanged {
+	if !authValid || !loggingValid || !mediaServerValid || !mediaServersValid || !mediuxValid || !jobsValid || !backupsValid || !imagesValid || !tmdbValid || !labelsAndTagsValid || !notificationsValid || !sonarrRadarrValid || !userPreferencesValid {
+		ld.Status = logging.StatusError
+		message, help := "Invalid configuration", "The provided configuration is invalid. Check the results for details."
+		// Use the first error as the message, if there is one
+		if firstErr := firstSubActionError(logAction); firstErr.Message != "" {
+			message = fmt.Sprintf("Invalid configuration: %s", firstErr.Message)
+			if firstErr.Help != "" {
+				help = firstErr.Help
+			}
+		}
+		logAction.SetError(message, help, map[string]any{
+			"auth_valid":             authValid,
+			"logging_valid":          loggingValid,
+			"media_server_valid":     mediaServerValid,
+			"media_servers_valid":    mediaServersValid,
+			"mediux_valid":           mediuxValid,
+			"jobs_valid":             jobsValid,
+			"backups_valid":          backupsValid,
+			"images_valid":           imagesValid,
+			"tmdb_valid":             tmdbValid,
+			"labels_and_tags_valid":  labelsAndTagsValid,
+			"notifications_valid":    notificationsValid,
+			"sonarr_radarr_valid":    sonarrRadarrValid,
+			"user_preferences_valid": userPreferencesValid,
+		})
+		response.Message = "Invalid configuration. Check the results for details."
+		return response
+	}
+
+	if !authChanged && !loggingChanged && !mediaServerChanged && !mediaServersChanged && !mediuxChanged &&
+		!jobsChanged && !backupsChanged && !imagesChanged && !tmdbChanged && !labelsAndTagsChanged &&
+		!notificationsChanged && !sonarrRadarrChanged && !userPreferencesChanged {
 		// If nothing has changed AND the config is valid, log a warning
 		if config.Valid {
 			ld.Status = logging.StatusWarn
 			response.Message = "No changes detected in configuration"
 			logging.LOGGER.Warn().Timestamp().Msg(response.Message)
-			httpx.SendResponse(w, ld, response)
-			return
+			return response
 		} else if !config.Valid {
 			// If nothing has changed AND the config is invalid, re-validate
 			newConfig.Validate(ctx)
@@ -123,14 +142,12 @@ func UpdateAppConfig(w http.ResponseWriter, r *http.Request) {
 				ld.Status = logging.StatusError
 				response.Message = "Configuration is still invalid after update attempt"
 				logging.LOGGER.Error().Timestamp().Msg(response.Message)
-				httpx.SendResponse(w, ld, response)
-				return
+				return response
 			} else {
 				ld.Status = logging.StatusSuccess
 				response.Message = "Configuration has been validated successfully"
 				logging.LOGGER.Info().Timestamp().Msg(response.Message)
-				httpx.SendResponse(w, ld, response)
-				return
+				return response
 			}
 		}
 	}
@@ -138,8 +155,8 @@ func UpdateAppConfig(w http.ResponseWriter, r *http.Request) {
 	// Save the new config
 	saveErr := newConfig.Save(ctx)
 	if saveErr.Message != "" {
-		httpx.SendResponse(w, ld, response)
-		return
+		logAction.SetErrorFromInfo(saveErr)
+		return response
 	}
 
 	// Update the global config variable
@@ -147,39 +164,58 @@ func UpdateAppConfig(w http.ResponseWriter, r *http.Request) {
 	config.Loaded = true
 	config.Valid = true
 	config.MediaServerValid = true
-	config.MediaServerReachable = true
 	config.MediaServerName = newMediaServerName
 	config.MediuxValid = true
-	config.MediuxReachable = true
 
-	recoverMediuxAfterTokenCorrection(ctx, mediuxTokenCorrected)
-
-	if autoDownloadChanged {
-		jobs.StartAutoDownloadJob()
+	var changedJobs []jobs.JobKey
+	if jobsChanged {
+		changedJobs = jobsChangedKeys
 	}
+	applyConfigChanges(ctx, logAction, configChanges{
+		authChanged:         authChanged,
+		mediaServerChanged:  mediaServerChanged,
+		mediaServersChanged: mediaServersChanged,
+		changedJobs:         changedJobs,
+	})
 
-	if imagesChanged {
-		if err := jobs.StartKometaImportJob(); err != nil {
-			logging.LOGGER.Error().Timestamp().Err(err).Msg("Failed to reschedule Kometa Asset Import cron job after config update")
+	response.Message = "Configuration saved"
+	response.Status = currentConfigStatus(ctx)
+	return response
+}
+
+// Loads the libraries of the media servers that aren't the main one. Replaced in tests.
+var refreshOtherMediaServers = mediaserver.RefreshOtherMediaServers
+
+// Restarts the Plex event listener. Replaced in tests.
+var restartPlexEventListener = autodownload.StartOrRestartPlexWebSocketClient
+
+// applyConfigChanges applies the saved config changes to the running app
+func applyConfigChanges(ctx context.Context, logAction *logging.LogAction, changes configChanges) {
+	// Restart the jobs whose settings changed
+	for _, key := range changes.changedJobs {
+		if err := jobs.StartJob(key); err != nil {
+			logging.LOGGER.Error().Timestamp().Err(err).Str("job", string(key)).Msg("Failed to restart job after config update")
 		}
 	}
 
-	if mediaServerChanged {
-		autodownload.StartOrRestartPlexWebSocketClient()
+	if changes.mediaServerChanged {
+		restartPlexEventListener()
 	}
 
-	response.Status = AppConfigStatus{
-		ConfigLoaded:         config.Loaded,
-		ConfigValid:          config.Valid,
-		NeedsSetup:           config.NeedsSetup(),
-		MediaServerReachable: config.MediaServerReachable,
-		MediuxReachable:      config.MediuxReachable,
-		MediuxValid:          config.MediuxValid,
-		CurrentSetup:         *newConfig.SanitizeConfig(ctx),
-		MediaServerName:      config.MediaServerName,
+	// Load the libraries of new or changed media servers
+	if changes.mediaServersChanged {
+		logging.Go("Refresh Other Media Servers", refreshOtherMediaServers)
 	}
 
-	httpx.SendResponse(w, ld, response)
+	// Restart OIDC with the new Auth settings, so the login page shows the correct login options
+	if changes.authChanged {
+		oidcCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		oidcErr := routes_auth.InitOIDC(oidcCtx)
+		cancel()
+		if oidcErr.Message != "" {
+			logAction.SetError("Configuration saved, but Single Sign-On (OIDC) could not be started", oidcErr.Help, oidcErr.Detail)
+		}
+	}
 }
 
 // checkConfigDifferences_Auth compares old and new Auth configurations.
@@ -188,6 +224,12 @@ func checkConfigDifferences_Auth(ctx context.Context, oldAuth config.Config_Auth
 	defer logAction.Complete()
 	changed = false
 	newValid = false
+
+	// APIKeyHash is never sent to the frontend (json:"-") and can only be changed via the
+	// dedicated generate/regenerate endpoint - force-preserve it here so a generic config save
+	// (which will always carry an empty APIKeyHash from the client) can never wipe it out.
+	newAuth.APIKeyHash = oldAuth.APIKeyHash
+
 	if !reflect.DeepEqual(oldAuth, newAuth) {
 		if oldAuth.Enabled != newAuth.Enabled {
 			logAction.AppendResult("Auth.Enabled changed", fmt.Sprintf("from '%v' to '%v'", oldAuth.Enabled, newAuth.Enabled))
@@ -199,81 +241,63 @@ func checkConfigDifferences_Auth(ctx context.Context, oldAuth config.Config_Auth
 			changed = true
 		}
 
-		// Secret values are only reported as changed - never logged. They previously
-		// landed in the log file in full.
+		// The password hash is masked on the way out - keep the old value unless a new one was entered
+		if oldAuth.Password != newAuth.Password && strings.HasPrefix(newAuth.Password, "***") {
+			newAuth.Password = oldAuth.Password
+		}
 		if oldAuth.Password != newAuth.Password {
-			// The UI is served a masked hash; echoing it back means "unchanged".
-			if config.IsMaskedField(newAuth.Password) {
-				newAuth.Password = oldAuth.Password
-			} else {
-				logAction.AppendResult("Auth.Password changed", "password updated")
-				logging.LOGGER.Info().Timestamp().Msg("Auth.Password changed")
-				changed = true
-			}
+			logAction.AppendResult("Auth.Password changed", "value redacted")
+			logging.LOGGER.Info().
+				Timestamp().
+				Msg("Auth.Password changed")
+			changed = true
 		}
 
-		if checkConfigDifferences_OIDC(ctx, oldAuth.OIDC, &newAuth.OIDC) {
+		if oldAuth.SessionCookieSecure != newAuth.SessionCookieSecure || oldAuth.TrustProxyForCookieSecure != newAuth.TrustProxyForCookieSecure {
 			changed = true
+		}
+
+		if !reflect.DeepEqual(oldAuth.AllowedOrigins, newAuth.AllowedOrigins) {
+			changed = true
+		}
+
+		if oldAuth.PasswordEnabled != newAuth.PasswordEnabled {
+			logAction.AppendResult("Auth.PasswordEnabled changed", fmt.Sprintf("from '%v' to '%v'", oldAuth.PasswordEnabled, newAuth.PasswordEnabled))
+			changed = true
+		}
+
+		if oldAuth.OIDC.Enabled != newAuth.OIDC.Enabled {
+			logAction.AppendResult("Auth.OIDC.Enabled changed", fmt.Sprintf("from '%v' to '%v'", oldAuth.OIDC.Enabled, newAuth.OIDC.Enabled))
+			changed = true
+		}
+
+		if oldAuth.OIDC.IssuerURL != newAuth.OIDC.IssuerURL ||
+			oldAuth.OIDC.ClientID != newAuth.OIDC.ClientID ||
+			!reflect.DeepEqual(oldAuth.OIDC.RedirectURLs, newAuth.OIDC.RedirectURLs) ||
+			!reflect.DeepEqual(oldAuth.OIDC.AllowedEmails, newAuth.OIDC.AllowedEmails) ||
+			!reflect.DeepEqual(oldAuth.OIDC.AllowedDomains, newAuth.OIDC.AllowedDomains) {
+			changed = true
+		}
+
+		// ClientSecret is masked on the way out (MaskToken, "***" prefix) - preserve the old
+		// value unless the admin actually typed a new one, matching the pattern used for every
+		// other masked secret field in this file (see checkConfigDifferences_TMDB etc).
+		if oldAuth.OIDC.ClientSecret != newAuth.OIDC.ClientSecret {
+			if !strings.HasPrefix(newAuth.OIDC.ClientSecret, "***") {
+				logAction.AppendResult("Auth.OIDC.ClientSecret changed", "value redacted")
+				changed = true
+			} else {
+				newAuth.OIDC.ClientSecret = oldAuth.OIDC.ClientSecret
+			}
 		}
 	}
 
 	newValid = config.ValidateAuth(ctx, newAuth)
-	return changed, newValid
-}
-
-// checkConfigDifferences_OIDC compares old and new OIDC configurations.
-func checkConfigDifferences_OIDC(ctx context.Context, oldOIDC config.Config_OIDC, newOIDC *config.Config_OIDC) (changed bool) {
-	_, logAction := logging.AddSubActionToContext(ctx, "Check Config Differences: OIDC", logging.LevelTrace)
-	defer logAction.Complete()
-
-	if reflect.DeepEqual(oldOIDC, *newOIDC) {
-		return false
-	}
-
-	// The UI is served a masked secret; echoing it back means "unchanged", not "set the
-	// secret to ***abcd".
-	if oldOIDC.ClientSecret != newOIDC.ClientSecret {
-		if config.IsMaskedField(newOIDC.ClientSecret) {
-			newOIDC.ClientSecret = oldOIDC.ClientSecret
-		} else {
-			logAction.AppendResult("Auth.OIDC.ClientSecret changed", "client secret updated")
-			logging.LOGGER.Info().Timestamp().Msg("Auth.OIDC.ClientSecret changed")
-			changed = true
-		}
-	}
-
-	nonSecret := []struct {
-		name string
-		old  any
-		new  any
-	}{
-		{"Auth.OIDC.Enabled", oldOIDC.Enabled, newOIDC.Enabled},
-		{"Auth.OIDC.IssuerURL", oldOIDC.IssuerURL, newOIDC.IssuerURL},
-		{"Auth.OIDC.ClientID", oldOIDC.ClientID, newOIDC.ClientID},
-		{"Auth.OIDC.RedirectURL", oldOIDC.RedirectURL, newOIDC.RedirectURL},
-		{"Auth.OIDC.Scopes", oldOIDC.Scopes, newOIDC.Scopes},
-		{"Auth.OIDC.GroupsClaim", oldOIDC.GroupsClaim, newOIDC.GroupsClaim},
-		{"Auth.OIDC.AllowedGroups", oldOIDC.AllowedGroups, newOIDC.AllowedGroups},
-		{"Auth.OIDC.AllowedEmails", oldOIDC.AllowedEmails, newOIDC.AllowedEmails},
-		{"Auth.OIDC.AllowedSubjects", oldOIDC.AllowedSubjects, newOIDC.AllowedSubjects},
-		{"Auth.OIDC.ButtonLabel", oldOIDC.ButtonLabel, newOIDC.ButtonLabel},
-		{"Auth.OIDC.RPInitiatedLogout", oldOIDC.RPInitiatedLogout, newOIDC.RPInitiatedLogout},
-	}
-	for _, field := range nonSecret {
-		if reflect.DeepEqual(field.old, field.new) {
-			continue
-		}
-		logAction.AppendResult(fmt.Sprintf("%s changed", field.name), fmt.Sprintf("from '%v' to '%v'", field.old, field.new))
-		logging.LOGGER.Info().
-			Timestamp().
-			Str("field", field.name).
-			Str("old_value", fmt.Sprintf("%v", field.old)).
-			Str("new_value", fmt.Sprintf("%v", field.new)).
-			Msg("OIDC config changed")
+	// Catch any other changes not checked above
+	if !changed && !reflect.DeepEqual(oldAuth, *newAuth) {
 		changed = true
 	}
-
-	return changed
+	return changed, newValid
 }
 
 // checkConfigDifferences_Logging compares old and new Logging configurations.
@@ -292,9 +316,23 @@ func checkConfigDifferences_Logging(ctx context.Context, oldLogging config.Confi
 				Msg("Logging.Level changed")
 			changed = true
 		}
+
+		if oldLogging.KeepDays != newLogging.KeepDays {
+			logAction.AppendResult("Logging.KeepDays changed", fmt.Sprintf("from '%d' to '%d'", oldLogging.KeepDays, newLogging.KeepDays))
+			logging.LOGGER.Info().
+				Timestamp().
+				Int("old_keep_days", oldLogging.KeepDays).
+				Int("new_keep_days", newLogging.KeepDays).
+				Msg("Logging.KeepDays changed")
+			changed = true
+		}
 	}
 
 	newValid = config.ValidateLogging(ctx, newLogging)
+	// Catch any other changes not checked above
+	if !changed && !reflect.DeepEqual(oldLogging, *newLogging) {
+		changed = true
+	}
 	return changed, newValid
 }
 
@@ -305,6 +343,12 @@ func checkConfigDifferences_MediaServer(ctx context.Context, oldMediaServer conf
 	changed = false
 	newValid = false
 	serverName = ""
+
+	// The User ID is not saved or exported, so keep the current one if it's missing
+	if newMediaServer.UserID == "" {
+		newMediaServer.UserID = oldMediaServer.UserID
+	}
+
 	if !reflect.DeepEqual(oldMediaServer, newMediaServer) {
 		if oldMediaServer.Type != newMediaServer.Type {
 			logAction.AppendResult("MediaServer.Type changed", fmt.Sprintf("from '%s' to '%s'", oldMediaServer.Type, newMediaServer.Type))
@@ -328,12 +372,14 @@ func checkConfigDifferences_MediaServer(ctx context.Context, oldMediaServer conf
 
 		if oldMediaServer.ApiToken != newMediaServer.ApiToken {
 			if !strings.HasPrefix(newMediaServer.ApiToken, "***") {
-				logAction.AppendResult("MediaServer.ApiToken changed", "api token updated")
-				logging.LOGGER.Info().Timestamp().Msg("MediaServer.ApiToken changed")
+				logAction.AppendResult("MediaServer.ApiToken changed", "value redacted")
+				logging.LOGGER.Info().
+					Timestamp().
+					Msg("MediaServer.ApiToken changed")
 				changed = true
 			} else if newMediaServer.URL != oldMediaServer.URL {
-				// A masked token can only be restored for the URL it was issued for. Otherwise the
-				// real, live token would be sent to a caller-supplied URL by the TestConnection call below.
+				// Fork: a masked token is only restored for the URL it was saved with, or the real
+				// token would be sent to a caller-supplied URL by the connection test.
 				logAction.SetError("MediaServer.ApiToken is masked but MediaServer.URL changed", "A new API token must be provided when changing the media server URL", nil)
 				return changed, false, serverName
 			} else {
@@ -383,12 +429,187 @@ func checkConfigDifferences_MediaServer(ctx context.Context, oldMediaServer conf
 	connectionOk, serverName, _, msErr := mediaserver.TestConnection(ctx, newMediaServer)
 	if msErr.Message != "" || !connectionOk {
 		newValid = false
+		return changed, newValid, serverName
 	}
 
+	// Get the User ID from the media server when the connection settings change, or if there isn't one
+	if newMediaServer.Type == "Emby" || newMediaServer.Type == "Jellyfin" || newMediaServer.Type == "Silo" {
+		connectionChanged := oldMediaServer.Type != newMediaServer.Type ||
+			oldMediaServer.URL != newMediaServer.URL ||
+			oldMediaServer.ApiToken != newMediaServer.ApiToken
+		if connectionChanged || newMediaServer.UserID == "" {
+			userID, userErr := mediaserver.GetAdminUser(ctx, newMediaServer)
+			if userErr.Message != "" || userID == "" {
+				logAction.SetError(fmt.Sprintf("Failed to get the admin user from the %s server", newMediaServer.Type),
+					"Make sure the token belongs to an admin account", map[string]any{"error": userErr.Message})
+				newValid = false
+				return changed, newValid, serverName
+			}
+			if userID != oldMediaServer.UserID {
+				logAction.AppendResult("MediaServer.UserID changed", fmt.Sprintf("from '%v' to '%v'", oldMediaServer.UserID, userID))
+				changed = true
+			}
+			newMediaServer.UserID = userID
+		}
+	}
+
+	// Catch any other changes not checked above
+	if !changed && !reflect.DeepEqual(oldMediaServer, *newMediaServer) {
+		changed = true
+	}
 	return changed, newValid, serverName
 }
 
 // checkConfigDifferences_Mediux compares old and new MediUX configurations.
+// checkConfigDifferences_MediaServers compares old and new MediaServers configurations.
+// The main media server is checked in checkConfigDifferences_MediaServer, which runs first.
+func checkConfigDifferences_MediaServers(ctx context.Context, oldConfig config.Config, newConfig *config.Config) (changed, newValid bool) {
+	ctx, logAction := logging.AddSubActionToContext(ctx, "Check Config Differences: MediaServers", logging.LevelTrace)
+	defer logAction.Complete()
+
+	keepMediaServerIDs(oldConfig.MediaServers, newConfig)
+
+	// API tokens are masked on the way out - keep the old value unless a new one was entered
+	config.RestoreMediaServerTokens(oldConfig.MediaServers, newConfig.MediaServers)
+
+	// Copy the checked main media server into the list
+	newConfig.SyncMediaServers()
+
+	if !config.ValidateMediaServers(ctx, newConfig.MediaServers, newConfig.MainMediaServer) {
+		return false, false
+	}
+
+	// Check the connection of the other media servers that are new or changed
+	oldServers := map[string]config.Config_MediaServer{}
+	for _, server := range oldConfig.MediaServers {
+		oldServers[server.ID] = server
+	}
+	newValid = true
+	for i := range newConfig.MediaServers {
+		server := &newConfig.MediaServers[i]
+		if server.ID == newConfig.MainMediaServer || !server.Enabled {
+			continue
+		}
+		oldServer, found := oldServers[server.ID]
+		var old *config.Config_MediaServer
+		if found {
+			old = &oldServer
+		}
+		if !checkMediaServerConnection(ctx, old, server) {
+			newValid = false
+		}
+	}
+	if !newValid {
+		return false, false
+	}
+
+	if oldConfig.MainMediaServer != newConfig.MainMediaServer {
+		logAction.AppendResult("MainMediaServer changed", fmt.Sprintf("from '%s' to '%s'", oldConfig.MainMediaServer, newConfig.MainMediaServer))
+		logging.LOGGER.Info().
+			Timestamp().
+			Str("old_main_media_server", oldConfig.MainMediaServer).
+			Str("new_main_media_server", newConfig.MainMediaServer).
+			Msg("MainMediaServer changed")
+		changed = true
+	}
+	if !reflect.DeepEqual(storedMediaServers(oldConfig.MediaServers), storedMediaServers(newConfig.MediaServers)) {
+		logAction.AppendResult("MediaServers changed", fmt.Sprintf("%d media servers", len(newConfig.MediaServers)))
+		logging.LOGGER.Info().
+			Timestamp().
+			Int("media_servers", len(newConfig.MediaServers)).
+			Msg("MediaServers changed")
+		changed = true
+	}
+	return changed, true
+}
+
+// checkMediaServerConnection checks the connection of a media server that isn't the main one, if it is new or its connection settings changed.
+// It also gets the User ID from Emby, Jellyfin and Silo servers.
+func checkMediaServerConnection(ctx context.Context, oldServer *config.Config_MediaServer, server *config.Config_MediaServer) bool {
+	ctx, logAction := logging.AddSubActionToContext(ctx, fmt.Sprintf("Check Media Server Connection: %s", server.Name), logging.LevelTrace)
+	defer logAction.Complete()
+
+	// The User ID comes from the media server, not the request
+	connectionChanged := oldServer == nil || oldServer.Type != server.Type || oldServer.URL != server.URL || oldServer.ApiToken != server.ApiToken
+	server.UserID = ""
+	if !connectionChanged {
+		server.UserID = oldServer.UserID
+		if server.UserID != "" || server.Type == "Plex" {
+			return true
+		}
+	}
+
+	if connectionChanged {
+		connectionOk, _, _, Err := mediaserver.TestConnection(ctx, server)
+		if Err.Message != "" || !connectionOk {
+			logAction.SetError(fmt.Sprintf("Could not connect to media server '%s'", server.Name),
+				"Check its URL and API token", map[string]any{"error": Err.Message})
+			return false
+		}
+	}
+
+	if server.Type == "Emby" || server.Type == "Jellyfin" || server.Type == "Silo" {
+		userID, Err := mediaserver.GetAdminUser(ctx, server)
+		if Err.Message != "" || userID == "" {
+			logAction.SetError(fmt.Sprintf("Failed to get the admin user from media server '%s'", server.Name),
+				"Make sure the token belongs to an admin account", map[string]any{"error": Err.Message})
+			return false
+		}
+		server.UserID = userID
+	}
+	return true
+}
+
+// keepMediaServerIDs gives a new media server the ID of the current one with the same type and URL.
+// Config files from before multiple media servers have no IDs, so importing one keeps the current IDs.
+func keepMediaServerIDs(current []config.Config_MediaServer, newConfig *config.Config) {
+	currentIDs := map[string]bool{}
+	for _, server := range current {
+		currentIDs[server.ID] = true
+	}
+	usedIDs := map[string]bool{}
+	for _, server := range newConfig.MediaServers {
+		usedIDs[server.ID] = true
+	}
+	for i := range newConfig.MediaServers {
+		server := &newConfig.MediaServers[i]
+		if currentIDs[server.ID] {
+			continue
+		}
+		for _, currentServer := range current {
+			if usedIDs[currentServer.ID] || currentServer.Type != server.Type ||
+				strings.TrimSuffix(currentServer.URL, "/") != strings.TrimSuffix(server.URL, "/") {
+				continue
+			}
+			if newConfig.MainMediaServer == server.ID {
+				newConfig.MainMediaServer = currentServer.ID
+			}
+			if newConfig.MediaServer.ID == server.ID {
+				newConfig.MediaServer.ID = currentServer.ID
+			}
+			if server.LibraryMap == nil {
+				server.LibraryMap = currentServer.LibraryMap
+			}
+			usedIDs[currentServer.ID] = true
+			server.ID = currentServer.ID
+			break
+		}
+	}
+}
+
+// storedMediaServers returns the media servers as they are saved, without the User IDs
+func storedMediaServers(servers []config.Config_MediaServer) []config.Config_MediaServer {
+	if len(servers) == 0 {
+		return nil
+	}
+	stored := make([]config.Config_MediaServer, len(servers))
+	for i, server := range servers {
+		server.UserID = ""
+		stored[i] = server
+	}
+	return stored
+}
+
 func checkConfigDifferences_Mediux(ctx context.Context, oldMediux config.Config_Mediux, newMediux *config.Config_Mediux) (changed, newValid bool) {
 	ctx, logAction := logging.AddSubActionToContext(ctx, "Check Config Differences: MediUX", logging.LevelTrace)
 	defer logAction.Complete()
@@ -397,8 +618,10 @@ func checkConfigDifferences_Mediux(ctx context.Context, oldMediux config.Config_
 	if !reflect.DeepEqual(oldMediux, newMediux) {
 		if oldMediux.ApiToken != newMediux.ApiToken {
 			if !strings.HasPrefix(newMediux.ApiToken, "***") {
-				logAction.AppendResult("Mediux.ApiToken changed", "api token updated")
-				logging.LOGGER.Info().Timestamp().Msg("Mediux.ApiToken changed")
+				logAction.AppendResult("Mediux.ApiToken changed", "value redacted")
+				logging.LOGGER.Info().
+					Timestamp().
+					Msg("Mediux.ApiToken changed")
 				changed = true
 			} else {
 				newMediux.ApiToken = oldMediux.ApiToken
@@ -427,37 +650,80 @@ func checkConfigDifferences_Mediux(ctx context.Context, oldMediux config.Config_
 		newValid = false
 	}
 
+	// Catch any other changes not checked above
+	if !changed && !reflect.DeepEqual(oldMediux, *newMediux) {
+		changed = true
+	}
 	return changed, newValid
 }
 
-// checkConfigDifferences_Autodownload compares old and new AutoDownload configurations.
-func checkConfigDifferences_Autodownload(ctx context.Context, oldAutoDownload config.Config_AutoDownload, newAutoDownload *config.Config_AutoDownload) (changed, newValid bool) {
-	ctx, logAction := logging.AddSubActionToContext(ctx, "Check Config Differences: Autodownload", logging.LevelTrace)
+// checkConfigDifferences_Jobs compares old and new Jobs configurations on a
+// per-job basis, so that only the jobs whose settings actually changed get restarted.
+func checkConfigDifferences_Jobs(ctx context.Context, oldJobs config.Config_Jobs, newJobs *config.Config_Jobs) (changed bool, changedKeys []jobs.JobKey, newValid bool) {
+	ctx, logAction := logging.AddSubActionToContext(ctx, "Check Config Differences: Jobs", logging.LevelTrace)
 	defer logAction.Complete()
-	changed = false
-	newValid = false
-	if !reflect.DeepEqual(oldAutoDownload, newAutoDownload) {
-		if oldAutoDownload.Enabled != newAutoDownload.Enabled {
-			logAction.AppendResult("Autodownload.Enabled changed", fmt.Sprintf("from '%v' to '%v'", oldAutoDownload.Enabled, newAutoDownload.Enabled))
-			logging.LOGGER.Info().
-				Timestamp().
-				Bool("old_enabled", oldAutoDownload.Enabled).
-				Bool("new_enabled", newAutoDownload.Enabled).
-				Msg("Autodownload.Enabled changed")
-			changed = true
-		}
 
-		if oldAutoDownload.Cron != newAutoDownload.Cron {
-			logAction.AppendResult("Autodownload.Cron changed", fmt.Sprintf("from '%s' to '%s'", oldAutoDownload.Cron, newAutoDownload.Cron))
-			logging.LOGGER.Info().
-				Timestamp().
-				Str("old_cron", oldAutoDownload.Cron).
-				Str("new_cron", newAutoDownload.Cron).
-				Msg("Autodownload.Cron changed")
-			changed = true
-		}
+	type jobField struct {
+		key   jobs.JobKey
+		label string
+		old   config.Config_JobSetting
+		new   *config.Config_JobSetting
+		def   config.JobSettingDefault
 	}
-	newValid = config.ValidateAutoDownload(ctx, newAutoDownload)
+
+	fields := []jobField{
+		{jobs.JobKeyAutoDownload, "AutoDownload", oldJobs.AutoDownload, &newJobs.AutoDownload, config.JobDefaults.AutoDownload},
+		{jobs.JobKeyRefreshMediaItemsAndCollections, "RefreshMediaItemsAndCollections", oldJobs.RefreshMediaItemsAndCollections, &newJobs.RefreshMediaItemsAndCollections, config.JobDefaults.RefreshMediaItemsAndCollections},
+		{jobs.JobKeyCheckForMediaItemChanges, "CheckForMediaItemChanges", oldJobs.CheckForMediaItemChanges, &newJobs.CheckForMediaItemChanges, config.JobDefaults.CheckForMediaItemChanges},
+		{jobs.JobKeyCheckForNewMediaItems, "CheckForNewMediaItems", oldJobs.CheckForNewMediaItems, &newJobs.CheckForNewMediaItems, config.JobDefaults.CheckForNewMediaItems},
+		{jobs.JobKeyHandleTempIgnoredItems, "HandleTempIgnoredItems", oldJobs.HandleTempIgnoredItems, &newJobs.HandleTempIgnoredItems, config.JobDefaults.HandleTempIgnoredItems},
+		{jobs.JobKeyRefreshMediuxUsers, "RefreshMediuxUsers", oldJobs.RefreshMediuxUsers, &newJobs.RefreshMediuxUsers, config.JobDefaults.RefreshMediuxUsers},
+		{jobs.JobKeyCheckMediuxSiteLink, "CheckMediuxSiteLink", oldJobs.CheckMediuxSiteLink, &newJobs.CheckMediuxSiteLink, config.JobDefaults.CheckMediuxSiteLink},
+		{jobs.JobKeyBackupDatabase, "BackupDatabase", oldJobs.BackupDatabase, &newJobs.BackupDatabase, config.JobDefaults.BackupDatabase},
+		{jobs.JobKeyUpgradeSavedSets, "UpgradeSavedSets", oldJobs.UpgradeSavedSets, &newJobs.UpgradeSavedSets, config.JobDefaults.UpgradeSavedSets},
+		// Fork: fork-only jobs
+		{jobs.JobKeyKometaImport, "KometaImport", oldJobs.KometaImport, &newJobs.KometaImport, config.ForkJobDefaults.KometaImport},
+		{jobs.JobKeyAnidbRefresh, "AnidbRefresh", oldJobs.AnidbRefresh, &newJobs.AnidbRefresh, config.ForkJobDefaults.AnidbRefresh},
+	}
+
+	for _, f := range fields {
+		if reflect.DeepEqual(f.old, *f.new) {
+			continue
+		}
+		oldEnabled, oldCron := f.old.Resolve(f.def)
+		newEnabled, newCron := f.new.Resolve(f.def)
+		logAction.AppendResult(fmt.Sprintf("Jobs.%s changed", f.label), fmt.Sprintf("from %+v to %+v", f.old, *f.new))
+		logging.LOGGER.Info().
+			Timestamp().
+			Str("job", f.label).
+			Bool("old_enabled", oldEnabled).
+			Bool("new_enabled", newEnabled).
+			Str("old_cron", oldCron).
+			Str("new_cron", newCron).
+			Msg("Job config changed")
+		changed = true
+		changedKeys = append(changedKeys, f.key)
+	}
+
+	newValid = config.ValidateJobs(ctx, newJobs)
+	return changed, changedKeys, newValid
+}
+
+// checkConfigDifferences_Backups compares old and new Backups configurations.
+func checkConfigDifferences_Backups(ctx context.Context, oldBackups config.Config_Backups, newBackups *config.Config_Backups) (changed, newValid bool) {
+	ctx, logAction := logging.AddSubActionToContext(ctx, "Check Config Differences: Backups", logging.LevelTrace)
+	defer logAction.Complete()
+
+	newValid = config.ValidateBackups(ctx, newBackups)
+	if oldBackups.Keep != newBackups.Keep {
+		logAction.AppendResult("Backups.Keep changed", fmt.Sprintf("from '%d' to '%d'", oldBackups.Keep, newBackups.Keep))
+		logging.LOGGER.Info().
+			Timestamp().
+			Int("old_keep", oldBackups.Keep).
+			Int("new_keep", newBackups.Keep).
+			Msg("Backups.Keep changed")
+		changed = true
+	}
 	return changed, newValid
 }
 
@@ -498,67 +764,12 @@ func checkConfigDifferences_Images(ctx context.Context, oldImages config.Config_
 			changed = true
 		}
 
-		if oldImages.SaveImagesLocally.EpisodeNamingConvention != newImages.SaveImagesLocally.EpisodeNamingConvention {
-			logAction.AppendResult("Images.SaveImagesLocally.EpisodeNamingConvention changed", fmt.Sprintf("from '%s' to '%s'", oldImages.SaveImagesLocally.EpisodeNamingConvention, newImages.SaveImagesLocally.EpisodeNamingConvention))
-			logging.LOGGER.Info().
-				Timestamp().
-				Str("old_episode_naming_convention", oldImages.SaveImagesLocally.EpisodeNamingConvention).
-				Str("new_episode_naming_convention", newImages.SaveImagesLocally.EpisodeNamingConvention).
-				Msg("Images.SaveImagesLocally.EpisodeNamingConvention changed")
-			changed = true
-		}
-
-		if oldImages.Kometa.Enabled != newImages.Kometa.Enabled {
-			logAction.AppendResult("Images.Kometa.Enabled changed", fmt.Sprintf("from '%v' to '%v'", oldImages.Kometa.Enabled, newImages.Kometa.Enabled))
-			logging.LOGGER.Info().
-				Timestamp().
-				Bool("old_enabled", oldImages.Kometa.Enabled).
-				Bool("new_enabled", newImages.Kometa.Enabled).
-				Msg("Images.Kometa.Enabled changed")
-			changed = true
-		}
-
-		if oldImages.Kometa.AssetDirectory != newImages.Kometa.AssetDirectory {
-			logAction.AppendResult("Images.Kometa.AssetDirectory changed", fmt.Sprintf("from '%s' to '%s'", oldImages.Kometa.AssetDirectory, newImages.Kometa.AssetDirectory))
-			logging.LOGGER.Info().
-				Timestamp().
-				Str("old_asset_directory", oldImages.Kometa.AssetDirectory).
-				Str("new_asset_directory", newImages.Kometa.AssetDirectory).
-				Msg("Images.Kometa.AssetDirectory changed")
-			changed = true
-		}
-
-		if oldImages.Kometa.ImportCron != newImages.Kometa.ImportCron {
-			logAction.AppendResult("Images.Kometa.ImportCron changed", fmt.Sprintf("from '%s' to '%s'", oldImages.Kometa.ImportCron, newImages.Kometa.ImportCron))
-			logging.LOGGER.Info().
-				Timestamp().
-				Str("old_import_cron", oldImages.Kometa.ImportCron).
-				Str("new_import_cron", newImages.Kometa.ImportCron).
-				Msg("Images.Kometa.ImportCron changed")
-			changed = true
-		}
-
-		if oldImages.Kometa.SonarrRadarrFallback != newImages.Kometa.SonarrRadarrFallback {
-			logAction.AppendResult("Images.Kometa.SonarrRadarrFallback changed", fmt.Sprintf("from '%v' to '%v'", oldImages.Kometa.SonarrRadarrFallback, newImages.Kometa.SonarrRadarrFallback))
-			logging.LOGGER.Info().
-				Timestamp().
-				Bool("old_sonarr_radarr_fallback", oldImages.Kometa.SonarrRadarrFallback).
-				Bool("new_sonarr_radarr_fallback", newImages.Kometa.SonarrRadarrFallback).
-				Msg("Images.Kometa.SonarrRadarrFallback changed")
-			changed = true
-		}
-
-		if !reflect.DeepEqual(oldImages.Kometa.LibraryAssetFolders, newImages.Kometa.LibraryAssetFolders) {
-			logAction.AppendResult("Images.Kometa.LibraryAssetFolders changed", fmt.Sprintf("from '%v' to '%v'", oldImages.Kometa.LibraryAssetFolders, newImages.Kometa.LibraryAssetFolders))
-			logging.LOGGER.Info().
-				Timestamp().
-				Interface("old_library_asset_folders", oldImages.Kometa.LibraryAssetFolders).
-				Interface("new_library_asset_folders", newImages.Kometa.LibraryAssetFolders).
-				Msg("Images.Kometa.LibraryAssetFolders changed")
-			changed = true
-		}
 	}
 	newValid = config.ValidateImages(ctx, newImages, msConfig)
+	// Catch any other changes not checked above
+	if !changed && !reflect.DeepEqual(oldImages, *newImages) {
+		changed = true
+	}
 	return changed, newValid
 }
 
@@ -571,13 +782,19 @@ func checkConfigDifferences_TMDB(ctx context.Context, oldTMDB config.Config_TMDB
 	if !reflect.DeepEqual(oldTMDB, newTMDB) {
 		if oldTMDB.ApiToken != newTMDB.ApiToken {
 			if !strings.HasPrefix(newTMDB.ApiToken, "***") {
-				logAction.AppendResult("TMDB.ApiToken changed", "api token updated")
-				logging.LOGGER.Info().Timestamp().Msg("TMDB.ApiToken changed")
+				logAction.AppendResult("TMDB.ApiToken changed", "value redacted")
+				logging.LOGGER.Info().
+					Timestamp().
+					Msg("TMDB.ApiToken changed")
 				changed = true
 			} else {
 				newTMDB.ApiToken = oldTMDB.ApiToken
 			}
 		}
+	}
+	// Catch any other changes not checked above
+	if !changed && !reflect.DeepEqual(oldTMDB, *newTMDB) {
+		changed = true
 	}
 	return changed, newValid
 }
@@ -750,6 +967,10 @@ func checkConfigDifferences_LabelsAndTags(ctx context.Context, oldLAT config.Con
 			}
 		}
 	}
+	// Catch any other changes not checked above
+	if !changed && !reflect.DeepEqual(oldLAT, *newLAT) {
+		changed = true
+	}
 	return changed, newValid
 }
 
@@ -760,6 +981,13 @@ func checkConfigDifferences_Notifications(ctx context.Context, oldNotifications 
 	changed = false
 	newValid = false
 	if !reflect.DeepEqual(oldNotifications, newNotifications) {
+		// Fork: resolve masked webhook headers across every provider, bound to the same URL.
+		if !restoreMaskedWebhookHeaders(oldNotifications.Providers, newNotifications.Providers) {
+			logAction.SetError("Unable to unmask webhook header",
+				"Provide the full header value when changing a webhook URL or renaming a header", nil)
+			return changed, false
+		}
+
 		// Global toggle
 		if oldNotifications.Enabled != newNotifications.Enabled {
 			logAction.AppendResult("Notifications.Enabled changed", fmt.Sprintf("from '%v' to '%v'", oldNotifications.Enabled, newNotifications.Enabled))
@@ -769,14 +997,6 @@ func checkConfigDifferences_Notifications(ctx context.Context, oldNotifications 
 				Bool("new_enabled", newNotifications.Enabled).
 				Msg("Notifications.Enabled changed")
 			changed = true
-		}
-
-		// Resolved over the full slice, not the type-keyed map below: that map keeps only one
-		// entry per provider type, and a config may hold several Webhook providers.
-		maskedHeaderUnresolved := !restoreMaskedWebhookHeaders(oldNotifications.Providers, newNotifications.Providers)
-		if maskedHeaderUnresolved {
-			logAction.SetError("Unable to unmask webhook header",
-				"Provide the full header value when changing a webhook URL or renaming a header", nil)
 		}
 
 		// Providers diff
@@ -844,8 +1064,10 @@ func checkConfigDifferences_Notifications(ctx context.Context, oldNotifications 
 				}
 				if oldWebhook != newWebhook {
 					if !config.IsMaskedWebhook(newWebhook) {
-						logAction.AppendResult("Notifications.Discord.Webhook changed", "webhook url updated")
-						logging.LOGGER.Info().Timestamp().Msg("Notifications.Discord.Webhook changed")
+						logAction.AppendResult("Notifications.Discord.Webhook changed", "value redacted")
+						logging.LOGGER.Info().
+							Timestamp().
+							Msg("Notifications.Discord.Webhook changed")
 						changed = true
 					} else {
 						newProv.Discord.Webhook = oldProv.Discord.Webhook
@@ -864,8 +1086,10 @@ func checkConfigDifferences_Notifications(ctx context.Context, oldNotifications 
 				}
 				if oldUserKey != newUserKey {
 					if !strings.HasPrefix(newUserKey, "***") {
-						logAction.AppendResult("Notifications.Pushover.UserKey changed", "user key updated")
-						logging.LOGGER.Info().Timestamp().Msg("Notifications.Pushover.UserKey changed")
+						logAction.AppendResult("Notifications.Pushover.UserKey changed", "value redacted")
+						logging.LOGGER.Info().
+							Timestamp().
+							Msg("Notifications.Pushover.UserKey changed")
 						changed = true
 					} else {
 						newProv.Pushover.UserKey = oldProv.Pushover.UserKey
@@ -874,8 +1098,10 @@ func checkConfigDifferences_Notifications(ctx context.Context, oldNotifications 
 				}
 				if oldToken != newToken {
 					if !strings.HasPrefix(newToken, "***") {
-						logAction.AppendResult("Notifications.Pushover.ApiToken changed", "api token updated")
-						logging.LOGGER.Info().Timestamp().Msg("Notifications.Pushover.ApiToken changed")
+						logAction.AppendResult("Notifications.Pushover.ApiToken changed", "value redacted")
+						logging.LOGGER.Info().
+							Timestamp().
+							Msg("Notifications.Pushover.ApiToken changed")
 						changed = true
 					} else {
 						newProv.Pushover.ApiToken = oldProv.Pushover.ApiToken
@@ -905,8 +1131,10 @@ func checkConfigDifferences_Notifications(ctx context.Context, oldNotifications 
 				if oldProv.Gotify != nil && newProv.Gotify != nil {
 					if oldProv.Gotify.ApiToken != newProv.Gotify.ApiToken {
 						if !strings.HasPrefix(newProv.Gotify.ApiToken, "***") {
-							logAction.AppendResult("Notifications.Gotify.ApiToken changed", "api token updated")
-							logging.LOGGER.Info().Timestamp().Msg("Notifications.Gotify.ApiToken changed")
+							logAction.AppendResult("Notifications.Gotify.ApiToken changed", "value redacted")
+							logging.LOGGER.Info().
+								Timestamp().
+								Msg("Notifications.Gotify.ApiToken changed")
 							changed = true
 						} else {
 							newProv.Gotify.ApiToken = oldProv.Gotify.ApiToken
@@ -923,8 +1151,10 @@ func checkConfigDifferences_Notifications(ctx context.Context, oldNotifications 
 					newURL = strings.TrimSpace(newProv.Webhook.URL)
 				}
 				if oldURL != newURL {
-					logAction.AppendResult("Notifications.Webhook.URL changed", "webhook url updated")
-					logging.LOGGER.Info().Timestamp().Msg("Notifications.Webhook.URL changed")
+					logAction.AppendResult("Notifications.Webhook.URL changed", "value redacted")
+					logging.LOGGER.Info().
+						Timestamp().
+						Msg("Notifications.Webhook.URL changed")
 					changed = true
 				}
 
@@ -935,14 +1165,19 @@ func checkConfigDifferences_Notifications(ctx context.Context, oldNotifications 
 					maps.Copy(oldHeaders, oldProv.Webhook.Headers)
 				}
 				if newProv.Webhook != nil {
-					// Masked values were already resolved above, across every provider.
+					// Header values are masked on the way out - keep the old value of an unchanged header
+					for k, newV := range newProv.Webhook.Headers {
+						if oldV, ok := oldHeaders[k]; ok && newV != oldV && strings.HasPrefix(newV, "***") {
+							newProv.Webhook.Headers[k] = oldV
+						}
+					}
 					maps.Copy(newHeaders, newProv.Webhook.Headers)
 				}
 				// Check for changes
 				for k, oldV := range oldHeaders {
 					newV, ok := newHeaders[k]
 					if !ok || oldV != newV {
-						logAction.AppendResult("Notifications.Webhook.Header changed", fmt.Sprintf("Header '%s' updated", k))
+						logAction.AppendResult("Notifications.Webhook.Header changed", fmt.Sprintf("Header '%s' changed (value redacted)", k))
 						logging.LOGGER.Info().
 							Timestamp().
 							Str("header_key", k).
@@ -952,7 +1187,7 @@ func checkConfigDifferences_Notifications(ctx context.Context, oldNotifications 
 				}
 				for k := range newHeaders {
 					if _, ok := oldHeaders[k]; !ok {
-						logAction.AppendResult("Notifications.Webhook.Header added", fmt.Sprintf("Header '%s' added", k))
+						logAction.AppendResult("Notifications.Webhook.Header added", fmt.Sprintf("Header '%s' added (value redacted)", k))
 						logging.LOGGER.Info().
 							Timestamp().
 							Str("header_key", k).
@@ -982,11 +1217,12 @@ func checkConfigDifferences_Notifications(ctx context.Context, oldNotifications 
 			changed = true
 		}
 
-		if maskedHeaderUnresolved {
-			return changed, false
-		}
 	}
 	newValid = config.ValidateNotifications(ctx, newNotifications)
+	// Catch any other changes not checked above
+	if !changed && !reflect.DeepEqual(oldNotifications, *newNotifications) {
+		changed = true
+	}
 	return changed, newValid
 }
 
@@ -1003,18 +1239,22 @@ func diffNotificationTemplates(oldT, newT config.Config_NotificationTemplate) []
 		"test_notification":                    oldT.TestNotification,
 		"autodownload":                         oldT.Autodownload,
 		"download_queue":                       oldT.DownloadQueue,
+		"new_item_auto_download":               oldT.NewItemAutoDownload,
 		"new_sets_available_for_ignored_items": oldT.NewSetsAvailableForIgnoredItems,
 		"check_for_media_item_changes_job":     oldT.CheckForMediaItemChangesJob,
 		"sonarr_notification":                  oldT.SonarrNotification,
+		"silo_plugin":                          oldT.SiloPlugin,
 	}
 	newMap := map[string]config.Config_CustomNotification{
 		"app_startup":                          newT.AppStartup,
 		"test_notification":                    newT.TestNotification,
 		"autodownload":                         newT.Autodownload,
 		"download_queue":                       newT.DownloadQueue,
+		"new_item_auto_download":               newT.NewItemAutoDownload,
 		"new_sets_available_for_ignored_items": newT.NewSetsAvailableForIgnoredItems,
 		"check_for_media_item_changes_job":     newT.CheckForMediaItemChangesJob,
 		"sonarr_notification":                  newT.SonarrNotification,
+		"silo_plugin":                          newT.SiloPlugin,
 	}
 
 	diffs := make([]notificationTemplateDiff, 0)
@@ -1089,7 +1329,7 @@ func checkConfigDifferences_SonarrRadarr(ctx context.Context, oldSR config.Confi
 			// Per App - ApiToken
 			if oldProv.ApiToken != newProv.ApiToken {
 				if !strings.HasPrefix(newProv.ApiToken, "***") {
-					logAction.AppendResult("SonarrRadarr.Application.ApiToken changed", "api token updated")
+					logAction.AppendResult("SonarrRadarr.Application.ApiToken changed", "value redacted")
 					logging.LOGGER.Info().
 						Timestamp().
 						Str("application", name).
@@ -1143,8 +1383,7 @@ func checkConfigDifferences_SonarrRadarr(ctx context.Context, oldSR config.Confi
 	// Restore ApiTokens
 	for i, app := range newSR.Applications {
 		if strings.HasPrefix(app.ApiToken, "***") {
-			// Find matching old app by Library, Type and URL. The URL must match too: otherwise
-			// the restored real token would be sent to a caller-supplied URL by TestConnection below.
+			// Fork: match the URL too, so the real token is never sent to a caller-supplied URL.
 			matched := false
 			for _, oldApp := range oldSR.Applications {
 				if app.Library == oldApp.Library && app.Type == oldApp.Type && app.URL == oldApp.URL {
@@ -1173,36 +1412,10 @@ func checkConfigDifferences_SonarrRadarr(ctx context.Context, oldSR config.Confi
 		}
 	}
 
-	return changed, newValid
-}
-
-func checkConfigDifferences_Database(ctx context.Context, oldDB config.Config_Database, newDB *config.Config_Database) (changed, newValid bool) {
-	ctx, logAction := logging.AddSubActionToContext(ctx, "Check Config Differences: Database", logging.LevelTrace)
-	defer logAction.Complete()
-	changed = false
-	newValid = false
-	if !reflect.DeepEqual(oldDB, newDB) {
-		if oldDB.Type != newDB.Type {
-			logAction.AppendResult("Database.Type changed", fmt.Sprintf("from '%s' to '%s'", oldDB.Type, newDB.Type))
-			logging.LOGGER.Info().
-				Timestamp().
-				Str("old_type", oldDB.Type).
-				Str("new_type", newDB.Type).
-				Msg("Database.Type changed")
-			changed = true
-		}
-
-		if oldDB.DSN != newDB.DSN {
-			logAction.AppendResult("Database.ConnectionString changed", fmt.Sprintf("from '%s' to '%s'", oldDB.DSN, newDB.DSN))
-			logging.LOGGER.Info().
-				Timestamp().
-				Str("old_connection_string", oldDB.DSN).
-				Str("new_connection_string", newDB.DSN).
-				Msg("Database.ConnectionString changed")
-			changed = true
-		}
+	// Catch any other changes not checked above
+	if !changed && !reflect.DeepEqual(oldSR, *newSR) {
+		changed = true
 	}
-	newValid = config.ValidateDatabase(ctx, newDB)
 	return changed, newValid
 }
 
@@ -1233,55 +1446,6 @@ func joinNonEmptyComma(items []string) string {
 }
 
 // providerMapNotifications creates a map of notification providers keyed by provider name.
-// restoreMaskedWebhookHeaders puts the stored value back wherever the UI echoed back a
-// masked header, and reports whether every mask was resolvable.
-//
-// Providers are paired by their position in the webhook list, because that is the only
-// stable identity available: URL, header key and mask can all coincide across two providers
-// (MaskToken is derived from the value, so two secrets ending the same way mask the same),
-// and searching by those would hand back another provider's credential. The URL must still
-// match at that position, so a masked header is never re-pointed at a different endpoint -
-// reordering or removing a provider simply fails the save and asks for the full value.
-func restoreMaskedWebhookHeaders(oldProviders, newProviders []config.Config_Notification_Provider) bool {
-	oldWebhooks := webhookProviders(oldProviders)
-	newWebhooks := webhookProviders(newProviders)
-
-	resolved := true
-	for i, newWebhook := range newWebhooks {
-		for key, value := range newWebhook.Headers {
-			if !config.IsMaskedField(value) {
-				continue
-			}
-			if i >= len(oldWebhooks) || oldWebhooks[i].URL != newWebhook.URL {
-				resolved = false
-				continue
-			}
-			// Requiring the mask this exact value would produce stops a caller passing an
-			// arbitrary "***" string to fish out a stored credential.
-			stored, ok := oldWebhooks[i].Headers[key]
-			if !ok || value != config.MaskToken(stored) {
-				resolved = false
-				continue
-			}
-			newWebhook.Headers[key] = stored
-		}
-	}
-	return resolved
-}
-
-// Provider names are matched case-insensitively because this runs before validation, and
-// ValidateNotificationsProvider title-cases the name afterwards. An exact match would skip a
-// provider submitted as "webhook", leaving its masked headers to be saved as the credential.
-func webhookProviders(items []config.Config_Notification_Provider) []*config.Config_Notification_Webhook {
-	var webhooks []*config.Config_Notification_Webhook
-	for _, provider := range items {
-		if strings.EqualFold(provider.Provider, "Webhook") && provider.Webhook != nil {
-			webhooks = append(webhooks, provider.Webhook)
-		}
-	}
-	return webhooks
-}
-
 func providerMapNotifications(items []config.Config_Notification_Provider) map[string]config.Config_Notification_Provider {
 	m := make(map[string]config.Config_Notification_Provider, len(items))
 	for _, p := range items {

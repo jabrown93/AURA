@@ -23,7 +23,9 @@ type getItemSetsResponse struct {
 // @Param        tmdb_id query string true "TMDB ID of the media item"
 // @Param        item_type query string true "Type of the media item (movie or show)"
 // @Param        item_library_title query string true "Title of the library the media item belongs to"
-// @Security 	 BearerAuth
+// @Param        edition query string false "Edition of the media item (e.g. Director's Cut), empty for the standard edition"
+// @Security     SessionCookie
+// @Security     ApiKeyAuth
 // @Failure      401  {object}  httpx.UnauthorizedResponse "Unauthorized (only when Auth.Enabled=true)"
 // @Success	  200  {object}  httpx.JSONResponse{data=getItemSetsResponse}
 // @Failure	  500  {object}  httpx.JSONResponse "Internal Server Error"
@@ -37,6 +39,7 @@ func GetItemSets(w http.ResponseWriter, r *http.Request) {
 	tmdbID := r.URL.Query().Get("tmdb_id")
 	itemType := r.URL.Query().Get("item_type")
 	itemLibraryTitle := r.URL.Query().Get("item_library_title")
+	edition := r.URL.Query().Get("edition")
 	if tmdbID == "" || itemType == "" || itemLibraryTitle == "" {
 		actionGetQueryParams.SetError("Missing Query Parameters", "One or more required query parameters are missing",
 			map[string]any{
@@ -61,7 +64,7 @@ func GetItemSets(w http.ResponseWriter, r *http.Request) {
 	switch itemType {
 	case "show":
 		// For Shows, we get just Show Sets
-		showSets, showItems, Err := mediux.GetShowItemSets(ctx, tmdbID, itemLibraryTitle)
+		showSets, showItems, Err := mediux.GetShowItemSets(ctx, tmdbID, itemLibraryTitle, edition)
 		if Err.Message != "" {
 			httpx.SendResponse(w, ld, response)
 			return
@@ -71,13 +74,13 @@ func GetItemSets(w http.ResponseWriter, r *http.Request) {
 	case "movie":
 		setItems := map[string]models.IncludedItem{}
 		// For Movies, we get Movie Sets and Movie Collection Sets
-		movieSets, Err := mediux.GetMovieItemSets(ctx, tmdbID, itemLibraryTitle, &setItems)
+		movieSets, Err := mediux.GetMovieItemSets(ctx, tmdbID, itemLibraryTitle, edition, &setItems)
 		if Err.Message != "" {
 			httpx.SendResponse(w, ld, response)
 			return
 		}
 		response.Sets = movieSets
-		collectionSets, Err := mediux.GetMovieItemCollectionSets(ctx, tmdbID, itemLibraryTitle, &setItems)
+		collectionSets, Err := mediux.GetMovieItemCollectionSets(ctx, tmdbID, itemLibraryTitle, edition, &setItems)
 		if Err.Message != "" {
 			httpx.SendResponse(w, ld, response)
 			return

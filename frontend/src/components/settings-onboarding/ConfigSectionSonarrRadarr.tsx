@@ -29,6 +29,7 @@ interface ConfigSectionSonarrRadarrProps {
   onChange: <K extends keyof AppConfigSonarrRadarrApps>(field: K, value: AppConfigSonarrRadarrApps[K]) => void;
   errorsUpdate?: (errors: Record<string, string>) => void;
   configAlreadyLoaded: boolean;
+  onConnectionVerifiedChange?: (verified: boolean, checking: boolean) => void; // Reports whether the connection has been checked and works
   libraries: AppConfigMediaServerLibrary[];
 }
 
@@ -52,6 +53,7 @@ export const ConfigSectionSonarrRadarr: React.FC<ConfigSectionSonarrRadarrProps>
   onChange,
   errorsUpdate,
   configAlreadyLoaded,
+  onConnectionVerifiedChange,
   libraries,
 }) => {
   const prevErrorsRef = useRef<string>("");
@@ -64,6 +66,9 @@ export const ConfigSectionSonarrRadarr: React.FC<ConfigSectionSonarrRadarrProps>
 
   // State to track app connection testing
   const [appConnectionStatus, setAppConnectionStatus] = useState<Record<number, ConfigConnectionStatus>>({});
+  // Connections that have been checked and work, by URL and API key
+  const [verifiedConnections, setVerifiedConnections] = useState<Set<string>>(() => new Set());
+  const [checkingConnections, setCheckingConnections] = useState(0);
   const [remoteTokenErrors, setRemoteTokenErrors] = useState<Record<number, string | null>>({});
 
   // ----- Validation -----
@@ -153,6 +158,8 @@ export const ConfigSectionSonarrRadarr: React.FC<ConfigSectionSonarrRadarrProps>
         ...s,
         [idx]: { status: "unknown", color: GetConnectionColor("unknown") },
       }));
+      const connectionKey = `${app.url}|${app.api_token}`;
+      setCheckingConnections((n) => n + 1);
 
       try {
         const start = Date.now();
@@ -167,6 +174,7 @@ export const ConfigSectionSonarrRadarr: React.FC<ConfigSectionSonarrRadarrProps>
         if (ok) {
           setRemoteTokenErrors((s) => ({ ...s, [idx]: null }));
           setAppConnectionStatus((s) => ({ ...s, [idx]: { status: "ok", color: GetConnectionColor("ok") } }));
+          setVerifiedConnections((prev) => new Set(prev).add(connectionKey));
         } else {
           setRemoteTokenErrors((s) => ({ ...s, [idx]: message || "Connection failed" }));
           setAppConnectionStatus((s) => ({
@@ -181,9 +189,17 @@ export const ConfigSectionSonarrRadarr: React.FC<ConfigSectionSonarrRadarrProps>
           [idx]: { status: "error", color: GetConnectionColor("error") },
         }));
       }
+      setCheckingConnections((n) => n - 1);
     },
     [apps]
   );
+
+  // Report whether every added app's connection has been checked and works
+  useEffect(() => {
+    const addedApps = apps.filter((app) => app.url?.trim() || app.api_token?.trim());
+    const verified = addedApps.every((app) => verifiedConnections.has(`${app.url}|${app.api_token}`));
+    onConnectionVerifiedChange?.(verified && checkingConnections === 0, checkingConnections > 0);
+  }, [apps, verifiedConnections, checkingConnections, onConnectionVerifiedChange]);
 
   useEffect(() => {
     if (configAlreadyLoaded && !hasRunInitialValidation.current) {
@@ -203,9 +219,9 @@ export const ConfigSectionSonarrRadarr: React.FC<ConfigSectionSonarrRadarrProps>
 
   // ----- Render -----
   return (
-    <Card className={`p-5 ${Object.values(errors).some(Boolean) ? "border-red-500" : "border-muted"}`}>
-      <div className="flex items-center justify-between">
-        <h2 className="text-xl font-semibold text-blue-500">Sonarr & Radarr</h2>
+    <Card className={`gap-4 p-4 sm:p-5 ${Object.values(errors).some(Boolean) ? "border-red-500" : "border-muted"}`}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-xl font-semibold text-blue-500 whitespace-nowrap">Sonarr & Radarr</h2>
         <div className="flex items-center">
           {editing && libraries.length > 0 && (
             <div className="flex items-center gap-2">

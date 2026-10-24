@@ -1,75 +1,44 @@
 package downloadqueue
 
 import (
+	"aura/database"
 	"aura/logging"
-	"aura/models"
-	"aura/utils"
 	"context"
 	"fmt"
-	"os"
-	"path"
-	"regexp"
-	"strings"
 )
 
-func RemoveFromQueue(ctx context.Context, deleteItem models.DBSavedItem) (deleted int, Err logging.LogErrorInfo) {
+func RemoveFromQueue(ctx context.Context, jobID int64) (Err logging.LogErrorInfo) {
 	ctx, logAction := logging.AddSubActionToContext(ctx,
-		fmt.Sprintf("Remove Entry for %s",
-			utils.MediaItemInfo(deleteItem.MediaItem)),
+		fmt.Sprintf("Remove Download Queue Job %d", jobID),
 		logging.LevelDebug)
+	defer logAction.Complete()
 
 	Err = logging.LogErrorInfo{}
-	deleted = 0
 
-	// Read all files in the download queue folder
-	files, readErr := os.ReadDir(FolderPath)
-	if readErr != nil {
-		logAction.SetError("Failed to read download queue folder",
-			"Ensure that the application has permission to read the download queue folder",
-			map[string]any{
-				"error": readErr.Error(),
-				"path":  FolderPath,
-			})
-		logAction.Complete()
-		return deleted, Err
+	deleteErr := database.DeleteDownloadQueueJob(ctx, jobID)
+	if deleteErr.Message != "" {
+		logAction.SetErrorFromInfo(deleteErr)
+		return *logAction.Error
 	}
 
-	// Build a regex pattern to match the file name for the item to be deleted.
-	// QuoteMeta escapes any regex metacharacters in the library title (e.g.
-	// "Movies (4K)") so the pattern matches the literal filename AddToQueue wrote.
-	pattern := fmt.Sprintf(`^(error_|warning_)?%s_%s_\d+\.json$`,
-		regexp.QuoteMeta(strings.ReplaceAll(deleteItem.MediaItem.LibraryTitle, " ", `_`)),
-		regexp.QuoteMeta(deleteItem.MediaItem.TMDB_ID),
-	)
-	re := regexp.MustCompile(pattern)
+	QueueBroadcaster.Publish(QueueEvent{Type: "job_removed", Job: &database.DownloadQueueJob{ID: jobID}})
 
-	// Loop through each file and check if it matches the item to be deleted
-	for _, file := range files {
-		if file.IsDir() {
-			continue
-		}
+	return Err
+}
 
-		if re.MatchString(file.Name()) {
-			// If a matching file is found, delete it
-			filePath := path.Join(FolderPath, file.Name())
-			delErr := os.Remove(filePath)
-			if delErr != nil {
-				logAction.SetError("Failed to delete item from download queue",
-					"Ensure that the application has permission to delete files from the download queue folder",
-					map[string]any{
-						"error": delErr.Error(),
-						"file":  filePath,
-					})
-				logAction.Complete()
-				return deleted, Err
-			}
+func RemoveAllFromQueue(ctx context.Context) (Err logging.LogErrorInfo) {
+	ctx, logAction := logging.AddSubActionToContext(ctx, "Remove All Download Queue Jobs", logging.LevelDebug)
+	defer logAction.Complete()
 
-			logAction.AppendResult("deleted_file", filePath)
-			deleted++
-		}
+	Err = logging.LogErrorInfo{}
+
+	deleteErr := database.DeleteAllDownloadQueueJobs(ctx)
+	if deleteErr.Message != "" {
+		logAction.SetErrorFromInfo(deleteErr)
+		return *logAction.Error
 	}
 
-	logAction.AppendResult("total_deleted", deleted)
-	logAction.Complete()
-	return deleted, Err
+	QueueBroadcaster.Publish(QueueEvent{Type: "queue_cleared"})
+
+	return Err
 }

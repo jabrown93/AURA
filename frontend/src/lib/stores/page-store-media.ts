@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
+import { syncPageView } from "@/lib/stores/page-view-sync";
 import { PageStore } from "@/lib/stores/stores";
 
 import type { TYPE_SORT_ORDER_OPTIONS } from "@/types/ui-options";
@@ -92,3 +93,11 @@ export const useMediaPageStore = create<Media_PageStore>()(
     }
   )
 );
+
+// The sort and filter options are the same on every device
+syncPageView("media_item", useMediaPageStore, [
+  "sortStates",
+  "showHiddenUsers",
+  "showOnlyTitlecardSets",
+  "filterByLanguage",
+]);

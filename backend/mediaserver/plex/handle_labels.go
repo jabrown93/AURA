@@ -20,7 +20,7 @@ func (p *Plex) AddLabelToMediaItem(ctx context.Context, item models.MediaItem, s
 	defer logAction.Complete()
 
 	// Do one last check to ensure we are a Plex server
-	if p.Config.Type != "Plex" || config.Current.MediaServer.Type != "Plex" {
+	if p.Config.Type != "Plex" {
 		return logging.LogErrorInfo{}
 	} else if len(config.Current.LabelsAndTags.Applications) == 0 {
 		return logging.LogErrorInfo{}
@@ -68,7 +68,7 @@ func (p *Plex) AddLabelToMediaItem(ctx context.Context, item models.MediaItem, s
 		}
 
 		// Get the library section from the cache
-		librarySection, found := cache.LibraryStore.GetSectionByTitle(item.LibraryTitle)
+		librarySection, found := cache.MediaServerLibraryStore(p.Config.ID, p.Config.IsMain()).GetSectionByTitle(item.LibraryTitle)
 		if !found {
 			subAppAction.AppendWarning("outcome", "skipped")
 			subAppAction.AppendWarning("reason", "library section not found in cache")
@@ -236,7 +236,7 @@ func (p *Plex) AddLabelToMediaItem(ctx context.Context, item models.MediaItem, s
 		URL += "&" + combinedParams
 
 		// Make the API request to add/remove labels
-		_, _, Err := makeRequest(ctx, config.Current.MediaServer, URL, "PUT", nil)
+		_, _, Err := makeRequest(ctx, p.Config, URL, "PUT", nil)
 		if Err.Message != "" {
 			continue
 		}

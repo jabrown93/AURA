@@ -10,14 +10,9 @@ export interface AppConfigStatus_Response {
   status: AppStatusResponse;
 }
 
-export const GetAppConfigStatus = async (reload: boolean): Promise<APIResponse<AppConfigStatus_Response>> => {
+export const GetAppConfigStatus = async (): Promise<APIResponse<AppConfigStatus_Response>> => {
   try {
-    let response;
-    if (!reload) {
-      response = await apiClient.get<APIResponse<AppConfigStatus_Response>>(`/config`);
-    } else {
-      response = await apiClient.patch<APIResponse<AppConfigStatus_Response>>(`/config`);
-    }
+    const response = await apiClient.get<APIResponse<AppConfigStatus_Response>>(`/config`);
     if (response.data.status === "error") {
       throw new Error(response.data.error?.message || "Unknown error fetching onboarding status");
     }

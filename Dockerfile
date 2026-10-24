@@ -24,7 +24,10 @@ ARG APP_VERSION=dev
 
 # Enable CGO and build the application
 ENV CGO_ENABLED=1
-RUN go build -ldflags="-s -w -X main.APP_VERSION=$APP_VERSION" -o main .
+ARG APP_COMMIT=""
+ARG APP_BUILD_NUMBER=""
+ARG APP_BUILD_DATE=""
+RUN go build -ldflags="-s -w -X main.APP_VERSION=$APP_VERSION -X main.APP_COMMIT=$APP_COMMIT -X main.APP_BUILD_NUMBER=$APP_BUILD_NUMBER -X main.APP_BUILD_DATE=$APP_BUILD_DATE" -o main .
 
 ############################################################################
 ##### Stage 2: Build the frontend application
@@ -48,6 +51,12 @@ ARG APP_VERSION=dev
 
 # Set environment variables
 ENV NEXT_PUBLIC_APP_VERSION=${APP_VERSION}
+ARG APP_COMMIT=""
+ARG APP_BUILD_NUMBER=""
+ARG APP_BUILD_DATE=""
+ENV NEXT_PUBLIC_APP_COMMIT=${APP_COMMIT}
+ENV NEXT_PUBLIC_APP_BUILD_NUMBER=${APP_BUILD_NUMBER}
+ENV NEXT_PUBLIC_APP_BUILD_DATE=${APP_BUILD_DATE}
 ENV NEXT_TELEMETRY_DISABLED=1
 
 # Build the application

@@ -16,8 +16,7 @@ type DownloadImageFileForMediaItem_Request struct {
 }
 
 type DownloadImageFileForMediaItem_Response struct {
-	Result         string `json:"result"`
-	ArtworkVersion int64  `json:"artwork_version,omitempty"`
+	Result string `json:"result"`
 }
 
 // DownloadImageFileForMediaItem godoc
@@ -27,7 +26,8 @@ type DownloadImageFileForMediaItem_Response struct {
 // @Accept       json
 // @Produce      json
 // @Param        req  body      DownloadImageFileForMediaItem_Request  true  "Download Image Request"
-// @Security 	 BearerAuth
+// @Security     SessionCookie
+// @Security     ApiKeyAuth
 // @Failure      401  {object}  httpx.UnauthorizedResponse "Unauthorized (only when Auth.Enabled=true)"
 // @Success      200           {object}  httpx.JSONResponse{data=DownloadImageFileForMediaItem_Response}
 // @Failure      500           {object}  httpx.JSONResponse "Internal Server Error"
@@ -81,7 +81,6 @@ func DownloadImageFileForMediaItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response.Result = fmt.Sprintf("Successfully downloaded %s", utils.GetFileDownloadName(req.MediaItem.Title, req.ImageFile))
-	response.ArtworkVersion = req.MediaItem.ArtworkVersion
+	response.Result = fmt.Sprintf("Sucessfully downloaded %s", utils.GetFileDownloadName(req.MediaItem.Title, req.ImageFile))
 	httpx.SendResponse(w, ld, response)
 }

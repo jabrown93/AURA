@@ -11,18 +11,28 @@ import { FilterCollections } from "@/components/shared/filter-collections";
 import Loader from "@/components/shared/loader";
 import HomeMediaItemCard from "@/components/shared/media-item-card";
 import { RefreshButton } from "@/components/shared/refresh-button";
+import { RefreshProgress } from "@/components/shared/refresh-progress";
 import { ResponsiveGrid } from "@/components/shared/responsive-grid";
 
 import { log } from "@/lib/logger";
-import { useCollectionStore } from "@/lib/stores/global-store-collection-store";
-import { MAX_CACHE_DURATION } from "@/lib/stores/global-store-library-sections";
 import { useSearchQueryStore } from "@/lib/stores/global-store-search-query";
 import { useCollectionsPageStore } from "@/lib/stores/page-store-collections";
 
 import { searchItems } from "@/hooks/search-query";
+import { useRefreshing } from "@/hooks/use-refreshing";
 
 import type { APIResponse } from "@/types/api/api-response";
-import type { CollectionItem } from "@/types/media-and-posters/collection-item";
+import type { MediaItem } from "@/types/media-and-posters/media-item-and-library";
+
+export interface CollectionItem {
+  rating_key: string;
+  index: string;
+  title: string;
+  summary?: string;
+  child_count: number;
+  media_items: MediaItem[];
+  library_title?: string;
+}
 
 export default function CollectionsPage() {
   const isMounted = useRef(false);
@@ -39,12 +49,6 @@ export default function CollectionsPage() {
   const [fullyLoaded, setFullyLoaded] = useState<boolean>(false);
 
   const [collectionItems, setCollectionItems] = useState<CollectionItem[]>([]);
-
-  const {
-    collectionItems: storedCollectionItems,
-    setCollectionItems: setStoredCollectionItems,
-    timestamp: storedTimestamp,
-  } = useCollectionStore();
 
   // State to track the CollectionsPageStore values
   const {
@@ -79,88 +83,46 @@ export default function CollectionsPage() {
     }
   }, [sortOption, setSortOption, setSortOrder]);
 
-  // Fetch data from cache or API
-  const fetchCollections = useCallback(
-    async (useCache: boolean) => {
-      if (isMounted.current && useCache) return;
-      setError(null);
+  // Get the collections, keeping the old ones showing during a refresh
+  const fetchCollections = useCallback(async (keepShowing: boolean) => {
+    if (isMounted.current && !keepShowing) return;
+    setError(null);
+    if (!keepShowing) {
       setFullyLoaded(false);
       setCollectionItems([]);
-      try {
-        // Check if we want to use cache
-        if (useCache) {
-          const isCacheAgeValid = storedTimestamp ? Date.now() - storedTimestamp < MAX_CACHE_DURATION : false;
-          const cacheContainsCollectionItemsAndTimestamp =
-            storedCollectionItems && storedTimestamp && storedCollectionItems.length > 0;
-          log("INFO", "Collections Page", "Library Cache", "Attempting to load collection items from cache", {
-            "Current Time": Date.now(),
-            "Cache Timestamp": storedTimestamp,
-            "Cache Age Max (ms)": MAX_CACHE_DURATION,
-            "Cache Age (ms)": storedTimestamp ? Date.now() - storedTimestamp : "N/A",
-            "Is Cache Age Valid": isCacheAgeValid,
-            "Cache Contains Collection Items & Timestamp": cacheContainsCollectionItemsAndTimestamp,
-          });
-          if (cacheContainsCollectionItemsAndTimestamp) {
-            if (isCacheAgeValid) {
-              setCollectionItems(storedCollectionItems);
-              setFullyLoaded(true);
-              log("INFO", "Collections Page", "Library Cache", "Loaded collection items from cache", {
-                "Number of Items": storedCollectionItems.length,
-              });
-              return;
-            } else {
-              log(
-                "WARN",
-                "Collections Page",
-                "Library Cache",
-                "Cache is stale, fetching fresh collection items from API"
-              );
-            }
-          } else {
-            log(
-              "WARN",
-              "Collections Page",
-              "Library Cache",
-              "No valid cache found, fetching collection items from API"
-            );
-          }
-        }
-
-        const response = await GetMovieCollections();
-        if (response.status === "error") {
-          setError(response);
-          setFullyLoaded(true);
-          return;
-        }
-
-        const fetchedCollectionItems = response.data?.collections || [];
-        if (!fetchedCollectionItems || fetchedCollectionItems.length === 0) {
-          setError(ReturnErrorMessage("No Collection Items found in Media Server"));
-          return;
-        }
-
-        log("INFO", "Collections Page", "Fetched Collection Items:", `Fetched ${fetchedCollectionItems.length} items`, {
-          fetchedCollectionItems,
-        });
-
-        // Store in global store for caching
-        setStoredCollectionItems(fetchedCollectionItems, Date.now());
-
-        setCollectionItems(fetchedCollectionItems);
+    }
+    try {
+      const response = await GetMovieCollections();
+      if (response.status === "error") {
+        setError(response);
         setFullyLoaded(true);
-      } catch (error) {
-        setError(ReturnErrorMessage<unknown>(error));
-      } finally {
-        isMounted.current = false;
+        return;
       }
-    },
-    [setStoredCollectionItems, storedCollectionItems, storedTimestamp]
-  );
+
+      const fetchedCollectionItems = response.data?.collections || [];
+      if (fetchedCollectionItems.length === 0) {
+        setError(ReturnErrorMessage("No Collection Items found in Media Server"));
+        return;
+      }
+
+      log("INFO", "Collections Page", "Fetched Collection Items:", `Fetched ${fetchedCollectionItems.length} items`, {
+        fetchedCollectionItems,
+      });
+      setCollectionItems(fetchedCollectionItems);
+      setFullyLoaded(true);
+    } catch (error) {
+      setError(ReturnErrorMessage<unknown>(error));
+    } finally {
+      isMounted.current = false;
+    }
+  }, []);
 
   useEffect(() => {
-    fetchCollections(true);
+    fetchCollections(false);
     isMounted.current = true;
   }, [fetchCollections]);
+
+  const [refreshing, handleRefresh] = useRefreshing(() => fetchCollections(true));
 
   useEffect(() => {
     if (searchQuery !== prevSearchQuery.current) {
@@ -219,6 +181,8 @@ export default function CollectionsPage() {
     <div className="flex items-center justify-center">
       {fullyLoaded ? (
         <div className="min-h-screen pb-4 px-4 sm:px-10 w-full">
+          {refreshing && <RefreshProgress title="Loading the collections from the media server" className="mt-4" />}
+
           {/* Filter & Sort Controls */}
           <div className="w-full flex items-center justify-center mb-4 mt-4">
             <FilterCollections
@@ -248,7 +212,9 @@ export default function CollectionsPage() {
                 />
               </div>
             ) : (
-              paginatedItems.map((item) => <HomeMediaItemCard key={item.rating_key} item={item} />)
+              paginatedItems.map((item) => (
+                <HomeMediaItemCard key={`${item.library_title}-${item.rating_key}`} item={item} />
+              ))
             )}
           </ResponsiveGrid>
 
@@ -263,7 +229,7 @@ export default function CollectionsPage() {
           />
 
           {/* Refresh Button */}
-          <RefreshButton onClick={() => fetchCollections(false)} />
+          <RefreshButton onClick={() => void handleRefresh()} refreshing={refreshing} />
         </div>
       ) : (
         <Loader className="mt-20" message="Loading Collection Items" />

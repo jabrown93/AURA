@@ -1,9 +1,16 @@
 // @title Aura API
 // @version 1.0
 // @BasePath /
-// @securityDefinitions.apikey BearerAuth
+// @securityDefinitions.apikey SessionCookie
+// @in cookie
+// @name aura_session
+// @description Browser session cookie, set by POST /api/login or the OIDC callback. Not usable directly via Swagger "Authorize" - log in through the app UI in the same browser tab.
+// @securityDefinitions.apikey ApiKeyAuth
 // @in header
-// @name Authorization
+// @name X-Api-Key
+// @description API key for programmatic/integration access. Generate one under Settings > Authentication, then send it as this header on every request. This is the intended auth method for scripts and integrations - the session cookie above is for browser use only.
+// @securityDefinitions.basic BasicAuth
+// @description Used only by /api/sonarr/webhook, since Sonarr/Radarr's built-in Webhook connection type has no custom-header support. Any username works; the password must be the API key.
 package main
 
 import (
@@ -11,30 +18,31 @@ import (
 	"aura/logging"
 	"aura/notification"
 	"aura/routing"
-	routes_config "aura/routing/config"
 	"context"
 	"os"
+	"os/signal"
 	"strings"
 	"sync"
 	"sync/atomic"
-	"time"
+	"syscall"
 )
 
 var (
-	APP_NAME     = "aura"
-	APP_VERSION  = "dev"
-	AUTHOR       = "xmoosex"
-	LICENSE      = "MIT"
-	APP_PORT     = 8888
-	APP_TLS_PORT = 8443
+	APP_NAME    = "aura"
+	APP_VERSION = "dev"
+	AUTHOR      = "xmoosex"
+	LICENSE     = "MIT"
+	APP_PORT    = 8888
+)
+
+// Set by the image build, empty for local builds
+var (
+	APP_COMMIT       = ""
+	APP_BUILD_NUMBER = ""
+	APP_BUILD_DATE   = ""
 )
 
 var activeHandler atomic.Value
-
-// preflightRetryInterval is how long to wait between preflight retries when the
-// config is valid but a dependency (media server / MediUX) was unreachable at
-// startup. See retryPreFlightUntilReady.
-const preflightRetryInterval = 30 * time.Second
 
 func init() {
 	if strings.HasSuffix(APP_VERSION, "dev") {
@@ -43,18 +51,15 @@ func init() {
 }
 
 func main() {
-	routes_config.RecoverMediuxRuntimeState = func(ctx context.Context) logging.LogErrorInfo {
-		Err := recoverMediuxRuntimeState(ctx)
-		if Err.Message != "" {
-			go recheckMediuxUntilReachable()
-		}
-		return Err
-	}
+	// Shut down cleanly when aura is stopped
+	stopCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
 	// Serve immediately with onboarding/public routes first.
 	config.AppFullyLoaded = false
 	config.AppVersion = APP_VERSION
-	config.AppLoadingStep = "Initializing Application"
+	config.AppCommit, config.AppBuildNumber, config.AppBuildDate = APP_COMMIT, APP_BUILD_NUMBER, APP_BUILD_DATE
+	config.SetAppLoadingStep("Initializing Application")
 	activeHandler.Store(routing.NewRouter())
 
 	// Start API now (non-blocking for init pipeline).
@@ -64,187 +69,73 @@ func main() {
 	go func() {
 		bootStrapSuccess := runBootstrap()
 
-		// activateFullRoutes runs warmup, flips the app to "fully loaded", sends the
-		// start notification, and swaps in the full router. It is guarded by a
-		// sync.Once so warmup (which inits the DB, registers cron jobs, and starts
-		// the Plex WebSocket) and the router swap happen exactly once, no matter
-		// which path reaches it: the boot-time preflight retry loop or the
-		// onboarding-finalization callback, which can race if the user completes
-		// onboarding in the UI while a background retry is in flight.
-		// activated is closed exactly once, from inside activateFullRoutes' sync.Once,
-		// to tell the background preflight-retry loop to stop. The retry loop selects on
-		// this channel rather than reading config.AppFullyLoaded directly, which would be
-		// an unsynchronized cross-goroutine read of that package-level flag (a data race).
+		// Rebuild the routes now that the database is open and the config is loaded
+		activeHandler.Store(routing.NewRouter())
+
+		// Fork: warmup and the router swap run once, whichever path gets there first: boot, the
+		// background preflight retry, or onboarding finishing in the UI while a retry is in flight.
 		activated := make(chan struct{})
 		var activateOnce sync.Once
-		activateFullRoutes := func() {
+		activate := func() {
 			activateOnce.Do(func() {
 				warmupSuccess := runWarmup()
 				if !warmupSuccess {
 					logging.LOGGER.Fatal().Timestamp().Msg("Warmup failed. Exiting application.")
 					os.Exit(1)
 				}
-
 				config.Valid = true
 				config.AppFullyLoaded = true
-				config.AppLoadingStep = "App Fully Loaded"
-				// Send App Start Notification (only if not dev & notifications enabled)
-				if !strings.Contains(APP_VERSION, "dev") &&
-					config.Current.Notifications.Enabled {
-					notification.SendAppStartNotification(APP_PORT, APP_NAME, APP_VERSION)
-				} else {
-					logging.LOGGER.Warn().Timestamp().Bool("notifications_enabled", config.Current.Notifications.Enabled).Bool("dev_version", strings.Contains(APP_VERSION, "dev")).Msg("App start notification not sent")
-				}
-				activeHandler.Store(routing.NewRouter()) // swap to full routes
-				close(activated)                         // stop any in-flight retry loop
+				activeHandler.Store(routing.NewRouter())
+				config.SetAppLoadingStep("App Fully Loaded")
+				config.NotifyStatusChanged()
+				close(activated)
 				logging.LOGGER.Info().Timestamp().Msg("Main routes active.")
 			})
 		}
 
 		// Keep callback for onboarding finalization path.
 		routing.OnboardingComplete = func() {
-			if !runPreFlight() {
+			preflightSuccess := runPreFlight()
+			if !preflightSuccess {
 				logging.LOGGER.Error().Timestamp().Msg("Preflight failed during OnboardingComplete, not swapping routers")
 				return
 			}
-			activateFullRoutes()
+			activate()
 		}
 
-		if !bootStrapSuccess {
-			// Config not loaded/valid: onboarding mode remains active until the user
-			// completes onboarding through the UI (which fires OnboardingComplete).
-			activeHandler.Store(routing.NewRouter())
+		if bootStrapSuccess {
+			preflightSuccess := runPreFlight()
+			if !preflightSuccess {
+				config.Valid = false
+				activeHandler.Store(routing.NewRouter()) // stays onboarding
+				config.NotifyStatusChanged()
+				// Fork: an outage at boot self-heals instead of waiting for a restart.
+				if preflightFailedOnOutage() {
+					go retryPreFlightUntilReady(activate, activated)
+				}
+				return
+			}
+
+			activate()
+			// Send App Start Notification
+			// Send notification (only if not dev & notifications enabled)
+			if !strings.Contains(APP_VERSION, "dev") &&
+				config.Current.Notifications.Enabled {
+				notification.SendAppStartNotification(APP_PORT, APP_NAME, APP_VERSION)
+			} else {
+				logging.LOGGER.Warn().Timestamp().Bool("notifications_enabled", config.Current.Notifications.Enabled).Bool("dev_version", strings.Contains(APP_VERSION, "dev")).Msg("App start notification not sent")
+			}
 			return
 		}
 
-		// Config is valid. Attempt preflight; on success, activate the full routes.
-		if runPreFlight() {
-			activateFullRoutes()
-			return
-		}
-
-		// Preflight failed even though the config is valid, which means a dependency
-		// (media server or MediUX) was unreachable at boot. Stay on the onboarding
-		// router but keep retrying in the background so the app self-heals once the
-		// dependency returns, instead of staying stuck in onboarding-only mode until
-		// a manual restart.
-		config.Valid = false
-		activeHandler.Store(routing.NewRouter()) // stays onboarding
-		go retryPreFlightUntilReady(activateFullRoutes, activated)
+		// Config not loaded/valid: onboarding mode remains active.
+		activeHandler.Store(routing.NewRouter())
+		config.NotifyStatusChanged()
 	}()
 
-	// Keep process alive while startAPI runs.
-	select {}
-}
-
-// retryPreFlightUntilReady re-runs preflight on an interval until it succeeds,
-// then activates the full routes. It exists so a media-server/MediUX outage at
-// boot does not leave the app permanently stuck serving onboarding-only routes:
-// with the config already valid, the only thing missing is a reachable
-// dependency, so we keep polling until it comes back. It stops early if
-// onboarding finalization has already brought the app fully online, signalled by
-// the activated channel being closed (from inside activateFullRoutes' sync.Once).
-func retryPreFlightUntilReady(activateFullRoutes func(), activated <-chan struct{}) {
-	ticker := time.NewTicker(preflightRetryInterval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-activated:
-			return
-		case <-ticker.C:
-			// Re-check before spending a preflight cycle, in case activation happened
-			// via the onboarding callback between ticks.
-			select {
-			case <-activated:
-				return
-			default:
-			}
-			logging.LOGGER.Warn().Timestamp().Msg("Retrying preflight checks after earlier failure")
-			if runPreFlight() {
-				activateFullRoutes()
-				return
-			}
-		}
-	}
-}
-
-// recheckMediuxUntilReachable re-validates the MediUX token on an interval after
-// the app came up with MediUX unreachable, so its flags and MediUX-derived caches
-// recover once the outage ends. It re-checks MediUX alone rather than re-running
-// warmup, which would duplicate jobs and listeners on an already-loaded app.
-func recheckMediuxUntilReachable() {
-	ticker := time.NewTicker(preflightRetryInterval)
-	defer ticker.Stop()
-	for range ticker.C {
-		ctx, ld := logging.CreateLoggingContext(context.Background(), "MediUX Recheck")
-		action := ld.AddAction("Rechecking MediUX Availability", logging.LevelInfo)
-		ctx = logging.WithCurrentAction(ctx, action)
-		result, recoveryErr := handleMediuxRecheck(ctx, validateMediuxToken, recoverMediuxRuntimeState)
-		if recoveryErr.Message != "" {
-			action.SetErrorFromInfo(recoveryErr)
-		}
-		action.Complete()
-		ld.Log()
-		if result == mediuxTokenRejected || result == mediuxTokenAccepted && recoveryErr.Message == "" {
-			return
-		}
-	}
-}
-
-func handleMediuxRecheck(
-	ctx context.Context,
-	validate func(context.Context) mediuxTokenResult,
-	recoverRuntimeState func(context.Context) logging.LogErrorInfo,
-) (mediuxTokenResult, logging.LogErrorInfo) {
-	result := validate(ctx)
-	if result == mediuxTokenAccepted {
-		return result, recoverRuntimeState(ctx)
-	}
-	return result, logging.LogErrorInfo{}
-}
-
-// recoverMediuxRuntimeState rebuilds MediUX-derived caches. Users preload and
-// library refresh are required; full library refresh recalculates HasMediuxSets.
-func recoverMediuxRuntimeState(ctx context.Context) logging.LogErrorInfo {
-	ctx, logAction := logging.AddSubActionToContext(ctx, "Recovering MediUX Runtime State", logging.LevelInfo)
-	defer logAction.Complete()
-
-	failureMessage := ""
-	failureDetails := map[string]any{}
-	mediuxStageFailed := false
-	recordFailure := func(stage string, Err logging.LogErrorInfo) {
-		if failureMessage != "" {
-			failureMessage += "; "
-		}
-		failureMessage += stage + ": " + Err.Message
-		failureDetails[stage] = Err
-	}
-
-	if Err := preloadMediuxUsers(ctx); Err.Message != "" {
-		recordFailure("users preload", Err)
-		mediuxStageFailed = true
-	}
-	// Best-effort: MediUX removed the content_ids endpoint with no replacement
-	// yet (mediux-team/AURA#143), so requiring it kept the recheck loop erroring
-	// every 30s forever even though MediUX itself was reachable. It runs under a
-	// detached LogData because Complete() propagates child errors to ancestors,
-	// which would fail the caller's HTTP response (e.g. POST /api/config).
-	itemsLog := logging.NewLogData("Best-effort MediUX Items with Sets Preload")
-	itemsCtx := logging.WithCurrentAction(logging.WithLogData(ctx, itemsLog), itemsLog.AddAction("Preloading MediUX Items with Sets", logging.LevelTrace))
-	if Err := preloadMediuxItemsWithSets(itemsCtx); Err.Message != "" {
-		logging.LOGGER.Warn().Timestamp().Msgf("MediUX items-with-sets preload skipped: %s", Err.Message)
-	}
-	if !refreshLibraryItems(ctx, true) {
-		recordFailure("library refresh", logging.LogErrorInfo{Message: "failed to refresh media server library"})
-	}
-	if failureMessage != "" {
-		// Only a failed MediUX request means MediUX itself is unreachable; a media
-		// server library refresh failure stays retryable without misreporting MediUX.
-		if mediuxStageFailed {
-			config.MediuxReachable = false
-		}
-		logAction.SetError("MediUX runtime recovery failed: "+failureMessage, "Recovery will retry until every required stage succeeds.", failureDetails)
-		return *logAction.Error
-	}
-	return logging.LogErrorInfo{}
+	// Keep running until aura is stopped
+	<-stopCtx.Done()
+	// A second Ctrl+C stops aura right away
+	stop()
+	shutdown()
 }

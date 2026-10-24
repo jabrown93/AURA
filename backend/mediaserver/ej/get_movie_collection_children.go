@@ -2,7 +2,6 @@ package ej
 
 import (
 	"aura/cache"
-	"aura/config"
 	"aura/logging"
 	"aura/models"
 	"aura/utils/httpx"
@@ -15,7 +14,7 @@ import (
 func (e *EJ) GetMovieCollectionChildrenItems(ctx context.Context, collection *models.CollectionItem) (Err logging.LogErrorInfo) {
 	ctx, logAction := logging.AddSubActionToContext(ctx, fmt.Sprintf(
 		"%s: Fetching Collection Children for '%s' | %s [%s | %s]",
-		config.Current.MediaServer.Type,
+		e.Config.Type,
 		collection.Title, collection.LibraryTitle, collection.TMDB_ID, collection.RatingKey,
 	), logging.LevelDebug)
 	defer logAction.Complete()
@@ -23,12 +22,12 @@ func (e *EJ) GetMovieCollectionChildrenItems(ctx context.Context, collection *mo
 	Err = logging.LogErrorInfo{}
 
 	// Construct the URL for the EJ server API request
-	u, err := url.Parse(config.Current.MediaServer.URL)
+	u, err := url.Parse(e.Config.URL)
 	if err != nil {
 		logAction.SetError(logging.Error_BaseUrlParsing(err))
 		return *logAction.Error
 	}
-	u.Path = path.Join(u.Path, "Users", config.Current.MediaServer.UserID, "Items")
+	u.Path = path.Join(u.Path, "Users", e.Config.UserID, "Items")
 	query := u.Query()
 	query.Set("ParentId", collection.RatingKey)
 	query.Set("IncludeItemTypes", "Movie")
@@ -37,7 +36,7 @@ func (e *EJ) GetMovieCollectionChildrenItems(ctx context.Context, collection *mo
 	URL := u.String()
 
 	// Make the HTTP Request to EJ
-	resp, respBody, Err := makeRequest(ctx, config.Current.MediaServer, URL, "GET", nil)
+	resp, respBody, Err := makeRequest(ctx, e.Config, URL, "GET", nil)
 	if Err.Message != "" {
 		logAction.SetErrorFromInfo(Err)
 		return *logAction.Error
@@ -46,9 +45,9 @@ func (e *EJ) GetMovieCollectionChildrenItems(ctx context.Context, collection *mo
 
 	// Decode the Response
 	var ejResp EmbyJellyLibraryItemsResponse
-	Err = httpx.DecodeResponseToJSON(ctx, respBody, &ejResp, fmt.Sprintf("%s Collection Children Response", config.Current.MediaServer.Type))
+	Err = httpx.DecodeResponseToJSON(ctx, respBody, &ejResp, fmt.Sprintf("%s Collection Children Response", e.Config.Type))
 	if Err.Message != "" {
-		return *logAction.Error
+		return Err
 	}
 
 	var items []models.MediaItem
@@ -61,6 +60,7 @@ func (e *EJ) GetMovieCollectionChildrenItems(ctx context.Context, collection *mo
 		}
 		var itemInfo models.MediaItem
 		itemInfo.RatingKey = item.ID
+		itemInfo.TMDB_ID = item.ProviderIds.Tmdb
 		itemInfo.Type = map[string]string{
 			"Movie":  "movie",
 			"Series": "show",
@@ -69,8 +69,8 @@ func (e *EJ) GetMovieCollectionChildrenItems(ctx context.Context, collection *mo
 		itemInfo.Year = item.ProductionYear
 		itemInfo.LibraryTitle = collection.LibraryTitle
 
-		itemInfo.AddedAt = item.DateCreated.UnixMilli()
-		itemInfo.ReleasedAt = item.PremiereDate.UnixMilli()
+		itemInfo.AddedAt = unixSeconds(item.DateCreated)
+		itemInfo.ReleasedAt = unixSeconds(item.PremiereDate)
 
 		items = append(items, itemInfo)
 

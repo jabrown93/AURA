@@ -1,38 +1,48 @@
-import axios, { AxiosRequestHeaders } from "axios";
+import axios from "axios";
 
 const apiClient = axios.create({
   baseURL: "/api",
   timeout: 3000000,
-  // Sessions are carried by an HttpOnly cookie the browser must be told to send.
-  withCredentials: true,
+  withCredentials: true, // send/receive the aura_session HttpOnly cookie
   headers: {
     "Content-Type": "application/json",
   },
 });
 
-apiClient.interceptors.request.use((config) => {
+// In setup mode without a login, every request needs the setup code, stored for this browser session
+export const SETUP_CODE_STORAGE_KEY = "auraSetupCode";
+export const SETUP_CODE_REQUIRED_EVENT = "aura:setup-code-required";
+
+apiClient.interceptors.request.use((request) => {
   if (typeof window !== "undefined") {
-    // Legacy bearer token: kept only so sessions created before cookie auth keep working
-    // until they expire. Nothing writes this key any more.
-    const token = localStorage.getItem("aura-auth-token");
-    if (token) {
-      config.headers = config.headers || {};
-      (config.headers as AxiosRequestHeaders).Authorization = `Bearer ${token}`;
+    try {
+      const setupCode = sessionStorage.getItem(SETUP_CODE_STORAGE_KEY);
+      if (setupCode) request.headers.set("X-Setup-Code", setupCode);
+    } catch {
+      // Without sessionStorage, the setup code is asked for again
     }
   }
-  return config;
+  return request;
 });
 
-// Optional: auto redirect on 401
+// Auto redirect on 401 - session cookie missing/expired
+// On 403 with setup_code_required, ask for the setup code again
 apiClient.interceptors.response.use(
   (res) => res,
   (err) => {
     if (err?.response?.status === 401 && typeof window !== "undefined") {
-      // Clear token and go to login
-      localStorage.removeItem("aura-auth-token");
       if (!window.location.pathname.startsWith("/login")) {
         window.location.href = "/login";
+        return new Promise(() => {});
       }
+    }
+    if (err?.response?.status === 403 && err?.response?.data?.setup_code_required && typeof window !== "undefined") {
+      try {
+        sessionStorage.removeItem(SETUP_CODE_STORAGE_KEY);
+      } catch {
+        // Nothing stored
+      }
+      window.dispatchEvent(new Event(SETUP_CODE_REQUIRED_EVENT));
     }
     return Promise.reject(err);
   }

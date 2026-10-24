@@ -36,7 +36,7 @@ type movieCollectionSetBySetID_Movie struct {
 	Backdrops []ImageAsset `json:"backdrops"`
 }
 
-func GetMovieCollectionSetByID(ctx context.Context, setID string, tmdbID string, itemLibraryTitle string, itemOnly bool) (set models.SetRef, includedItems map[string]models.IncludedItem, Err logging.LogErrorInfo) {
+func GetMovieCollectionSetByID(ctx context.Context, setID string, tmdbID string, itemLibraryTitle string, edition string, itemOnly bool) (set models.SetRef, includedItems map[string]models.IncludedItem, Err logging.LogErrorInfo) {
 	ctx, logAction := logging.AddSubActionToContext(ctx, "Get Movie Collection Set By Set ID", logging.LevelInfo)
 	defer logAction.Complete()
 
@@ -78,7 +78,7 @@ func GetMovieCollectionSetByID(ctx context.Context, setID string, tmdbID string,
 	}
 	mediuxMovies := movieCollectionSetResponse.Data.Collection.CollectionID.Movies
 	var itemIDs []string
-	var images []models.ImageFile
+	images := []models.ImageFile{}
 
 	for _, movie := range mediuxMovies {
 		if itemOnly && movie.ID != tmdbID {
@@ -93,8 +93,16 @@ func GetMovieCollectionSetByID(ctx context.Context, setID string, tmdbID string,
 		includedItems[movie.ID] = models.IncludedItem{MediuxInfo: baseItem}
 		itemIDs = append(itemIDs, movie.ID)
 
-		// Find the Media Item info from the cache
-		mediaItem, found := cache.LibraryStore.GetMediaItemFromSectionByTMDBID(itemLibraryTitle, movie.ID)
+		// Find the Media Item info from the cache. The primary item being browsed
+		// (matching tmdbID) resolves to the exact edition; other collection
+		// members are distinct movies, so we fall back to an arbitrary match.
+		var mediaItem *models.MediaItem
+		var found bool
+		if movie.ID == tmdbID {
+			mediaItem, found = cache.LibraryStore.GetMediaItemFromSectionByTMDBIDAndEdition(itemLibraryTitle, movie.ID, edition)
+		} else {
+			mediaItem, found = cache.LibraryStore.GetMediaItemFromSectionByTMDBID(itemLibraryTitle, movie.ID)
+		}
 		if found {
 			includedItem := includedItems[movie.ID]
 			includedItem.MediaItem = *mediaItem

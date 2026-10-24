@@ -1,10 +1,6 @@
 package config
 
-import (
-	"strings"
-
-	"aura/models"
-)
+import "aura/models"
 
 var (
 	// Config State Variables
@@ -12,15 +8,18 @@ var (
 	ConfigPath string = ""
 
 	// Flags to track config loading and validation status
-	Loaded               bool   = false
-	Valid                bool   = false
-	MediaServerValid     bool   = true
-	MediaServerReachable bool   = true
-	MediaServerName      string = ""
-	MediuxValid          bool   = true
-	MediuxReachable      bool   = true
-	AppFullyLoaded       bool   = false
-	AppLoadingStep       string = ""
+	Loaded           bool   = false
+	Valid            bool   = false
+	MediaServerValid bool   = true
+	MediaServerName  string = ""
+	MediuxValid      bool   = true
+	AppFullyLoaded   bool   = false
+	AppLoadingStep   string = ""
+
+	// Fork: whether the media server and MediUX answered the last check. An outage is a
+	// degraded state shown in the UI, not a reason to send the user back through setup.
+	MediaServerReachable bool = true
+	MediuxReachable      bool = true
 
 	// App Details
 	AppName    string = ""
@@ -28,28 +27,54 @@ var (
 	AppLicense string = ""
 	AppPort    int    = 0
 	AppVersion string = ""
+	// The commit, build number and build date of the image, empty for local builds
+	AppCommit      string = ""
+	AppBuildNumber string = ""
+	AppBuildDate   string = ""
 )
 
-// NeedsSetup reports whether the user still has to complete onboarding. It
-// deliberately covers config well-formedness only: an unreachable media server
-// or MediUX is a degraded runtime state the UI flags separately, not a reason to
-// send the user back through setup while the app is otherwise serving.
-func NeedsSetup() bool {
-	return !(Loaded && Valid)
-}
+// Adding a new config field:
+//  1. Add the field to its section's struct in config.go, with json and yaml tags.
+//     The yaml name is the key stored in the database, so choose it carefully.
+//     Use json:"-" only for values the frontend must never see, like APIKeyHash.
+//
+//  2. If the default isn't 0, "" or false, set it in DefaultConfig() in defaults.go.
+//     Existing installs use this default until the setting is saved.
+//
+//  3. Optional: validate it in that section's Validate function in validate.go.
+//
+//  4. Optional: if something must happen when it changes, like restarting a job, compare it in that
+//     section's checkConfigDifferences function and act on it in applyConfigChanges in routing/config/update.go.
+//
+//  5. If it's a secret, mask it in SanitizeConfig() in sanitize.go.
+//
+//  6. Update the schema snapshot: go test ./config -run TestConfigSchemaSnapshot -update
+//
+//  7. Frontend: add the field to types/config/config.ts and types/config/config-default-app.ts,
+//     add a control to components/settings-onboarding/ConfigSection<Section>.tsx, and add a search entry
+//     in helper/config/settings-search.ts. If it should only save with Test & Save, add it to
+//     CONFIG_GROUP_KEYS in hooks/use-config-autosave.ts.
+//
+//  8. Document it in docs/config.md.
+//
+// Renaming, moving or changing the type of a field: add a config migration in database/sqlite_config_migrations.go
+// Removing a field needs no migration, the stored value is ignored.
 
 type Config struct {
-	Auth          Config_Auth              `json:"auth" yaml:"Auth,omitempty"`                     // Authentication settings.
-	Logging       Config_Logging           `json:"logging" yaml:"Logging,omitempty"`               // Logging configuration settings.
-	MediaServer   Config_MediaServer       `json:"media_server" yaml:"MediaServer,omitempty"`      // Media server integration settings.
-	Mediux        Config_Mediux            `json:"mediux" yaml:"Mediux,omitempty"`                 // MediUX integration settings.
-	AutoDownload  Config_AutoDownload      `json:"auto_download" yaml:"AutoDownload,omitempty"`    // Auto-download settings.
-	Images        Config_Images            `json:"images" yaml:"Images,omitempty"`                 // Image settings.
-	TMDB          Config_TMDB              `json:"tmdb" yaml:"TMDB,omitempty"`                     // TMDB (The Movie Database) integration settings.
-	LabelsAndTags Config_LabelsAndTags     `json:"labels_and_tags" yaml:"LabelsAndTags,omitempty"` // Labels and tags settings.
-	Notifications Config_Notifications     `json:"notifications" yaml:"Notifications,omitempty"`   // Notification settings.
-	SonarrRadarr  Config_SonarrRadarr_Apps `json:"sonarr_radarr" yaml:"SonarrRadarr,omitempty"`    // List of Sonarr/Radarr instances to integrate with.
-	Database      Config_Database          `json:"database" yaml:"Database,omitempty"`             // Database configuration settings.
+	Auth            Config_Auth              `json:"auth" yaml:"Auth,omitempty"`                        // Authentication settings.
+	Logging         Config_Logging           `json:"logging" yaml:"Logging,omitempty"`                  // Logging configuration settings.
+	MediaServers    []Config_MediaServer     `json:"media_servers" yaml:"MediaServers"`                 // Every media server. One of them is the main server.
+	MainMediaServer string                   `json:"main_media_server" yaml:"MainMediaServer"`          // ID of the main media server.
+	MediaServer     Config_MediaServer       `json:"media_server" yaml:"-"`                             // The main media server, kept in sync with its entry in MediaServers. Not stored.
+	Mediux          Config_Mediux            `json:"mediux" yaml:"Mediux,omitempty"`                    // MediUX integration settings.
+	Jobs            Config_Jobs              `json:"jobs" yaml:"Jobs,omitempty"`                        // Background jobs scheduling configuration.
+	Backups         Config_Backups           `json:"backups" yaml:"Backups,omitempty"`                  // Database backup settings.
+	Images          Config_Images            `json:"images" yaml:"Images,omitempty"`                    // Image settings.
+	TMDB            Config_TMDB              `json:"tmdb" yaml:"TMDB,omitempty"`                        // TMDB (The Movie Database) integration settings.
+	LabelsAndTags   Config_LabelsAndTags     `json:"labels_and_tags" yaml:"LabelsAndTags,omitempty"`    // Labels and tags settings.
+	Notifications   Config_Notifications     `json:"notifications" yaml:"Notifications,omitempty"`      // Notification settings.
+	SonarrRadarr    Config_SonarrRadarr_Apps `json:"sonarr_radarr" yaml:"SonarrRadarr,omitempty"`       // List of Sonarr/Radarr instances to integrate with.
+	UserPreferences Config_UserPreferences   `json:"user_preferences" yaml:"UserPreferences,omitempty"` // User preferences, shared between sessions and devices.
 }
 
 type Config_Dev struct {
@@ -57,45 +82,62 @@ type Config_Dev struct {
 	LocalPath string `json:"local_path" yaml:"LocalPath,omitempty"` // Local path for development mode.
 }
 type Config_Auth struct {
-	Enabled  bool        `json:"enabled" yaml:"Enabled"`             // Whether to enable authentication.
-	Password string      `json:"password" yaml:"Password,omitempty"` // Password for authentication.
-	OIDC     Config_OIDC `json:"oidc" yaml:"OIDC,omitempty"`         // Single sign-on via an OpenID Connect provider.
+	Enabled         bool   `json:"enabled" yaml:"Enabled"`                  // Whether to enable authentication.
+	PasswordEnabled bool   `json:"password_enabled" yaml:"PasswordEnabled"` // Whether logging in with the password is allowed. Turn it off to only log in with Single Sign-On.
+	Password        string `json:"password" yaml:"Password,omitempty"`      // Password for authentication.
+
+	// APIKeyHash is the Argon2id hash of the single global API key used for programmatic/integration
+	// access (e.g. Sonarr/Radarr webhooks, scripts, other apps).
+	APIKeyHash string `json:"-" yaml:"APIKeyHash,omitempty"`
+
+	OIDC Config_Auth_OIDC `json:"oidc" yaml:"OIDC,omitempty"` // OIDC (Single Sign-On) login settings.
+
+	// SessionCookieSecure controls the Secure attribute of the browser session cookie.
+	SessionCookieSecure string `json:"session_cookie_secure,omitempty" yaml:"SessionCookieSecure,omitempty"`
+
+	// TrustProxyForCookieSecure, when true, also treats X-Forwarded-Proto: https as a secure transport
+	// signal (for reverse-proxy TLS termination setups). Defaults to false since that header is
+	// attacker-controllable unless the proxy is guaranteed to strip/overwrite it.
+	TrustProxyForCookieSecure bool `json:"trust_proxy_for_cookie_secure,omitempty" yaml:"TrustProxyForCookieSecure,omitempty"`
+
+	// AllowedOrigins is an optional list of extra origins allowed to make credentialed
+	// cross-origin requests (cookies/API key headers). The standard deployment (Next.js server
+	// proxying /api/* to the Go backend) never needs this - the browser only ever talks to one
+	// origin. Only set this if you're calling the API directly from a different origin.
+	AllowedOrigins []string `json:"allowed_origins,omitempty" yaml:"AllowedOrigins,omitempty"`
 }
 
-type Config_OIDC struct {
-	Enabled bool `json:"enabled" yaml:"Enabled"` // Whether to offer OIDC sign-in.
+type Config_Auth_OIDC struct {
+	Enabled        bool     `json:"enabled" yaml:"Enabled"`                                    // Whether OIDC (Single Sign-On) login is enabled.
+	IssuerURL      string   `json:"issuer_url,omitempty" yaml:"IssuerURL,omitempty"`           // OIDC issuer URL (used for discovery).
+	ClientID       string   `json:"client_id,omitempty" yaml:"ClientID,omitempty"`             // OIDC client ID.
+	ClientSecret   string   `json:"client_secret,omitempty" yaml:"ClientSecret,omitempty"`     // OIDC client secret.
+	RedirectURLs   []string `json:"redirect_urls,omitempty" yaml:"RedirectURLs,omitempty"`     // Callback URLs registered with the IdP, one for each address aura is opened at, e.g. https://aura.example.com/api/auth/oidc/callback.
+	AllowedEmails  []string `json:"allowed_emails,omitempty" yaml:"AllowedEmails,omitempty"`   // Optional allowlist of exact emails permitted to log in via OIDC. Empty = any authenticated IdP user is allowed.
+	AllowedDomains []string `json:"allowed_domains,omitempty" yaml:"AllowedDomains,omitempty"` // Optional allowlist of email domains (e.g. "example.com") permitted to log in via OIDC. Empty = any domain allowed.
 
-	IssuerURL    string `json:"issuer_url" yaml:"IssuerURL,omitempty"`       // Provider issuer, used for discovery (e.g. https://auth.example.com/application/o/aura/).
-	ClientID     string `json:"client_id" yaml:"ClientID,omitempty"`         // Client ID registered with the provider.
-	ClientSecret string `json:"client_secret" yaml:"ClientSecret,omitempty"` // Client secret registered with the provider.
-	// Callback URL registered with the provider. Must be absolute: it is never derived from
-	// the request, since the Host header is attacker controlled.
-	RedirectURL string   `json:"redirect_url" yaml:"RedirectURL,omitempty"`
-	Scopes      []string `json:"scopes,omitempty" yaml:"Scopes,omitempty"` // Scopes to request. "openid" is always included.
-
-	// Authorization. When every list is empty, any user the provider authenticates is
-	// allowed in and access is governed by the provider's own application policy.
-	// When any list is set, the user must match at least one entry.
-	GroupsClaim     string   `json:"groups_claim,omitempty" yaml:"GroupsClaim,omitempty"`         // ID token claim holding group membership. Defaults to "groups".
-	AllowedGroups   []string `json:"allowed_groups,omitempty" yaml:"AllowedGroups,omitempty"`     // Groups permitted to sign in.
-	AllowedEmails   []string `json:"allowed_emails,omitempty" yaml:"AllowedEmails,omitempty"`     // Email addresses permitted to sign in.
-	AllowedSubjects []string `json:"allowed_subjects,omitempty" yaml:"AllowedSubjects,omitempty"` // Subject identifiers permitted to sign in.
-
-	ButtonLabel       string `json:"button_label,omitempty" yaml:"ButtonLabel,omitempty"`    // Label for the sign-in button. Defaults to "Sign in with SSO".
-	RPInitiatedLogout bool   `json:"rp_initiated_logout" yaml:"RPInitiatedLogout,omitempty"` // Whether logout should also end the session at the provider.
+	// Fork: group-based authorization. When AllowedGroups is set the user must be in one of them.
+	GroupsClaim   string   `json:"groups_claim,omitempty" yaml:"GroupsClaim,omitempty"`     // ID token claim holding group membership. Defaults to "groups".
+	AllowedGroups []string `json:"allowed_groups,omitempty" yaml:"AllowedGroups,omitempty"` // Groups permitted to sign in.
 }
 
 type Config_Logging struct {
-	Level string `json:"level" yaml:"Level"`         // Logging level (e.g., TRACE, DEBUG, INFO, WARN, ERROR).
-	File  string `json:"file" yaml:"File,omitempty"` // File path for logging output.
+	Level     string `json:"level" yaml:"Level"`          // Logging level (e.g., TRACE, DEBUG, INFO, WARN, ERROR).
+	File      string `json:"file" yaml:"File,omitempty"`  // File path for logging output.
+	KeepDays  int    `json:"keep_days" yaml:"KeepDays"`   // Number of days to keep old log files before they are deleted.
+	KeepFiles int    `json:"keep_files" yaml:"KeepFiles"` // Number of old log files to keep before the oldest are deleted.
 }
 
 type Config_MediaServer struct {
+	ID                           string                  `json:"id" yaml:"ID"`                                                          // Unique ID of the media server.
+	Name                         string                  `json:"name" yaml:"Name"`                                                      // Name of the media server shown in aura.
+	Enabled                      bool                    `json:"enabled" yaml:"Enabled"`                                                // Whether aura uses this media server. The main server is always enabled.
 	Type                         string                  `json:"type" yaml:"Type"`                                                      // Type of media server (e.g., plex, emby, jellyfin).
 	URL                          string                  `json:"url" yaml:"URL"`                                                        // Base URL of the media server. This is either the IP:Port or the domain name (e.g., plex.domain.com).
 	ApiToken                     string                  `json:"api_token" yaml:"ApiToken"`                                             // Authentication token for accessing the media server.
 	Libraries                    []models.LibrarySection `json:"libraries,omitempty" yaml:"Libraries,omitempty"`                        // List of media server libraries to manage.
-	UserID                       string                  `json:"user_id,omitempty" yaml:"UserID,omitempty"`                             // User ID for accessing the media server. This is used for Emby and Jellyfin servers.
+	LibraryMap                   map[string]string       `json:"library_map,omitempty" yaml:"LibraryMap,omitempty"`                     // Which main server library each library matches, by title. Not used for the main server.
+	UserID                       string                  `json:"user_id,omitempty" yaml:"-"`                                            // User ID for accessing the media server. This is used for Emby and Jellyfin servers. For Silo servers, this is the Profile ID.
 	EnableSortByEpisodeAddedDate bool                    `json:"enable_sort_by_episode_added_date" yaml:"EnableSortByEpisodeAddedDate"` // Whether to check episodes for added date when getting Media Items. This is only for Plex servers.
 	EnablePlexEventListener      bool                    `json:"enable_plex_event_listener" yaml:"EnablePlexEventListener"`             // Whether to enable the Plex event listener for reapplying images on refresh. Plex exclusive feature.
 }
@@ -105,15 +147,54 @@ type Config_Mediux struct {
 	DownloadQuality string `json:"download_quality" yaml:"DownloadQuality"` // Quality of the media to download from MediUX (Options: "original", "optimized") Defaults to "optimized".
 }
 
-type Config_AutoDownload struct {
-	Enabled bool   `json:"enabled" yaml:"Enabled"`               // Whether auto-download is enabled.
-	Cron    string `json:"cron,omitempty" yaml:"Cron,omitempty"` // Cron expression for scheduling auto-downloads.
+type Config_Jobs struct {
+	AutoDownload                    Config_JobSetting `json:"auto_download" yaml:"AutoDownload,omitempty"`                                          // Schedule for auto-downloads.
+	RefreshMediaItemsAndCollections Config_JobSetting `json:"refresh_media_items_and_collections" yaml:"RefreshMediaItemsAndCollections,omitempty"` // Schedule for refreshing media items and collections from media server.
+	CheckForMediaItemChanges        Config_JobSetting `json:"check_for_media_item_changes" yaml:"CheckForMediaItemChanges,omitempty"`               // Schedule for checking rating keys and metadata changes.
+	CheckForNewMediaItems           Config_JobSetting `json:"check_for_new_media_items" yaml:"CheckForNewMediaItems,omitempty"`                     // Schedule for adding the media server's newest items.
+	HandleTempIgnoredItems          Config_JobSetting `json:"handle_temp_ignored_items" yaml:"HandleTempIgnoredItems,omitempty"`                    // Schedule for checking if temporarily ignored items now have sets on MediUX.
+	RefreshMediuxUsers              Config_JobSetting `json:"refresh_mediux_users" yaml:"RefreshMediuxUsers,omitempty"`                             // Schedule for refreshing tracked MediUX users/creators.
+	CheckMediuxSiteLink             Config_JobSetting `json:"check_mediux_site_link" yaml:"CheckMediuxSiteLink,omitempty"`                          // Schedule for checking MediUX site link availability.
+	BackupDatabase                  Config_JobSetting `json:"backup_database" yaml:"BackupDatabase,omitempty"`                                      // Schedule for backing up the database.
+	UpgradeSavedSets                Config_JobSetting `json:"upgrade_saved_sets" yaml:"UpgradeSavedSets,omitempty"`                                 // Schedule for upgrading saved sets to higher ranked favorite creators.
+
+	// Fork: fork-only jobs, see ForkJobDefaults.
+	KometaImport Config_JobSetting `json:"kometa_import" yaml:"KometaImport,omitempty"` // Schedule for importing existing Kometa assets.
+	AnidbRefresh Config_JobSetting `json:"anidb_refresh" yaml:"AnidbRefresh,omitempty"` // Schedule for refreshing the AniDB mapping used for HAMA anime items.
+}
+
+type Config_Backups struct {
+	Keep int `json:"keep" yaml:"Keep"` // Number of database backups to keep before the oldest are deleted.
+}
+
+type Config_JobSetting struct {
+	Enabled *bool  `json:"enabled,omitempty" yaml:"Enabled,omitempty"`
+	Cron    string `json:"cron,omitempty" yaml:"Cron,omitempty"` // Cron expression for the job schedule.
+}
+
+type JobSettingDefault struct {
+	Enabled bool
+	Cron    string
+}
+
+// Resolve returns the effective enabled-state and cron for a job setting,
+// falling back to def for any field the user hasn't explicitly set.
+func (j Config_JobSetting) Resolve(def JobSettingDefault) (enabled bool, cron string) {
+	enabled = def.Enabled
+	if j.Enabled != nil {
+		enabled = *j.Enabled
+	}
+	cron = j.Cron
+	if cron == "" {
+		cron = def.Cron
+	}
+	return enabled, cron
 }
 
 type Config_Images struct {
 	CacheImages       Config_CacheImages       `json:"cache_images" yaml:"CacheImages"`              // Settings for caching images.
 	SaveImagesLocally Config_SaveImagesLocally `json:"save_images_locally" yaml:"SaveImagesLocally"` // Settings for saving images locally alongside content.
-	Kometa            Config_Kometa            `json:"kometa" yaml:"Kometa"`                         // Settings for Kometa asset directory integration (Plex only).
+	Kometa            Config_Kometa            `json:"kometa" yaml:"Kometa"`                         // Fork: Kometa asset directory integration (Plex only).
 }
 
 type Config_CacheImages struct {
@@ -121,59 +202,41 @@ type Config_CacheImages struct {
 }
 
 type Config_SaveImagesLocally struct {
-	Enabled                 bool   `json:"enabled" yaml:"Enabled"`                                                       // Whether to save images next to their content.
-	Path                    string `json:"path,omitempty" yaml:"Path,omitempty"`                                         // By default, this is set to alongside the content. If set, this will override that behavior and save all images to this path.
-	EpisodeNamingConvention string `json:"episode_naming_convention,omitempty" yaml:"EpisodeNamingConvention,omitempty"` // Episode naming convention for the media server. Only needed for Plex. Will default to match
-	RunningOnWindows        bool   `json:"running_on_windows,omitempty" yaml:"RunningOnWindows,omitempty"`               // Whether the application is running on Windows. This affects path formatting.
+	Enabled          bool   `json:"enabled" yaml:"Enabled"`                                         // Whether to save images next to their content.
+	Path             string `json:"path,omitempty" yaml:"Path,omitempty"`                           // By default, this is set to alongside the content. If set, this will override that behavior and save all images to this path.
+	RunningOnWindows bool   `json:"running_on_windows,omitempty" yaml:"RunningOnWindows,omitempty"` // Whether the application is running on Windows. This affects path formatting.
+
+	NameTemplates Config_ImageNameTemplates `json:"name_templates" yaml:"NameTemplates,omitempty"` // File names for each image type, empty uses the standard names
 }
 
-type Config_Kometa struct {
-	Enabled              bool              `json:"enabled" yaml:"Enabled"`                                                 // Whether to write downloaded images into the Kometa asset directory using Kometa naming conventions. Plex exclusive feature.
-	AssetDirectory       string            `json:"asset_directory,omitempty" yaml:"AssetDirectory,omitempty"`              // Path to the Kometa asset directory (the same directory Kometa reads assets from). Uses the folder-per-item (asset_folders: true) layout.
-	LibraryAssetFolders  map[string]string `json:"library_asset_folders,omitempty" yaml:"LibraryAssetFolders,omitempty"`   // Optional per-library subfolder (relative to AssetDirectory) keyed by Plex library title. When set, a library's assets are written to <AssetDirectory>/<subfolder>/<item>/... instead of directly under AssetDirectory. Must match the per-library asset_directory configured in Kometa itself. A library with no entry keeps writing flat to AssetDirectory.
-	ImportCron           string            `json:"import_cron,omitempty" yaml:"ImportCron,omitempty"`                      // Optional cron expression for periodically importing existing Kometa assets. Empty means import is manual only.
-	SonarrRadarrFallback bool              `json:"sonarr_radarr_fallback,omitempty" yaml:"SonarrRadarrFallback,omitempty"` // When a media-server lookup fails (e.g. Plex returns a 404) but the item exists in Sonarr/Radarr, still write the downloaded images into the Kometa asset directory, deriving the asset folder name from the Sonarr/Radarr path. Requires Enabled. Plex exclusive feature.
+// PageViewPages are the pages whose sort and filter options are saved in the User Preferences
+var PageViewPages = []string{"home", "saved_sets", "collections", "logs", "media_item", "download_queue"}
+
+// maxPageViewSize is the most a page's saved options can take, as JSON
+const maxPageViewSize = 16 << 10
+
+// DefaultImageNameTemplates are the standard names, they work with every media server
+func DefaultImageNameTemplates() Config_ImageNameTemplates {
+	return Config_ImageNameTemplates{
+		Poster:              "poster",
+		Backdrop:            "backdrop",
+		SeasonPoster:        "season{{SeasonNumber}}-poster",
+		SpecialSeasonPoster: "season-specials-poster",
+		Titlecard:           "{{EpisodeFileName}}-thumb",
+	}
 }
 
-// SubfolderFor returns the Kometa asset subfolder configured for the given library title,
-// relative to AssetDirectory. It returns "" when no per-library subfolder is configured, in
-// which case assets are written directly under AssetDirectory (the flat, backward-compatible
-// layout). The value is cleaned to a safe relative path; any absolute or parent-escaping
-// value collapses to "" so a lookup can never redirect writes outside AssetDirectory.
-func (k Config_Kometa) SubfolderFor(libraryTitle string) string {
-	return SanitizeKometaSubfolder(k.LibraryAssetFolders[libraryTitle])
+type Config_ImageNameTemplates struct {
+	Poster              string `json:"poster" yaml:"Poster,omitempty"`
+	Backdrop            string `json:"backdrop" yaml:"Backdrop,omitempty"`
+	SeasonPoster        string `json:"season_poster" yaml:"SeasonPoster,omitempty"`
+	SpecialSeasonPoster string `json:"special_season_poster" yaml:"SpecialSeasonPoster,omitempty"`
+	Titlecard           string `json:"titlecard" yaml:"Titlecard,omitempty"`
 }
 
-// SanitizeKometaSubfolder normalizes a per-library asset subfolder into a safe path relative
-// to the Kometa asset directory. It trims whitespace and slashes, converts backslashes to
-// forward slashes, drops "." and ".." segments, and returns "" for anything that is empty,
-// absolute, or would escape the asset directory.
-func SanitizeKometaSubfolder(raw string) string {
-	s := strings.TrimSpace(raw)
-	if s == "" {
-		return ""
-	}
-	// Normalize Windows separators so path.Clean sees a single-style path.
-	s = strings.ReplaceAll(s, "\\", "/")
-	// Reject absolute paths outright; they must not redirect writes outside AssetDirectory.
-	if strings.HasPrefix(s, "/") {
-		return ""
-	}
-	segments := make([]string, 0)
-	for _, seg := range strings.Split(s, "/") {
-		seg = strings.TrimSpace(seg)
-		switch seg {
-		case "", ".", "..":
-			// Skip empty and relative segments; ".." must never climb out of AssetDirectory.
-			if seg == ".." {
-				return ""
-			}
-			continue
-		default:
-			segments = append(segments, seg)
-		}
-	}
-	return strings.Join(segments, "/")
+var ImageNameTemplateVariables = []string{
+	"{{Title}}", "{{Year}}", "{{TMDBID}}", "{{LibraryTitle}}", "{{LibraryID}}", "{{Edition}}",
+	"{{SeasonNumber}}", "{{EpisodeNumber}}", "{{EpisodeFileName}}",
 }
 
 type Config_TMDB struct {
@@ -236,16 +299,17 @@ type Config_NotificationTemplate struct {
 	// - backend/routing/validation/notification.go
 	// - backend/utils/variable_filler.go
 	// - frontend/src/components/settings-onboarding/ConfigSectionNotifications.tsx
-	// - frontend/src/types/config/config-default-app.ts
 	// - frontend/src/types/config/config.ts
 
 	AppStartup                      Config_CustomNotification `json:"app_startup" yaml:"AppStartup,omitempty"`                                               // Custom notification settings for application startup.
 	TestNotification                Config_CustomNotification `json:"test_notification" yaml:"TestNotification,omitempty"`                                   // Custom notification settings for test notifications.
 	Autodownload                    Config_CustomNotification `json:"autodownload" yaml:"AutoDownload,omitempty"`                                            // Custom notification settings for auto-download events.
 	DownloadQueue                   Config_CustomNotification `json:"download_queue" yaml:"DownloadQueue,omitempty"`                                         // Custom notification settings for download queue events.
+	NewItemAutoDownload             Config_CustomNotification `json:"new_item_auto_download" yaml:"NewItemAutoDownload,omitempty"`                           // Custom notification settings for sets downloaded automatically from the favorite creators.
 	NewSetsAvailableForIgnoredItems Config_CustomNotification `json:"new_sets_available_for_ignored_items" yaml:"NewSetsAvailableForIgnoredItems,omitempty"` // Custom notification settings for when new sets become available for ignored items.
 	CheckForMediaItemChangesJob     Config_CustomNotification `json:"check_for_media_item_changes_job" yaml:"CheckForMediaItemChangesJob,omitempty"`         // Custom notification settings for the media item changes job.
 	SonarrNotification              Config_CustomNotification `json:"sonarr_notification" yaml:"SonarrNotification,omitempty"`                               // Custom notification settings for Sonarr events.
+	SiloPlugin                      Config_CustomNotification `json:"silo_plugin" yaml:"SiloPlugin,omitempty"`                                               // Custom notification settings for sets downloaded when Silo uses an image from the aura Silo plugin.
 }
 
 type Config_CustomNotification struct {
@@ -266,13 +330,15 @@ type Config_SonarrRadarrApp struct {
 	ApiToken string `json:"api_token,omitempty" yaml:"ApiToken,omitempty"` // API key for accessing the Sonarr/Radarr server.
 }
 
-type Config_Database struct {
-	Type     string `json:"type,omitempty" yaml:"Type,omitempty"`         // Type of database (e.g., "sqlite", "mysql", "postgresql").
-	Path     string `json:"path,omitempty" yaml:"Path,omitempty"`         // File path for the database (if applicable, e.g., for SQLite).
-	User     string `json:"user,omitempty" yaml:"User,omitempty"`         // Username for database authentication (if applicable).
-	Password string `json:"password,omitempty" yaml:"Password,omitempty"` // Password for database authentication (if applicable).
-	Host     string `json:"host,omitempty" yaml:"Host,omitempty"`         // Hostname or IP address of the database server (if applicable).
-	Port     int    `json:"port,omitempty" yaml:"Port,omitempty"`         // Port number of the database server (if applicable).
-	Name     string `json:"name,omitempty" yaml:"Name,omitempty"`         // Name of the database to connect to.
-	DSN      string `json:"dsn,omitempty" yaml:"DSN,omitempty"`           // Data Source Name for the database connection (if applicable).
+type Config_UserPreferences struct {
+	DownloadDefaults                 []string                  `json:"download_defaults" yaml:"DownloadDefaults"`                                     // Image types selected by default in the Download Modal.
+	ShowOnlyDownloadDefaults         bool                      `json:"show_only_download_defaults" yaml:"ShowOnlyDownloadDefaults"`                   // Whether to only show the default image types in the Download Modal.
+	ShowDateModified                 bool                      `json:"show_date_modified" yaml:"ShowDateModified"`                                    // Whether to show the date modified on poster sets.
+	DefaultAddToQueue                bool                      `json:"default_add_to_queue" yaml:"DefaultAddToQueue"`                                 // Whether "Add to Queue" is checked by default in the Download Modal.
+	DefaultAddToDBOnly               bool                      `json:"default_add_to_db_only" yaml:"DefaultAddToDBOnly"`                              // Whether "Add to Database Only" is checked by default in the Download Modal.
+	DefaultAutoAddNewCollectionItems bool                      `json:"default_auto_add_new_collection_items" yaml:"DefaultAutoAddNewCollectionItems"` // Whether "Auto Add New Collection Items" is checked by default in the Download Modal.
+	AutoDownloadNewItems             bool                      `json:"auto_download_new_items" yaml:"AutoDownloadNewItems"`                           // Whether images are downloaded automatically for new items, from the favorite creators.
+	AutoUpgradeSets                  bool                      `json:"auto_upgrade_sets" yaml:"AutoUpgradeSets"`                                      // Whether to automatically upgrade sets when available.
+	FavoriteCreators                 []string                  `json:"favorite_creators" yaml:"FavoriteCreators"`                                     // MediUX usernames ranked best first, the first is rank 1.
+	PageViews                        map[string]map[string]any `json:"page_views" yaml:"PageViews,omitempty"`                                         // Each page's sort and filter options, by page, so they're the same on every device.
 }

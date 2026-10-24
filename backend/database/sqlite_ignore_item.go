@@ -16,7 +16,7 @@ func (s *SQliteDB) GetTempIgnoredItems(ctx context.Context) (items []models.Medi
 
 	// Query the database for temp ignored items
 	rows, err := s.conn.QueryContext(ctx, `
-        SELECT tmdb_id, library_title, mode, current_sets
+        SELECT tmdb_id, library_title, edition, mode, current_sets
         FROM IgnoredItems
         WHERE mode = 'until-set-available' OR mode = 'until-new-set-available';
     `)
@@ -30,10 +30,11 @@ func (s *SQliteDB) GetTempIgnoredItems(ctx context.Context) (items []models.Medi
 
 	var tmdbID string
 	var libraryTitle string
+	var edition string
 	var mode string
 	var currentSets string
 	for rows.Next() {
-		if err := rows.Scan(&tmdbID, &libraryTitle, &mode, &currentSets); err != nil {
+		if err := rows.Scan(&tmdbID, &libraryTitle, &edition, &mode, &currentSets); err != nil {
 			return nil, logging.LogErrorInfo{
 				Message: "Failed to scan temp ignored item",
 				Detail:  map[string]any{"error": err.Error()},
@@ -41,7 +42,7 @@ func (s *SQliteDB) GetTempIgnoredItems(ctx context.Context) (items []models.Medi
 		}
 
 		// Get the Media Item from the cache
-		cachedItem, found := cache.LibraryStore.GetMediaItemFromSectionByTMDBID(libraryTitle, tmdbID)
+		cachedItem, found := cache.LibraryStore.GetMediaItemFromSectionByTMDBIDAndEdition(libraryTitle, tmdbID, edition)
 		if !found {
 			logging.LOGGER.Warn().Timestamp().
 				Str("tmdb_id", tmdbID).
@@ -53,11 +54,17 @@ func (s *SQliteDB) GetTempIgnoredItems(ctx context.Context) (items []models.Medi
 		cachedItem.IgnoredSets = strings.Split(currentSets, ",")
 		items = append(items, *cachedItem)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, logging.LogErrorInfo{
+			Message: "Failed while iterating over temp ignored items",
+			Detail:  map[string]any{"error": err.Error()},
+		}
+	}
 
 	return items, Err
 }
 
-func (s *SQliteDB) IgnoreMediaItem(ctx context.Context, tmdbID, libraryTitle, mode, currentSets string) (Err logging.LogErrorInfo) {
+func (s *SQliteDB) IgnoreMediaItem(ctx context.Context, tmdbID, libraryTitle, edition, mode, currentSets string) (Err logging.LogErrorInfo) {
 	Err = logging.LogErrorInfo{}
 
 	if s == nil || s.conn == nil {
@@ -66,6 +73,7 @@ func (s *SQliteDB) IgnoreMediaItem(ctx context.Context, tmdbID, libraryTitle, mo
 
 	tmdbID = strings.TrimSpace(tmdbID)
 	libraryTitle = strings.TrimSpace(libraryTitle)
+	edition = strings.TrimSpace(edition)
 	mode = strings.ToLower(strings.TrimSpace(mode))
 
 	if tmdbID == "" || libraryTitle == "" {
@@ -92,25 +100,25 @@ func (s *SQliteDB) IgnoreMediaItem(ctx context.Context, tmdbID, libraryTitle, mo
 	_ = s.conn.QueryRowContext(ctx, `
         SELECT 1
         FROM IgnoredItems
-        WHERE tmdb_id = ? AND library_title = ?
+        WHERE tmdb_id = ? AND library_title = ? AND edition = ?
         LIMIT 1;
-    `, tmdbID, libraryTitle).Scan(&existed)
+    `, tmdbID, libraryTitle, edition).Scan(&existed)
 	op := "INSERT"
 	if existed == 1 {
 		op = "UPDATE"
 	}
 
 	_, err := s.conn.ExecContext(ctx, `
-        INSERT INTO IgnoredItems (tmdb_id, library_title, mode, current_sets)
-        VALUES (?, ?, ?, ?)
-        ON CONFLICT(tmdb_id, library_title) DO UPDATE SET
+        INSERT INTO IgnoredItems (tmdb_id, library_title, edition, mode, current_sets)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(tmdb_id, library_title, edition) DO UPDATE SET
             mode = excluded.mode,
             current_sets = excluded.current_sets;
-    `, tmdbID, libraryTitle, mode, currentSets)
+    `, tmdbID, libraryTitle, edition, mode, currentSets)
 	if err != nil {
 		return logging.LogErrorInfo{
 			Message: "Failed to ignore media item",
-			Detail:  map[string]any{"error": err.Error(), "tmdb_id": tmdbID, "library_title": libraryTitle, "mode": mode, "current_sets": currentSets},
+			Detail:  map[string]any{"error": err.Error(), "tmdb_id": tmdbID, "library_title": libraryTitle, "edition": edition, "mode": mode, "current_sets": currentSets},
 		}
 	}
 
@@ -119,6 +127,7 @@ func (s *SQliteDB) IgnoreMediaItem(ctx context.Context, tmdbID, libraryTitle, mo
 		Str("table", "IgnoredItems").
 		Str("tmdb_id", tmdbID).
 		Str("library_title", libraryTitle).
+		Str("edition", edition).
 		Str("mode", mode).
 		Str("current_sets", currentSets).
 		Msg("Ignored media item")

@@ -27,6 +27,17 @@
 	/* Accordion animations */
 	--animate-accordion-down: accordion-down 0.2s ease-out;
 	--animate-accordion-up: accordion-up 0.2s ease-out;
+
+	/* Refresh progress without a percentage, moves back and forth in the bar */
+	--animate-refresh-progress: refresh-progress 1s ease-in-out infinite alternate;
+	@keyframes refresh-progress {
+		0% {
+			left: 0%;
+		}
+		100% {
+			left: 66.6667%;
+		}
+	}
 }
 
 :root {

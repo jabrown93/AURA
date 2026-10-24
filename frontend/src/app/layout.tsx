@@ -18,7 +18,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" suppressHydrationWarning>
       <head>
         <link rel="manifest" href="/site.webmanifest" />
-        <link rel="apple-touch-icon" href="web-app-manifest-padded-192x192.png" />
+        <link rel="apple-touch-icon" href="/web-app-manifest-padded-192x192.png" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
       </head>
       <body className={`${gabarito.className}`}>
@@ -34,7 +34,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           {/* Footer */}
           <AppFooter version={APP_VERSION} />
           <Toaster richColors position="top-center" />
-          <JumpToTop />
+          {/* Floating buttons, a page's Refresh button goes on the right of Jump to Top */}
+          <div id="floating-buttons" className="fixed bottom-5 right-3 z-100 flex items-center gap-2 sm:bottom-15">
+            <JumpToTop />
+          </div>
         </ThemeProvider>
       </body>
     </html>

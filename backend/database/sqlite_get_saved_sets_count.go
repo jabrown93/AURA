@@ -15,9 +15,9 @@ func (s *SQliteDB) GetCountSavedSets(ctx context.Context) (count int, logErr log
 	// Unique tmdb_id and library_title combinations
 	query := `
         SELECT COUNT(*) FROM (
-            SELECT tmdb_id, library_title
+            SELECT tmdb_id, library_title, edition
             FROM SavedItems
-            GROUP BY tmdb_id, library_title
+            GROUP BY tmdb_id, library_title, edition
         ) AS unique_sets;
     `
 	row := s.conn.QueryRowContext(ctx, query)

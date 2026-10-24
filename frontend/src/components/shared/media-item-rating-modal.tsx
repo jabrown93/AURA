@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 import { cn } from "@/lib/cn";
+import { useOnboardingStore } from "@/lib/stores/global-store-onboarding";
 
 import type { APIResponse } from "@/types/api/api-response";
 import type { MediaItem } from "@/types/media-and-posters/media-item-and-library";
@@ -22,9 +23,10 @@ export type MediaItemRatingModalProps = {
   onClose: () => void;
 };
 
-const clampToHalfStar = (value: number) => {
+// Clamp the rating to 0-5 stars, rounded to the nearest step (0.5 for half stars, 1 for whole stars)
+const clampToStep = (value: number, step: number) => {
   const clamped = Math.max(0, Math.min(5, value));
-  return Math.round(clamped * 2) / 2;
+  return Math.round(clamped / step) * step;
 };
 
 const getInitialRatingFromMediaItem = (mediaItem: MediaItem) => {
@@ -34,8 +36,8 @@ const getInitialRatingFromMediaItem = (mediaItem: MediaItem) => {
   const parsed = parseFloat(userGuid.rating);
   if (!Number.isFinite(parsed)) return 0;
 
-  // Plex user ratings can come back on a 0-10 scale; modal uses 0-5 stars.
-  return parsed > 5 ? parsed / 2 : parsed;
+  // User ratings are on a scale of 10; modal uses 0-5 stars.
+  return parsed / 2;
 };
 
 function StarVisual({ fill }: { fill: 0 | 0.5 | 1 }) {
@@ -54,6 +56,10 @@ function StarVisual({ fill }: { fill: 0 | 0.5 | 1 }) {
 }
 
 export function MediaItemRatingModal({ mediaItem, isOpen, onClose }: MediaItemRatingModalProps) {
+  // Silo only supports whole star ratings
+  const mediaServerType = useOnboardingStore((state) => state.status?.current_setup?.media_server?.type);
+  const ratingStep = mediaServerType === "Silo" ? 1 : 0.5;
+
   const [initialRating, setInitialRating] = useState(0);
   const [rating, setRating] = useState<number>(0);
   const [hoverRating, setHoverRating] = useState<number | null>(null);
@@ -63,14 +69,14 @@ export function MediaItemRatingModal({ mediaItem, isOpen, onClose }: MediaItemRa
 
   useEffect(() => {
     if (!isOpen) return;
-    const start = clampToHalfStar(getInitialRatingFromMediaItem(mediaItem));
+    const start = clampToStep(getInitialRatingFromMediaItem(mediaItem), ratingStep);
     setInitialRating(start);
     setRating(start);
     setHoverRating(null);
     setHoverEnabled(false);
     setSaving(false);
     setError(null);
-  }, [isOpen, mediaItem]);
+  }, [isOpen, mediaItem, ratingStep]);
 
   const displayRating = hoverRating !== null && hoverRating > 0.5 ? hoverRating : rating || 0;
 
@@ -139,13 +145,13 @@ export function MediaItemRatingModal({ mediaItem, isOpen, onClose }: MediaItemRa
                     <button
                       type="button"
                       className="absolute inset-y-0 left-0 w-1/2 z-10"
-                      aria-label={`${starNumber - 0.5} stars`}
+                      aria-label={`${clampToStep(starNumber - 0.5, ratingStep)} stars`}
                       onMouseEnter={() => {
                         if (!hoverEnabled) return;
-                        setHoverRating(starNumber - 0.5);
+                        setHoverRating(clampToStep(starNumber - 0.5, ratingStep));
                       }}
-                      onFocus={() => setHoverRating(starNumber - 0.5)}
-                      onClick={() => setRating(starNumber - 0.5)}
+                      onFocus={() => setHoverRating(clampToStep(starNumber - 0.5, ratingStep))}
+                      onClick={() => setRating(clampToStep(starNumber - 0.5, ratingStep))}
                     />
                     <button
                       type="button"
@@ -172,7 +178,7 @@ export function MediaItemRatingModal({ mediaItem, isOpen, onClose }: MediaItemRa
                 type="number"
                 min={0}
                 max={5}
-                step={0.5}
+                step={ratingStep}
                 value={rating}
                 onChange={(e) => {
                   const parsed = parseFloat(e.target.value);
@@ -181,13 +187,13 @@ export function MediaItemRatingModal({ mediaItem, isOpen, onClose }: MediaItemRa
                     setRating(0);
                     return;
                   }
-                  setRating(clampToHalfStar(parsed));
+                  setRating(clampToStep(parsed, ratingStep));
                 }}
                 className="w-10 bg-transparent text-right font-semibold text-foreground outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                 disabled={saving}
                 aria-label="Rating input"
               />
-              <span> / 5.0 </span>
+              <span> / {ratingStep === 1 ? "5" : "5.0"} </span>
             </label>
           </div>
 
@@ -209,7 +215,7 @@ export function MediaItemRatingModal({ mediaItem, isOpen, onClose }: MediaItemRa
               variant="outline"
               onClick={() => {
                 setHoverRating(null);
-                setRating((r) => clampToHalfStar(r - 0.5));
+                setRating((r) => clampToStep(r - ratingStep, ratingStep));
               }}
               disabled={saving || rating <= 0}
             >
@@ -221,7 +227,7 @@ export function MediaItemRatingModal({ mediaItem, isOpen, onClose }: MediaItemRa
               variant="outline"
               onClick={() => {
                 setHoverRating(null);
-                setRating((r) => clampToHalfStar(r + 0.5));
+                setRating((r) => clampToStep(r + ratingStep, ratingStep));
               }}
               disabled={saving || rating >= 5}
             >

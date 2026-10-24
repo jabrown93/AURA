@@ -1,9 +1,12 @@
 "use client";
 
+import { comparePopularity } from "@/helper/compare-popularity";
 import { makePlural } from "@/helper/make_plural";
 import { ReturnErrorMessage } from "@/services/api-error-return";
-import { GetCompleteLibrarySection } from "@/services/mediaserver/get-library-section-items";
 import { GetMediaItemDetails } from "@/services/mediaserver/get-media-item-details";
+import { GetRelatedLibraryItems, homeLibraryQuery } from "@/services/mediaserver/library-items";
+import { GetItemSets } from "@/services/mediux/get-item-sets";
+import { GetUserFollowingAndHiding } from "@/services/mediux/get-user-follow-hiding";
 import {
   ArrowDown01,
   ArrowDown10,
@@ -32,8 +35,8 @@ import { Button } from "@/components/ui/button";
 
 import { cn } from "@/lib/cn";
 import { log } from "@/lib/logger";
-import { useLibrarySectionsStore } from "@/lib/stores/global-store-library-sections";
 import { useMediaStore } from "@/lib/stores/global-store-media-store";
+import { useSearchQueryStore } from "@/lib/stores/global-store-search-query";
 import { useUserPreferencesStore } from "@/lib/stores/global-user-preferences";
 import { useHomePageStore } from "@/lib/stores/page-store-home";
 import { useMediaPageStore } from "@/lib/stores/page-store-media";
@@ -46,22 +49,19 @@ import { TYPE_MEDIA_ITEM_TYPE_OPTIONS } from "@/types/ui-options";
 const MediaItemPage = () => {
   const router = useRouter();
   const isMounted = useRef(false);
-  const membershipFetchRatingKey = useRef("");
 
   // Partial Media Item States
   const partialMediaItem = useMediaStore((state) => state.mediaItem);
 
-  // Library Sections States (From Library Section Store)
-  const librarySectionsMap = useLibrarySectionsStore((state) => state.sections);
-  const setLibrarySection = useLibrarySectionsStore((state) => state.setSection);
-  const librarySectionsHasHydrated = useLibrarySectionsStore((state) => state.hasHydrated);
-
-  // Response Loading State
-  const [responseLoading, setResponseLoading] = useState<boolean>(true);
+  // Response Loading States
+  const [detailsLoading, setDetailsLoading] = useState<boolean>(true);
+  const [setsLoading, setSetsLoading] = useState<boolean>(true);
+  const fetchedRatingKey = useRef<string | null>(null);
 
   // Main Media Item States
   const [mediaItem, setMediaItem] = useState<MediaItem | null>(null);
-  const [existsInOtherSections, setExistsInOtherSections] = useState<MediaItem | null>(null);
+  const [otherLibraryMediaItems, setOtherLibraryMediaItems] = useState<MediaItem[]>([]);
+  const existsInOtherSections = otherLibraryMediaItems[0] ?? null;
 
   const [existsInDB, setExistsInDB] = useState<boolean>(
     (mediaItem?.db_saved_sets && mediaItem.db_saved_sets.length > 0) || false
@@ -103,20 +103,24 @@ const MediaItemPage = () => {
   const showOnlyDownloadDefaults = useUserPreferencesStore((state) => state.showOnlyDownloadDefaults);
 
   // Loading States
-  const [loadingMessage, setLoadingMessage] = useState("Loading...");
-  const isLoading = useMemo(() => {
-    return responseLoading;
-  }, [responseLoading]);
+  const isLoading = detailsLoading || setsLoading;
+  const loadingMessage = useMemo(() => {
+    const title = mediaItem?.title || partialMediaItem?.title || "";
+    if (detailsLoading && setsLoading) return `Loading Details and Poster Sets for ${title}...`;
+    if (detailsLoading) return `Loading Details for ${title} from ${serverType}...`;
+    return `Loading Poster Sets for ${title}...`;
+  }, [detailsLoading, setsLoading, mediaItem?.title, partialMediaItem?.title, serverType]);
 
   // Error States
   const [hasError, setHasError] = useState(false);
   const [error, setError] = useState<APIResponse<unknown> | null>(null);
+  const [setsError, setSetsError] = useState<APIResponse<unknown> | null>(null);
 
   // Image Version State (for forcing image reloads)
   const [imageVersion, setImageVersion] = useState(Date.now());
 
-  // Get Adjacent Items from Home Page Store
-  const { setNextMediaItem, setPreviousMediaItem, getAdjacentMediaItem } = useHomePageStore();
+  // The items before and after this one on the Home page, for the arrows in the navbar
+  const { setNextMediaItem, setPreviousMediaItem } = useHomePageStore();
 
   // Update the sortOption and sortOrder based on type
   useEffect(() => {
@@ -153,94 +157,133 @@ const MediaItemPage = () => {
     if (!partialMediaItem) {
       setHasError(true);
       setError(ReturnErrorMessage("No media item selected. Please go back and select a media item."));
-      setResponseLoading(false);
+      setDetailsLoading(false);
+      setSetsLoading(false);
       return;
     }
-    setHasError(false);
-    setError(null);
   }, [partialMediaItem]);
 
-  // 2. Fetch full media item from server when partialMediaItem and librarySectionsMap are ready
+  // 2. Show the partial media item right away, then fetch the full media item and the poster sets at the same time
   useEffect(() => {
-    if (!librarySectionsHasHydrated) return;
-    if (!partialMediaItem || Object.keys(librarySectionsMap).length === 0) return;
-    if (mediaItem && mediaItem.rating_key === partialMediaItem.rating_key) return;
-    if (hasError) return;
-    if (responseLoading === true && mediaItem !== null) return;
-    if (membershipFetchRatingKey.current === partialMediaItem.rating_key) return;
-    membershipFetchRatingKey.current = partialMediaItem.rating_key;
+    if (!partialMediaItem) return;
+    if (fetchedRatingKey.current === partialMediaItem.rating_key) return;
+    fetchedRatingKey.current = partialMediaItem.rating_key;
 
+    const currentItem = partialMediaItem;
+    const isCurrentItem = () => fetchedRatingKey.current === currentItem.rating_key;
+
+    // Reset the page for the new media item
+    setMediaItem(currentItem);
+    setOtherLibraryMediaItems([]);
+    setPreviousMediaItem(null);
+    setNextMediaItem(null);
+    setPosterSets(null);
+    setFilteredPosterSets(null);
+    setPosterSetsIncludedItems(null);
+    setUserFollows([]);
+    setUserHides([]);
+    setHasError(false);
     setError(null);
+    setSetsError(null);
+    setDetailsLoading(true);
+    setSetsLoading(true);
+
+    const fetchPosterSets = async (item: MediaItem) => {
+      try {
+        log("INFO", "Media Item Page", "Fetch", `Getting poster sets for ${item.title} (${item.tmdb_id})`);
+        const setsResp = await GetItemSets(item.tmdb_id, item.type, item.library_title, item.edition);
+        if (!isCurrentItem()) return;
+
+        log("INFO", "Media Item Page", "Fetch", `Poster Sets Response`, { setsResp });
+
+        // Check Poster Sets
+        if (setsResp.status === "success" && Array.isArray(setsResp.data?.sets) && setsResp.data.sets.length > 0) {
+          setPosterSets(setsResp.data.sets);
+          setPosterSetsIncludedItems(setsResp.data.included_items);
+        } else {
+          setPosterSets([] as SetRef[]);
+          setSetsError({
+            status: "error",
+            error: {
+              message: `No poster sets found for '${item.title}'`,
+              help: "Use the MediUX site to confirm that images exist for this item",
+              detail: setsResp.error?.detail || {
+                tmdb_id: item.tmdb_id,
+                item_type: item.type,
+              },
+              function: "",
+              line_number: 0,
+            },
+          });
+        }
+      } catch (err) {
+        log("ERROR", "Media Item Page", "Fetch", "Exception while fetching poster sets", err);
+        if (isCurrentItem()) setSetsError(ReturnErrorMessage<unknown>(err));
+      } finally {
+        if (isCurrentItem()) setSetsLoading(false);
+      }
+    };
+
+    // The same item in other libraries, and the items before and after it on the Home page
+    const fetchRelatedItems = async (item: MediaItem) => {
+      const resp = await GetRelatedLibraryItems(
+        item,
+        homeLibraryQuery(useHomePageStore.getState(), useSearchQueryStore.getState().searchQuery)
+      );
+      if (!isCurrentItem() || resp.status === "error" || !resp.data) return;
+      log("INFO", "Media Item Page", "Fetch", `Media Item - Exists in other libraries?`, resp.data.other_libraries);
+      setOtherLibraryMediaItems(resp.data.other_libraries ?? []);
+      setPreviousMediaItem(resp.data.previous as MediaItem | null);
+      setNextMediaItem(resp.data.next as MediaItem | null);
+    };
+
+    // User Follows/Hides are optional, so an error here does not stop the page
+    const fetchUserFollowHide = async () => {
+      try {
+        const userFollowHideResp = await GetUserFollowingAndHiding();
+        if (!isCurrentItem()) return;
+
+        log("INFO", "Media Item Page", "Fetch", `User Follow/Hide Response`, { userFollowHideResp });
+        const users = userFollowHideResp.data?.users;
+        if (userFollowHideResp.status === "success" && Array.isArray(users)) {
+          setUserFollows(users.filter((info) => info.follow));
+          setUserHides(users.filter((info) => info.hide));
+        }
+      } catch (err) {
+        log("ERROR", "Media Item Page", "Fetch", "Exception while fetching user follow/hide", err);
+      }
+    };
 
     const fetchMediaItem = async () => {
       try {
-        setResponseLoading(true);
-        setLoadingMessage(`Loading ${partialMediaItem.library_title} membership...`);
-
-        const loadedSectionsMap = { ...librarySectionsMap };
-        const sectionsMissingMembership = Object.values(librarySectionsMap).filter(
-          (section) =>
-            (section.title === partialMediaItem.library_title || section.type === partialMediaItem.type) &&
-            section.media_items.length === 0
-        );
-        for (const section of sectionsMissingMembership) {
-          const membershipResponse = await GetCompleteLibrarySection(section.title);
-          if (membershipResponse.status === "error" || !membershipResponse.data) {
-            setError(membershipResponse);
-            setHasError(true);
-            return;
-          }
-          const loadedSection = {
-            ...section,
-            total_size: membershipResponse.data.total_items,
-            media_items: membershipResponse.data.media_items,
-          };
-          loadedSectionsMap[section.title] = loadedSection;
-          setLibrarySection(section.title, loadedSection);
-        }
-
-        setLoadingMessage(`Loading Details for ${partialMediaItem.title}...`);
         log(
           "INFO",
           "Media Item Page",
           "Fetch",
-          `Getting full media item for ${partialMediaItem.title} (${partialMediaItem.rating_key})`
+          `Getting full media item for ${currentItem.title} (${currentItem.rating_key})`
         );
         const resp = await GetMediaItemDetails(
-          partialMediaItem.title,
-          partialMediaItem.rating_key,
-          partialMediaItem.library_title
+          currentItem.title,
+          currentItem.rating_key,
+          currentItem.library_title,
+          "item"
         );
+        if (!isCurrentItem()) return;
 
-        if (resp.status === "error" && !resp.data?.media_item) {
+        const mediaItemResponse = resp.data?.media_item;
+        if (resp.status === "error" && !mediaItemResponse) {
           setError(resp);
           setHasError(true);
-          setResponseLoading(false);
           return;
         }
 
-        const mediaItemPageResponse = resp.data;
-
-        if (!mediaItemPageResponse) {
-          setError(ReturnErrorMessage("No data found in response from server."));
-          setHasError(true);
-          setResponseLoading(false);
-          return;
-        }
-
-        const serverTypeResponse = mediaItemPageResponse.server_type;
-        const mediaItemResponse = mediaItemPageResponse.media_item;
-        const posterSetsResponse = mediaItemPageResponse.poster_sets;
-        const userFollowHideResponse = mediaItemPageResponse.user_follow_hide;
-
+        const serverTypeResponse = resp.data?.server_type || "";
         log("INFO", "Media Item Page", "Fetch", `Server Type: ${serverTypeResponse}`, { serverTypeResponse });
         log("INFO", "Media Item Page", "Fetch", `Full Media Item Response`, { mediaItemResponse });
-        log("INFO", "Media Item Page", "Fetch", `Poster Sets Response`, { posterSetsResponse });
-        log("INFO", "Media Item Page", "Fetch", `User Follow/Hide Response`, { userFollowHideResponse });
 
         // Check to see if the serverTypeResponse is valid
-        // Valid types are "Plex", "Emby", "Jellyfin"
-        if (!["Plex", "Emby", "Jellyfin"].includes(serverTypeResponse)) {
+        // Valid types are "Plex", "Emby", "Jellyfin", "Silo"
+        if (!["Plex", "Emby", "Jellyfin", "Silo"].includes(serverTypeResponse)) {
           setServerType("Media Server");
         } else {
           setServerType(serverTypeResponse);
@@ -256,102 +299,37 @@ const MediaItemPage = () => {
           setError(ReturnErrorMessage("Invalid media item data found in response from server."));
           log("ERROR", "Media Item Page", "Fetch", "Invalid media item data", { mediaItemResponse });
           setHasError(true);
-          setResponseLoading(false);
           return;
-        } else {
-          setMediaItem(mediaItemResponse);
         }
+        setMediaItem(mediaItemResponse);
 
-        // Find if this item exists in other sections
-        const otherSections = Object.values(loadedSectionsMap).filter(
-          (s) => s.type === mediaItemResponse.type && s.title !== mediaItemResponse.library_title
-        );
-
-        if (otherSections && otherSections.length > 0) {
-          log(
-            "INFO",
-            "Media Item Page",
-            "Fetch",
-            `Found other sections of type ${mediaItemResponse.type}`,
-            otherSections
-          );
-          let foundOther: MediaItem | null = null;
-          if (mediaItemResponse.guids?.length) {
-            const tmdbID = mediaItemResponse.guids.find((guid) => guid.provider === "tmdb")?.id;
-            if (tmdbID) {
-              for (const section of otherSections) {
-                if (!section.media_items || section.media_items.length === 0) continue;
-                const otherMediaItem = section.media_items.find((item) =>
-                  item.guids?.some((guid) => guid.provider === "tmdb" && guid.id === tmdbID)
-                );
-                if (otherMediaItem) {
-                  foundOther = otherMediaItem;
-                  break;
-                }
-              }
-            }
-          }
-          log("INFO", "Media Item Page", "Fetch", `Media Item - Exists in other sections?`, foundOther);
-          setExistsInOtherSections(foundOther);
-        }
-
-        // Check Poster Sets
-        if (posterSetsResponse && Array.isArray(posterSetsResponse.sets) && posterSetsResponse.sets.length > 0) {
-          setPosterSets(posterSetsResponse.sets);
-          setPosterSetsIncludedItems(posterSetsResponse.included_items);
-        } else {
-          setPosterSets([] as SetRef[]);
-          setResponseLoading(false);
-          setHasError(true);
-          setError({
-            status: "error",
-            error: {
-              message: `No poster sets found for '${mediaItemResponse.title}'`,
-              help: "Use the MediUX site to confirm that images exist for this item",
-              detail: resp.error?.detail || {
-                tmdb_id: mediaItemResponse.tmdb_id,
-                item_type: mediaItemResponse.type,
-              },
-              function: "",
-              line_number: 0,
-            },
-          });
-        }
-
-        if (userFollowHideResponse && Array.isArray(userFollowHideResponse)) {
-          for (const info of userFollowHideResponse) {
-            if (info.follow) setUserFollows((prev) => [...prev, info]);
-            if (info.hide) setUserHides((prev) => [...prev, info]);
-          }
-        } else {
-          setUserFollows([]);
-          setUserHides([]);
+        // Without a TMDB ID before, the poster sets and related items are fetched now
+        if (!currentItem.tmdb_id) {
+          fetchPosterSets(mediaItemResponse);
+          fetchRelatedItems(mediaItemResponse);
         }
       } catch (err) {
         log("ERROR", "Media Item Page", "Fetch", "Exception while fetching media item", err);
-        setError(ReturnErrorMessage<unknown>(err));
-        setHasError(true);
-        setResponseLoading(false);
+        if (isCurrentItem()) {
+          setError(ReturnErrorMessage<unknown>(err));
+          setHasError(true);
+        }
       } finally {
-        setResponseLoading(false);
+        if (isCurrentItem()) setDetailsLoading(false);
       }
     };
 
     fetchMediaItem();
-  }, [
-    librarySectionsHasHydrated,
-    hasError,
-    responseLoading,
-    partialMediaItem,
-    librarySectionsMap,
-    mediaItem,
-    setLibrarySection,
-  ]);
+    fetchUserFollowHide();
+    if (currentItem.tmdb_id) {
+      fetchPosterSets(currentItem);
+      fetchRelatedItems(currentItem);
+    }
+  }, [partialMediaItem, setNextMediaItem, setPreviousMediaItem]);
 
   // 3. Filtering logic for poster sets
   useEffect(() => {
-    if (hasError) return; // Stop if there's already an error
-    if (responseLoading) return; // Wait for response to finish loading
+    if (setsLoading) return; // Wait for the poster sets to finish loading
     if (!mediaItem) return; // If no mediaItem, do nothing
     if (!posterSets || posterSets.length === 0) return; // If no poster sets, do nothing
 
@@ -451,13 +429,10 @@ const MediaItemPage = () => {
       }
 
       if (sortOption === "popularity") {
-        const countA = a.popularity_global ?? 0;
-        const countB = b.popularity_global ?? 0;
-        if (countA === countB) {
-          // If popularity counts are equal, sort by date
-          return dateB.getTime() - dateA.getTime();
-        }
-        return sortOrder === "asc" ? countA - countB : countB - countA;
+        // Use the MediUX-wide rank, as movie and collection sets are ranked separately
+        const byRank = comparePopularity(a.popularity_global, b.popularity_global, sortOrder);
+        // If the ranks are equal, sort by date
+        return byRank !== 0 ? byRank : dateB.getTime() - dateA.getTime();
       }
 
       if (mediaItem?.type === "show" && sortOption === "numberOfSeasons") {
@@ -541,8 +516,7 @@ const MediaItemPage = () => {
     filterByLanguage,
     downloadDefaultsTypes,
     showOnlyDownloadDefaults,
-    hasError,
-    responseLoading,
+    setsLoading,
     sortOption,
     sortOrder,
   ]);
@@ -577,14 +551,6 @@ const MediaItemPage = () => {
     return count;
   }, [posterSets, filterByLanguage]);
 
-  // 5. Compute adjacent items when mediaItem changes
-  useEffect(() => {
-    if (!mediaItem) return;
-    if (!mediaItem?.rating_key) return;
-    setNextMediaItem(getAdjacentMediaItem(mediaItem.tmdb_id, "next"));
-    setPreviousMediaItem(getAdjacentMediaItem(mediaItem.tmdb_id, "previous"));
-  }, [getAdjacentMediaItem, mediaItem, setNextMediaItem, setPreviousMediaItem]);
-
   const handleShowSetsWithTitleCardsOnly = () => {
     setShowOnlyTitlecardSets(!showOnlyTitlecardSets);
   };
@@ -594,16 +560,19 @@ const MediaItemPage = () => {
   };
 
   const handleMediaItemChange = (item: MediaItem) => {
+    // Ignore completions for the same title's copy in another library (tmdb_id matches,
+    // but rating_key or library_title doesn't) - only the currently viewed library's copy should update this page.
+    // Some media servers (e.g. Silo) use the same rating_key for an item in every library it is in.
+    if (item.rating_key !== mediaItem?.rating_key || item.library_title !== mediaItem?.library_title) return;
+
     setImageVersion(Date.now());
-    if (item.tmdb_id === mediaItem?.tmdb_id) {
-      if (item.db_saved_sets && mediaItem.db_saved_sets.length > 0) {
-        setExistsInDB(true);
-      } else if (item.ignored_in_db) {
-        setIgnoredInDB(true);
-        setIgnoredMode(item.ignored_mode || "");
-      }
-      setMediaItem(item);
+    if (item.db_saved_sets && item.db_saved_sets.length > 0) {
+      setExistsInDB(true);
+    } else if (item.ignored_in_db) {
+      setIgnoredInDB(true);
+      setIgnoredMode(item.ignored_mode || "");
     }
+    setMediaItem(item);
   };
 
   // Calculate number of active filters
@@ -647,14 +616,6 @@ const MediaItemPage = () => {
     );
   }
 
-  if (responseLoading) {
-    return (
-      <div className={cn("mt-4 flex flex-col items-center", hasError ? "hidden" : "block")}>
-        <Loader message={loadingMessage} />
-      </div>
-    );
-  }
-
   if (!mediaItem && hasError) {
     return (
       <div className="flex flex-col items-center">
@@ -668,6 +629,15 @@ const MediaItemPage = () => {
         >
           Go to Home
         </Button>
+      </div>
+    );
+  }
+
+  // Wait for the partial media item to be loaded from the store
+  if (!mediaItem) {
+    return (
+      <div className="mt-4 flex flex-col items-center">
+        <Loader message="Loading..." />
       </div>
     );
   }
@@ -695,7 +665,6 @@ const MediaItemPage = () => {
             ignoredInDB={ignoredInDB}
             ignoredMode={ignoredMode}
             currentSetsAvailable={posterSets?.map((set) => set.id) || []}
-            onArtworkApplied={handleMediaItemChange}
           />
 
           {/* Loading and Error States */}
@@ -705,9 +674,11 @@ const MediaItemPage = () => {
             </div>
           )}
           {hasError && error && <ErrorMessage error={error} />}
+          {!isLoading && !hasError && setsError && <ErrorMessage error={setsError} />}
 
-          {/* Render filtered poster sets */}
-          {posterSets && posterSets.length > 0 && mediaItem && (
+          {/* Render filtered poster sets once both the details and poster sets have loaded */}
+          {/* The sets need the full media item to know which seasons and episodes exist */}
+          {!isLoading && !hasError && posterSets && posterSets.length > 0 && mediaItem && (
             <>
               <div
                 className="flex flex-col w-full mb-4 gap-4 justify-center items-center sm:justify-between sm:items-center sm:flex-row"
@@ -758,8 +729,8 @@ const MediaItemPage = () => {
                       {
                         value: "popularity",
                         label: "Popularity",
-                        ascIcon: <ChartBarDecreasing />,
-                        descIcon: <ChartBarIncreasing />,
+                        ascIcon: <ChartBarIncreasing />,
+                        descIcon: <ChartBarDecreasing />,
                         type: "number" as const,
                       },
                       ...(mediaItem?.type === "movie"
@@ -901,6 +872,7 @@ const MediaItemPage = () => {
                     mediaItem={mediaItem}
                     onMediaItemChange={handleMediaItemChange}
                     dimNotFound={true}
+                    otherLibraryMediaItems={otherLibraryMediaItems}
                   />
                 ))}
               </div>

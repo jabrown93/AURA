@@ -1,4 +1,9 @@
+"use client";
+
 import { RefreshCcw as RefreshIcon } from "lucide-react";
+
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { Button } from "@/components/ui/button";
 
@@ -6,18 +11,22 @@ import { cn } from "@/lib/cn";
 
 interface RefreshButtonProps {
   onClick: () => void;
-  text?: string;
+  refreshing?: boolean; // Clicks are ignored while refreshing
   className?: string;
 }
 
-export function RefreshButton({ onClick, text = "Refresh", className }: RefreshButtonProps) {
-  return (
+// Shown on the right of Jump to Top
+export function RefreshButton({ onClick, refreshing = false, className }: RefreshButtonProps) {
+  const [container, setContainer] = useState<HTMLElement | null>(null);
+  useEffect(() => setContainer(document.getElementById("floating-buttons")), []);
+  if (!container) return null;
+
+  return createPortal(
     <Button
       variant="ghost"
       size="sm"
       className={cn(
-        `fixed z-100 right-3 cursor-pointer
-				bottom-5 sm:bottom-15
+        `order-last cursor-pointer
 				rounded-full shadow-lg
 				transition-all duration-300
 				border-1 border-primary
@@ -26,11 +35,12 @@ export function RefreshButton({ onClick, text = "Refresh", className }: RefreshB
 				`,
         className
       )}
-      onClick={onClick}
+      onClick={() => !refreshing && onClick()}
       aria-label="refresh"
     >
       <RefreshIcon className="h-3 w-3" />
-      <span className="text-xs hidden sm:inline">{text}</span>
-    </Button>
+      <span className="text-xs hidden sm:inline">{refreshing ? "Refreshing..." : "Refresh"}</span>
+    </Button>,
+    container
   );
 }

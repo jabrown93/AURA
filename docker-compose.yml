@@ -8,25 +8,21 @@ services:
 
         ## Synology Users: 1026:100 to use your default user (the main DSM account)
         ## Unraid Users: 99:100 to use the default Unraid user (nobody)
-        ## Linux Users: You can find your PUID and PGID by running the `id username` command
-        user: "${PUID}:${PGID}" # Optional to run as non-root user
+        ## Linux Users: You can find your user and group IDs by running the `id username` command
+        user: "99:100" # Optional to run as non-root user
 
         ports:
             - "3000:3000" # Web UI PORT
-            - "8888:8888" # API PORT
-            ## HTTPS ports — uncomment when TLS_CERT_FILE/TLS_KEY_FILE are set below
+            ## HTTPS port — uncomment when TLS_CERT_FILE/TLS_KEY_FILE are set below
             # - "3443:3443" # Web UI HTTPS PORT
-            # - "8443:8443" # API HTTPS PORT
 
         # Make sure to change these paths to match your host system
         volumes:
             - /mnt/user/appdata/aura:/config # Config directory
             - /mnt/user/data/media/:/data/media # This should be the same as your Media Server Docker container. Both the host and container paths must match exactly.
 
-        # Add environment variables for PUID, PGID, and UMASK
+        # Add environment variables for UMASK and the timezone
         environment:
-            - PUID=99
-            - PGID=100
             - UMASK=022
             - TZ=America/New_York # Set your timezone, e.g., America/New_York
             ## HTTPS: mount your certificate and key (e.g. under /config) and point

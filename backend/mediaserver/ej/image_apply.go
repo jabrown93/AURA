@@ -9,10 +9,10 @@ import (
 	"fmt"
 )
 
-func applyImageToMediaItem(ctx context.Context, item *models.MediaItem, imageFile models.ImageFile, imageData []byte) (Err logging.LogErrorInfo) {
+func applyImageToMediaItem(ctx context.Context, msConfig config.Config_MediaServer, item *models.MediaItem, imageFile models.ImageFile, imageData []byte, imageType string) (Err logging.LogErrorInfo) {
 	ctx, logAction := logging.AddSubActionToContext(ctx, fmt.Sprintf(
 		"%s: Applying %s Image for %s",
-		config.Current.MediaServer.Type, utils.GetFileDownloadName(item.Title, imageFile), utils.MediaItemInfo(*item),
+		msConfig.Type, utils.GetFileDownloadName(item.Title, imageFile), utils.MediaItemInfo(*item),
 	), logging.LevelDebug)
 	defer logAction.Complete()
 
@@ -29,7 +29,7 @@ func applyImageToMediaItem(ctx context.Context, item *models.MediaItem, imageFil
 	// Handling for Backdrops are different than Primary Images
 	if imageFile.Type != "backdrop" {
 		// Apply the Image to the Media Item
-		Err = uploadImage(ctx, item, itemRatingKey, imageFile, imageData)
+		Err = uploadImage(ctx, msConfig, item, itemRatingKey, imageFile, imageData, imageType)
 		if Err.Message != "" {
 			return Err
 		}
@@ -41,22 +41,22 @@ func applyImageToMediaItem(ctx context.Context, item *models.MediaItem, imageFil
 		// Then we set the index of that image to 0
 
 		// Get current images
-		currentImages, Err := getCurrentImages(ctx, item, "Current")
+		currentImages, Err := getCurrentImages(ctx, msConfig, item, "Current")
 		if Err.Message != "" {
-			return *logAction.Error
+			return Err
 		}
 
 		// Upload the new image
-		Err = uploadImage(ctx, item, itemRatingKey, imageFile, imageData)
+		Err = uploadImage(ctx, msConfig, item, itemRatingKey, imageFile, imageData, imageType)
 		if Err.Message != "" {
-			return *logAction.Error
+			return Err
 		}
 
 		if len(currentImages) != 0 {
 			// Get images after upload
-			updatedImages, Err := getCurrentImages(ctx, item, "Updated")
+			updatedImages, Err := getCurrentImages(ctx, msConfig, item, "Updated")
 			if Err.Message != "" {
-				return *logAction.Error
+				return Err
 			}
 
 			// Find the new image's ID
@@ -73,9 +73,9 @@ func applyImageToMediaItem(ctx context.Context, item *models.MediaItem, imageFil
 
 			// Now we change the image index to 0, if it's not already 0
 			if newImage.ImageIndex != 0 {
-				err := updateImageIndex(ctx, item, newImage)
+				err := updateImageIndex(ctx, msConfig, item, newImage)
 				if err.Message != "" {
-					return *logAction.Error
+					return err
 				}
 			}
 		}

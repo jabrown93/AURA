@@ -31,6 +31,7 @@ func ShouldSkipLogging(request *http.Request, ld *LogData) bool {
 		`^/favicon.ico$`,
 		// AURA API Routes to skip
 		`^/api/images/.*$`,
+		`^/api/health$`,
 		`^/api/config$`,
 		`^/api/download/queue$`,
 	}

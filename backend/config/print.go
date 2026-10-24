@@ -21,11 +21,12 @@ func (config *Config) PrintDetails() {
 		Interface("Logging", sanitizedConfig.Logging).
 		Interface("Media Server", sanitizedConfig.MediaServer).
 		Interface("MediUX", sanitizedConfig.Mediux).
-		Interface("Auto Download", sanitizedConfig.AutoDownload).
+		Interface("Jobs", sanitizedConfig.Jobs).
 		Interface("Images", sanitizedConfig.Images).
 		Interface("TMDB", sanitizedConfig.TMDB).
 		Interface("Labels and Tags", sanitizedConfig.LabelsAndTags).
 		Interface("Notifications", sanitizedConfig.Notifications).
 		Interface("Sonarr and Radarr Apps", sanitizedConfig.SonarrRadarr).
+		Interface("User Preferences", sanitizedConfig.UserPreferences).
 		Msg("Configuration Details")
 }

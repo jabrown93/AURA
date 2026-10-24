@@ -1,17 +1,50 @@
 package mediux
 
 import (
+	"aura/config"
 	"aura/logging"
 	"aura/models"
 	"aura/utils/httpx"
 	"context"
 	_ "embed"
+	"slices"
+	"sync"
+	"time"
 )
 
 //go:embed gen_user_follow_hide.graphql
 var queryUserFollowHideQuery string
 
-func GetUserFollowingAndHiding(ctx context.Context) (userFollowHide []models.MediuxUserInfo, Err logging.LogErrorInfo) {
+// The followed and hidden creators are kept for a few minutes
+const followHideMaxAge = 5 * time.Minute
+
+var (
+	followHideMu       sync.Mutex
+	followHideUsers    []models.MediuxUserInfo
+	followHideToken    string // The MediUX token the list was got with
+	followHideFetched  time.Time
+	fetchFollowingHide = fetchUserFollowingAndHiding
+)
+
+// GetUserFollowingAndHiding returns the creators the user follows and hides on MediUX
+func GetUserFollowingAndHiding(ctx context.Context) ([]models.MediuxUserInfo, logging.LogErrorInfo) {
+	followHideMu.Lock()
+	defer followHideMu.Unlock()
+
+	token := config.Current.Mediux.ApiToken
+	if followHideToken == token && !followHideFetched.IsZero() && time.Since(followHideFetched) < followHideMaxAge {
+		return slices.Clone(followHideUsers), logging.LogErrorInfo{}
+	}
+
+	users, Err := fetchFollowingHide(ctx)
+	if Err.Message != "" {
+		return users, Err
+	}
+	followHideUsers, followHideToken, followHideFetched = users, token, time.Now()
+	return slices.Clone(users), logging.LogErrorInfo{}
+}
+
+func fetchUserFollowingAndHiding(ctx context.Context) (userFollowHide []models.MediuxUserInfo, Err logging.LogErrorInfo) {
 	ctx, logAction := logging.AddSubActionToContext(ctx, "Fetching User Following and Hiding Information", logging.LevelDebug)
 	defer logAction.Complete()
 

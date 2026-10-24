@@ -1,42 +1,39 @@
 "use client";
 
 import { ReturnErrorMessage } from "@/services/api-error-return";
-import { GetLibrarySectionItems } from "@/services/mediaserver/get-library-section-items";
-import { GetLibrarySections } from "@/services/mediaserver/get-library-sections";
+import {
+  GetLibraryItems,
+  type LibraryItemsQuery,
+  type LibraryLoad,
+  type LibraryProgress,
+  RefreshLibrary,
+  homeLibraryQuery,
+  subscribeToLibraryProgress,
+} from "@/services/mediaserver/library-items";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { CustomPagination } from "@/components/shared/custom-pagination";
 import { ErrorMessage } from "@/components/shared/error-message";
 import { FilterHome } from "@/components/shared/filter-home";
+import { LoadTimingBadge } from "@/components/shared/load-timing-badge";
 import HomeMediaItemCard from "@/components/shared/media-item-card";
 import { HomeMediaItemCardSkeletonGrid } from "@/components/shared/media-item-card-skeleton";
 import { RefreshButton } from "@/components/shared/refresh-button";
+import { RefreshProgress } from "@/components/shared/refresh-progress";
 import { ResponsiveGrid } from "@/components/shared/responsive-grid";
 
-import { log } from "@/lib/logger";
-import { MAX_CACHE_DURATION, useLibrarySectionsStore } from "@/lib/stores/global-store-library-sections";
+import { cn } from "@/lib/cn";
 import { useSearchQueryStore } from "@/lib/stores/global-store-search-query";
 import { useHomePageStore } from "@/lib/stores/page-store-home";
 
-import { extractInfoFromSearchQuery } from "@/hooks/search-query";
+import { useFirstPageOnSearch, usePagedLoad } from "@/hooks/use-paged-load";
 
-import type { APIResponse } from "@/types/api/api-response";
-import type { LibrarySection } from "@/types/media-and-posters/media-item-and-library";
+import type { LibrarySection, MediaItem } from "@/types/media-and-posters/media-item-and-library";
 
+// The Home page, filtered, searched, sorted and paged by aura
 export default function Home() {
-  const requestID = useRef(0);
   const { searchQuery } = useSearchQueryStore();
-  const prevSearchQuery = useRef(searchQuery);
-
-  const [error, setError] = useState<APIResponse<unknown> | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [sectionsLoaded, setSectionsLoaded] = useState(false);
-  const [librarySections, setLibrarySections] = useState<LibrarySection[]>([]);
-  const [totalItems, setTotalItems] = useState(0);
-  const [hasUpdatedAt, setHasUpdatedAt] = useState(false);
-  const [hasEpisodeAddedAt, setHasEpisodeAddedAt] = useState(false);
-
   const {
     filteredLibraries,
     setFilteredLibraries,
@@ -54,148 +51,151 @@ export default function Home() {
     setSortOption,
     sortOrder,
     setSortOrder,
-    filteredAndSortedMediaItems,
-    setFilteredAndSortedMediaItems,
   } = useHomePageStore();
+  const hasHydrated = useHomePageStore((state) => state.hasHydrated);
 
-  const { sections, setSections, timestamp } = useLibrarySectionsStore();
-  const hasHydrated = useLibrarySectionsStore((state) => state.hasHydrated);
-  const totalPages = Math.ceil(totalItems / itemsPerPage);
+  const { shown, loading, error, setError, timing, load } = usePagedLoad(
+    GetLibraryItems,
+    "Could not load the library",
+    setCurrentPage
+  );
+  const data = shown?.data ?? null;
+  const [progress, setProgress] = useState<LibraryProgress | null>(null);
+  const refreshing = !!progress?.running;
 
-  useEffect(() => {
-    if (
-      sortOption !== "title" &&
-      sortOption !== "dateUpdated" &&
-      sortOption !== "dateAdded" &&
-      sortOption !== "dateReleased" &&
-      sortOption !== "newEpisodeAdded"
-    ) {
-      setSortOption("dateAdded");
-      setSortOrder("desc");
-    }
-  }, [sortOption, setSortOption, setSortOrder]);
-
-  useEffect(() => {
-    if (!hasHydrated || sectionsLoaded) return;
-
-    const loadSections = async () => {
-      const cachedSections = Object.values(sections);
-      const cacheValid = Boolean(timestamp && Date.now() - timestamp < MAX_CACHE_DURATION && cachedSections.length > 0);
-      if (cacheValid) {
-        const summaries = cachedSections.map((section) => ({ ...section, media_items: [] }));
-        setLibrarySections(summaries.sort((a, b) => a.title.localeCompare(b.title)));
-        setSectionsLoaded(true);
-        return;
-      }
-
-      const response = await GetLibrarySections();
-      if (response.status === "error") {
-        setError(response);
-        setLoading(false);
-        return;
-      }
-      const fetchedSections = (response.data?.sections ?? [])
-        .map((section) => ({ ...section, media_items: [] }))
-        .sort((a, b) => a.title.localeCompare(b.title));
-      if (fetchedSections.length === 0) {
-        setError(ReturnErrorMessage<unknown>(new Error("No sections found, please check the logs.")));
-        setLoading(false);
-        return;
-      }
-      setLibrarySections(fetchedSections);
-      setSections(
-        Object.fromEntries(
-          fetchedSections.map((section) => [
-            section.title,
-            { ...section, media_items: sections[section.title]?.media_items ?? [] },
-          ])
-        ),
-        Date.now()
-      );
-      setSectionsLoaded(true);
-    };
-
-    void loadSections();
-  }, [hasHydrated, sections, sectionsLoaded, setSections, timestamp]);
-
-  const fetchPage = useCallback(
-    async (refresh = false) => {
-      if (!sectionsLoaded) return;
-      const thisRequest = ++requestID.current;
-      setLoading(true);
-      setError(null);
-      const { searchTMDBID, searchLibrary, searchYear, searchTitle } = extractInfoFromSearchQuery(searchQuery);
-      const response = await GetLibrarySectionItems({
-        libraryTitles: filteredLibraries,
-        searchTitle,
-        searchLibrary,
-        searchID: searchTMDBID,
-        searchYear,
-        filterInDB,
-        filterIgnored,
-        filterHasSets: hasSetsAvailableFilter,
-        sortOption,
-        sortOrder,
-        pageNumber: currentPage,
-        itemsPerPage,
-        refresh,
-      });
-      if (thisRequest !== requestID.current) return;
-      if (response.status === "error") {
-        setError(response);
-        setLoading(false);
-        return;
-      }
-
-      const data = response.data;
-      const nextTotal = data?.total_items ?? 0;
-      const nextTotalPages = Math.ceil(nextTotal / itemsPerPage);
-      if (nextTotalPages > 0 && currentPage > nextTotalPages) {
-        setCurrentPage(nextTotalPages);
-        return;
-      }
-      setFilteredAndSortedMediaItems(data?.media_items ?? []);
-      setTotalItems(nextTotal);
-      setHasUpdatedAt(data?.has_updated_at ?? false);
-      setHasEpisodeAddedAt(data?.has_episode_added_at ?? false);
-      setLoading(false);
-      log("INFO", "Home Page", "Library Page", `Loaded ${data?.media_items.length ?? 0} of ${nextTotal} items`);
-    },
+  const query = useMemo<LibraryItemsQuery>(
+    () =>
+      homeLibraryQuery(
+        {
+          filteredLibraries,
+          filterInDB,
+          filterIgnored,
+          hasSetsAvailableFilter,
+          sortOption,
+          sortOrder,
+          currentPage,
+          itemsPerPage,
+        },
+        searchQuery
+      ),
     [
-      currentPage,
-      filterIgnored,
-      filterInDB,
       filteredLibraries,
-      hasSetsAvailableFilter,
-      itemsPerPage,
       searchQuery,
-      sectionsLoaded,
-      setCurrentPage,
-      setFilteredAndSortedMediaItems,
+      filterInDB,
+      filterIgnored,
+      hasSetsAvailableFilter,
       sortOption,
       sortOrder,
+      currentPage,
+      itemsPerPage,
     ]
   );
 
   useEffect(() => {
-    void fetchPage();
-  }, [fetchPage]);
+    if (!hasHydrated) return;
+    void load(query);
+  }, [hasHydrated, query, load]);
 
+  useFirstPageOnSearch(searchQuery, setCurrentPage);
+
+  // Show the new items when a refresh finishes, including one started somewhere else
+  const queryRef = useRef(query);
+  queryRef.current = query;
   useEffect(() => {
-    if (searchQuery !== prevSearchQuery.current) {
-      setCurrentPage(1);
-      prevSearchQuery.current = searchQuery;
-    }
-  }, [searchQuery, setCurrentPage]);
+    let wasRunning = false;
+    return subscribeToLibraryProgress((next) => {
+      setProgress(next);
+      if (wasRunning && !next.running) {
+        if (next.failed) {
+          setError(ReturnErrorMessage<unknown>("Could not load the libraries from the media server, check the logs"));
+        }
+        void load(queryRef.current);
+      }
+      wasRunning = next.running;
+    });
+  }, [load, setError]);
 
-  if (error) {
+  // Reload the libraries from the media server, the progress comes from the stream
+  const handleRefresh = async () => {
+    setError(null);
+    const response = await RefreshLibrary();
+    if (response.status === "error") {
+      setError(response);
+      return;
+    }
+    if (response.data) setProgress(response.data);
+  };
+
+  // Refresh progress by items, each library counts the same until all sizes are known
+  const refreshProgress = useMemo(() => {
+    if (!progress?.running) return null;
+    const libraries = progress.libraries;
+    const loaded = (l: LibraryLoad) => (l.done ? l.total : Math.min(l.loaded, l.total));
+    const totalItems = libraries.reduce((sum, l) => sum + l.total, 0);
+    const sizesKnown = totalItems > 0 && libraries.every((l) => l.done || l.total > 0);
+    const percent = sizesKnown
+      ? (libraries.reduce((sum, l) => sum + loaded(l), 0) / totalItems) * 100
+      : libraries.length > 0
+        ? (libraries.reduce((sum, l) => sum + (l.done ? 1 : l.total > 0 ? loaded(l) / l.total : 0), 0) /
+            libraries.length) *
+          100
+        : 0;
+    const current = libraries.find((l) => !l.done);
+    const done = libraries.filter((l) => l.done).length;
+    return {
+      percent,
+      label: current
+        ? current.total > 0
+          ? `Loading ${current.title} · ${current.loaded.toLocaleString()} of ${current.total.toLocaleString()} items`
+          : `Loading ${current.title}`
+        : undefined,
+      shortLabel: current
+        ? current.total > 0
+          ? `${current.title} · ${current.loaded.toLocaleString()}/${current.total.toLocaleString()}`
+          : current.title
+        : undefined,
+      detail: `${done} of ${libraries.length} ${libraries.length === 1 ? "library" : "libraries"} loaded`,
+    };
+  }, [progress]);
+
+  // The filter only needs each library's title and type
+  const librarySections = useMemo(
+    () =>
+      (data?.libraries ?? []).map(
+        (library) =>
+          ({
+            id: library.title,
+            title: library.title,
+            type: library.type,
+            total_size: library.count,
+            media_items: [],
+          }) as LibrarySection
+      ),
+    [data?.libraries]
+  );
+
+  if (error && !data) {
     return <ErrorMessage error={error} />;
   }
 
   return (
     <div className="flex items-center justify-center">
       <div className="min-h-screen pb-4 px-4 sm:px-10 w-full">
-        <div className="w-full flex items-center justify-center mb-4 mt-4">
+        {/* Refresh Progress */}
+        {refreshProgress && (
+          <RefreshProgress
+            title="Loading the libraries from the media server"
+            percent={refreshProgress.percent}
+            label={refreshProgress.label}
+            shortLabel={refreshProgress.shortLabel}
+            detail={refreshProgress.detail}
+            className="mt-4"
+          />
+        )}
+        {error && data && <ErrorMessage error={error} />}
+
+        {/* Filter & Sort Controls */}
+        <div className="w-full flex flex-col items-center justify-center gap-2 mb-4 mt-4">
           <FilterHome
             librarySections={librarySections}
             filteredLibraries={filteredLibraries}
@@ -206,8 +206,8 @@ export default function Home() {
             setFilterIgnored={setFilterIgnored}
             hasSetsAvailableFilter={hasSetsAvailableFilter}
             setHasSetsAvailableFilter={setHasSetsAvailableFilter}
-            hasUpdatedAt={hasUpdatedAt}
-            hasEpisodeAddedAt={hasEpisodeAddedAt}
+            hasUpdatedAt={data?.has_updated_at ?? false}
+            hasEpisodeAddedAt={data?.has_episode_added_at ?? false}
             sortOption={sortOption}
             setSortOption={setSortOption}
             sortOrder={sortOrder}
@@ -216,43 +216,51 @@ export default function Home() {
             itemsPerPage={itemsPerPage}
             setItemsPerPage={setItemsPerPage}
           />
+          <LoadTimingBadge
+            label="Home"
+            startedAt={timing.startedAt}
+            finishedAt={timing.finishedAt}
+            urlMatch="/api/mediaserver/library/items"
+          />
         </div>
 
-        {loading ? (
+        {!data ? (
           <HomeMediaItemCardSkeletonGrid />
         ) : (
-          <ResponsiveGrid size="regular">
-            {filteredAndSortedMediaItems.length === 0 && (searchQuery || filteredLibraries.length > 0) ? (
-              <div className="col-span-full text-center text-red-500">
-                <ErrorMessage
-                  error={ReturnErrorMessage<string>(
-                    `No items found${searchQuery ? ` matching "${searchQuery}"` : ""} in ${
-                      filteredLibraries.length > 0 ? filteredLibraries.join(", ") : "any library"
-                    }${
-                      filterInDB === "notInDB"
-                        ? " that are not in the database."
-                        : filterInDB === "inDB"
-                          ? " that are already in the database."
-                          : ""
-                    }`
-                  )}
-                />
-              </div>
-            ) : (
-              filteredAndSortedMediaItems.map((item) => <HomeMediaItemCard key={item.rating_key} item={item} />)
-            )}
-          </ResponsiveGrid>
+          <>
+            {/* Grid of Cards */}
+            <ResponsiveGrid size="regular" className={cn(loading && "opacity-60 transition-opacity")}>
+              {data.items.length === 0 ? (
+                <div className="col-span-full text-center text-red-500">
+                  <ErrorMessage
+                    error={ReturnErrorMessage<string>(
+                      `No items found${searchQuery ? ` matching "${searchQuery}"` : ""} in ${
+                        filteredLibraries.length > 0 ? filteredLibraries.join(", ") : "any library"
+                      }`
+                    )}
+                  />
+                </div>
+              ) : (
+                data.items.map((item) => (
+                  <HomeMediaItemCard key={`${item.library_title}-${item.rating_key}`} item={item as MediaItem} />
+                ))
+              )}
+            </ResponsiveGrid>
+
+            {/* Pagination */}
+            <CustomPagination
+              currentPage={data.page}
+              totalPages={data.total_pages}
+              setCurrentPage={setCurrentPage}
+              scrollToTop={true}
+              filterItemsLength={data.total}
+              itemsPerPage={data.per_page}
+            />
+          </>
         )}
 
-        <CustomPagination
-          currentPage={currentPage}
-          totalPages={totalPages}
-          setCurrentPage={setCurrentPage}
-          scrollToTop={true}
-          filterItemsLength={totalItems}
-          itemsPerPage={itemsPerPage}
-        />
-        <RefreshButton onClick={() => void fetchPage(true)} />
+        {/* Refresh Button */}
+        <RefreshButton onClick={() => void handleRefresh()} refreshing={refreshing} />
       </div>
     </div>
   );

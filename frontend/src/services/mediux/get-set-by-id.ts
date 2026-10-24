@@ -16,7 +16,8 @@ export const GetSetByID = async (
   itemLibraryTitle: string,
   tmdbID: string,
   setID: string,
-  setType: TYPE_DB_SET_TYPE_OPTIONS
+  setType: TYPE_DB_SET_TYPE_OPTIONS,
+  edition: string = ""
 ): Promise<APIResponse<GetSetByID_Response>> => {
   log(
     "INFO",
@@ -30,6 +31,7 @@ export const GetSetByID = async (
       set_type: setType,
       item_library_title: itemLibraryTitle,
       tmdb_id: tmdbID,
+      edition,
     };
 
     const response = await apiClient.get<APIResponse<GetSetByID_Response>>(`/mediux/set`, { params });

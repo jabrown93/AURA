@@ -4,31 +4,18 @@ import { ReturnErrorMessage } from "@/services/api-error-return";
 import { log } from "@/lib/logger";
 
 import type { APIResponse } from "@/types/api/api-response";
-import type { DBSavedItem } from "@/types/database/db-poster-set";
 
 export interface RemoveItemFromQueue_Request {
-  item: DBSavedItem;
+  job_id: number;
 }
 export interface RemoveItemFromQueue_Response {
   result: string;
 }
 
-export const RemoveItemFromQueue = async (dbItem: DBSavedItem): Promise<APIResponse<RemoveItemFromQueue_Response>> => {
-  log(
-    "INFO",
-    "API - Media Server",
-    "Delete from Queue",
-    `Deleting '${dbItem.media_item?.title ?? "(unknown)"}' (TMDB ID: ${dbItem.media_item?.tmdb_id ?? "(unknown)"}) from the download queue`
-  );
-  if (Array.isArray(dbItem.poster_sets) && dbItem.poster_sets.length > 0) {
-    for (const set of dbItem.poster_sets) {
-      set.last_downloaded = new Date().toISOString();
-    }
-  }
+export const RemoveItemFromQueue = async (jobId: number): Promise<APIResponse<RemoveItemFromQueue_Response>> => {
+  log("INFO", "API - Download Queue", "Delete from Queue", `Deleting job ${jobId} from the download queue`);
   try {
-    const req: RemoveItemFromQueue_Request = {
-      item: dbItem,
-    };
+    const req: RemoveItemFromQueue_Request = { job_id: jobId };
     const response = await apiClient.delete<APIResponse<RemoveItemFromQueue_Response>>(`/download/queue/item`, {
       data: req,
     });
@@ -37,23 +24,35 @@ export const RemoveItemFromQueue = async (dbItem: DBSavedItem): Promise<APIRespo
     } else {
       log(
         "INFO",
-        "API - Media Server",
+        "API - Download Queue",
         "Delete from Queue",
-        `Deleted '${dbItem.media_item.title}' (TMDB ID: ${dbItem.media_item.tmdb_id}) from the download queue`,
+        `Deleted job ${jobId} from the download queue`,
         response.data
       );
     }
     return response.data;
   } catch (error) {
-    log(
-      "ERROR",
-      "API - Media Server",
-      "Delete from Queue",
-      `Failed to delete '${dbItem.media_item.title}' (TMDB ID: ${dbItem.media_item.tmdb_id}) from the download queue: ${
-        dbItem.media_item.rating_key
-      }: ${error instanceof Error ? error.message : "Unknown error"}`,
-      error
-    );
+    log("ERROR", "API - Download Queue", "Delete from Queue", `Failed to delete job ${jobId} from the download queue`, {
+      error,
+    });
     return ReturnErrorMessage<RemoveItemFromQueue_Response>(error);
+  }
+};
+
+export interface RemoveAllFromQueue_Response {
+  result: string;
+}
+
+export const RemoveAllFromQueue = async (): Promise<APIResponse<RemoveAllFromQueue_Response>> => {
+  log("INFO", "API - Download Queue", "Clear Queue", "Clearing the entire download queue");
+  try {
+    const response = await apiClient.delete<APIResponse<RemoveAllFromQueue_Response>>(`/download/queue`);
+    if (response.data.status === "error") {
+      throw new Error(response.data.error?.message || "Unknown error while clearing the download queue");
+    }
+    return response.data;
+  } catch (error) {
+    log("ERROR", "API - Download Queue", "Clear Queue", "Failed to clear the download queue", { error });
+    return ReturnErrorMessage<RemoveAllFromQueue_Response>(error);
   }
 };

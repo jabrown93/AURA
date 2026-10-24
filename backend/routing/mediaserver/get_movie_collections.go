@@ -21,7 +21,8 @@ type GetMovieCollections_Response struct {
 // @Tags         MediaServer
 // @Accept       json
 // @Produce      json
-// @Security 	 BearerAuth
+// @Security     SessionCookie
+// @Security     ApiKeyAuth
 // @Failure      401  {object}  httpx.UnauthorizedResponse "Unauthorized (only when Auth.Enabled=true)"
 // @Success      200  {object}  httpx.JSONResponse{data=GetMovieCollections_Response}
 // @Failure      500  {object}  httpx.JSONResponse "Internal Server Error"
@@ -34,9 +35,9 @@ func GetMovieCollections(w http.ResponseWriter, r *http.Request) {
 
 	var Err logging.LogErrorInfo
 	switch config.Current.MediaServer.Type {
-	case "Plex":
-		logging.DevMsg("Fetching movie collections from Plex media server")
-		response.Collections, Err = getPlexMovieCollections(ctx)
+	case "Plex", "Silo":
+		logging.DevMsg("Fetching movie collections from each movie library")
+		response.Collections, Err = getLibraryMovieCollections(ctx)
 		if Err.Message != "" {
 			httpx.SendResponse(w, ld, response)
 			return
@@ -59,7 +60,8 @@ func GetMovieCollections(w http.ResponseWriter, r *http.Request) {
 	httpx.SendResponse(w, ld, response)
 }
 
-func getPlexMovieCollections(ctx context.Context) (collections []models.CollectionItem, Err logging.LogErrorInfo) {
+// getLibraryMovieCollections gets the collections of each movie library aura uses
+func getLibraryMovieCollections(ctx context.Context) (collections []models.CollectionItem, Err logging.LogErrorInfo) {
 	collections = []models.CollectionItem{}
 
 	// Get all Movie Library Sections
@@ -124,7 +126,7 @@ func getEmbyJellyfinMovieCollections(ctx context.Context) (collections []models.
 	collections = []models.CollectionItem{}
 
 	// Get the Media Server Collection Section
-	collectionSection, Err := ej.GetMovieCollectionSection(ctx)
+	collectionSection, Err := ej.GetMovieCollectionSection(ctx, config.Current.MediaServer)
 	if Err.Message != "" {
 		return collections, Err
 	}

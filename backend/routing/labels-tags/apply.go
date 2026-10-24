@@ -25,7 +25,8 @@ type applyLabelsTagsResponse struct {
 // @Accept       json
 // @Produce      json
 // @Param        req  body      applyLabelsTagsRequest  true  "Apply Labels/Tags Request"
-// @Security 	 BearerAuth
+// @Security     SessionCookie
+// @Security     ApiKeyAuth
 // @Failure      401  {object}  httpx.UnauthorizedResponse "Unauthorized (only when Auth.Enabled=true)"
 // @Success      200           {object}  httpx.JSONResponse{data=applyLabelsTagsResponse}
 // @Failure      500           {object}  httpx.JSONResponse "Internal Server Error"

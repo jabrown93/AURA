@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-// CSRFProtect rejects state-changing requests that authenticate with the session cookie
+// Fork: CSRFProtect rejects state-changing requests that authenticate with the session cookie
 // unless they originate from this app's own origin.
 //
 // Only cookie-authenticated requests need this: a browser attaches cookies to cross-site
@@ -34,7 +34,7 @@ func CSRFProtectStateless(next http.Handler) http.Handler {
 // authenticate automatically - untouched.
 func csrfProtect(next http.Handler, cookieOnly bool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !config.Current.Auth.Enabled {
+		if !config.AuthEnabled() {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -45,7 +45,7 @@ func csrfProtect(next http.Handler, cookieOnly bool) http.Handler {
 			return
 		}
 
-		if cookieOnly && routes_auth.TokenFromSessionCookie(r) == "" {
+		if _, err := r.Cookie(routes_auth.SessionCookieName); cookieOnly && err != nil {
 			next.ServeHTTP(w, r)
 			return
 		}

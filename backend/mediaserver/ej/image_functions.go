@@ -20,10 +20,10 @@ type EmbyJellyItemImagesResponse struct {
 	ImagePath  string `json:"Path,omitempty"` // Used in Emby responses
 }
 
-func getCurrentImages(ctx context.Context, item *models.MediaItem, itr string) ([]EmbyJellyItemImagesResponse, logging.LogErrorInfo) {
+func getCurrentImages(ctx context.Context, msConfig config.Config_MediaServer, item *models.MediaItem, itr string) ([]EmbyJellyItemImagesResponse, logging.LogErrorInfo) {
 	ctx, logAction := logging.AddSubActionToContext(ctx, fmt.Sprintf(
 		"%s: Getting %s Images for %s",
-		config.Current.MediaServer.Type, itr, utils.MediaItemInfo(*item),
+		msConfig.Type, itr, utils.MediaItemInfo(*item),
 	), logging.LevelDebug)
 	defer logAction.Complete()
 
@@ -31,7 +31,7 @@ func getCurrentImages(ctx context.Context, item *models.MediaItem, itr string) (
 	Err := logging.LogErrorInfo{}
 
 	// Construct the URL for the EJ server API request
-	u, err := url.Parse(config.Current.MediaServer.URL)
+	u, err := url.Parse(msConfig.URL)
 	if err != nil {
 		logAction.SetError(logging.Error_BaseUrlParsing(err))
 		return images, *logAction.Error
@@ -40,7 +40,7 @@ func getCurrentImages(ctx context.Context, item *models.MediaItem, itr string) (
 	URL := u.String()
 
 	// Make the HTTP Request to EJ
-	resp, respBody, Err := makeRequest(ctx, config.Current.MediaServer, URL, "GET", nil)
+	resp, respBody, Err := makeRequest(ctx, msConfig, URL, "GET", nil)
 	if Err.Message != "" {
 		logAction.SetErrorFromInfo(Err)
 		return images, *logAction.Error
@@ -48,9 +48,9 @@ func getCurrentImages(ctx context.Context, item *models.MediaItem, itr string) (
 	defer resp.Body.Close()
 
 	// Decode the Response
-	Err = httpx.DecodeResponseToJSON(ctx, respBody, &images, fmt.Sprintf("%s Media Item Images Response", config.Current.MediaServer.Type))
+	Err = httpx.DecodeResponseToJSON(ctx, respBody, &images, fmt.Sprintf("%s Media Item Images Response", msConfig.Type))
 	if Err.Message != "" {
-		return images, *logAction.Error
+		return images, Err
 	}
 
 	logAction.AppendResult("image_count", len(images))
@@ -58,10 +58,10 @@ func getCurrentImages(ctx context.Context, item *models.MediaItem, itr string) (
 	return images, Err
 }
 
-func getCurrentCollectionImages(ctx context.Context, collectionItem *models.CollectionItem, itr string) ([]EmbyJellyItemImagesResponse, logging.LogErrorInfo) {
+func getCurrentCollectionImages(ctx context.Context, msConfig config.Config_MediaServer, collectionItem *models.CollectionItem, itr string) ([]EmbyJellyItemImagesResponse, logging.LogErrorInfo) {
 	ctx, logAction := logging.AddSubActionToContext(ctx, fmt.Sprintf(
 		"%s: Getting %s Images for Collection %s",
-		config.Current.MediaServer.Type, itr, utils.CollectionItemInfo(*collectionItem),
+		msConfig.Type, itr, utils.CollectionItemInfo(*collectionItem),
 	), logging.LevelDebug)
 	defer logAction.Complete()
 
@@ -69,7 +69,7 @@ func getCurrentCollectionImages(ctx context.Context, collectionItem *models.Coll
 	Err := logging.LogErrorInfo{}
 
 	// Construct the URL for the EJ server API request
-	u, err := url.Parse(config.Current.MediaServer.URL)
+	u, err := url.Parse(msConfig.URL)
 	if err != nil {
 		logAction.SetError(logging.Error_BaseUrlParsing(err))
 		return images, *logAction.Error
@@ -78,7 +78,7 @@ func getCurrentCollectionImages(ctx context.Context, collectionItem *models.Coll
 	URL := u.String()
 
 	// Make the HTTP Request to EJ
-	resp, respBody, Err := makeRequest(ctx, config.Current.MediaServer, URL, "GET", nil)
+	resp, respBody, Err := makeRequest(ctx, msConfig, URL, "GET", nil)
 	if Err.Message != "" {
 		logAction.SetErrorFromInfo(Err)
 		return images, *logAction.Error
@@ -86,9 +86,9 @@ func getCurrentCollectionImages(ctx context.Context, collectionItem *models.Coll
 	defer resp.Body.Close()
 
 	// Decode the Response
-	Err = httpx.DecodeResponseToJSON(ctx, respBody, &images, fmt.Sprintf("%s Collection Images Response", config.Current.MediaServer.Type))
+	Err = httpx.DecodeResponseToJSON(ctx, respBody, &images, fmt.Sprintf("%s Collection Images Response", msConfig.Type))
 	if Err.Message != "" {
-		return images, *logAction.Error
+		return images, Err
 	}
 
 	logAction.AppendResult("image_count", len(images))
@@ -118,17 +118,17 @@ func findNewImage(ctx context.Context, currentImages, newImages []EmbyJellyItemI
 	return EmbyJellyItemImagesResponse{}
 }
 
-func updateImageIndex(ctx context.Context, item *models.MediaItem, image EmbyJellyItemImagesResponse) (Err logging.LogErrorInfo) {
+func updateImageIndex(ctx context.Context, msConfig config.Config_MediaServer, item *models.MediaItem, image EmbyJellyItemImagesResponse) (Err logging.LogErrorInfo) {
 	ctx, logAction := logging.AddSubActionToContext(ctx, fmt.Sprintf(
 		"%s: Updating Image Index for Backdrop Image on %s",
-		config.Current.MediaServer.Type, utils.MediaItemInfo(*item),
+		msConfig.Type, utils.MediaItemInfo(*item),
 	), logging.LevelDebug)
 	defer logAction.Complete()
 
 	Err = logging.LogErrorInfo{}
 
 	// Construct the URL for the EJ server API request
-	u, err := url.Parse(config.Current.MediaServer.URL)
+	u, err := url.Parse(msConfig.URL)
 	if err != nil {
 		logAction.SetError(logging.Error_BaseUrlParsing(err))
 		return *logAction.Error
@@ -140,7 +140,7 @@ func updateImageIndex(ctx context.Context, item *models.MediaItem, image EmbyJel
 	URL := u.String()
 
 	// Make the HTTP Request to EJ
-	resp, _, Err := makeRequest(ctx, config.Current.MediaServer, URL, "POST", nil)
+	resp, _, Err := makeRequest(ctx, msConfig, URL, "POST", nil)
 	if Err.Message != "" {
 		logAction.SetErrorFromInfo(Err)
 		return *logAction.Error
@@ -151,17 +151,17 @@ func updateImageIndex(ctx context.Context, item *models.MediaItem, image EmbyJel
 	return Err
 }
 
-func updateCollectionImageIndex(ctx context.Context, collectionItem *models.CollectionItem, image EmbyJellyItemImagesResponse) (Err logging.LogErrorInfo) {
+func updateCollectionImageIndex(ctx context.Context, msConfig config.Config_MediaServer, collectionItem *models.CollectionItem, image EmbyJellyItemImagesResponse) (Err logging.LogErrorInfo) {
 	ctx, logAction := logging.AddSubActionToContext(ctx, fmt.Sprintf(
 		"%s: Updating Image Index for Collection Backdrop Image on Collection %s",
-		config.Current.MediaServer.Type, utils.CollectionItemInfo(*collectionItem),
+		msConfig.Type, utils.CollectionItemInfo(*collectionItem),
 	), logging.LevelDebug)
 	defer logAction.Complete()
 
 	Err = logging.LogErrorInfo{}
 
 	// Construct the URL for the EJ server API request
-	u, err := url.Parse(config.Current.MediaServer.URL)
+	u, err := url.Parse(msConfig.URL)
 	if err != nil {
 		logAction.SetError(logging.Error_BaseUrlParsing(err))
 		return *logAction.Error
@@ -173,7 +173,7 @@ func updateCollectionImageIndex(ctx context.Context, collectionItem *models.Coll
 	URL := u.String()
 
 	// Make the HTTP Request to EJ
-	resp, _, Err := makeRequest(ctx, config.Current.MediaServer, URL, "POST", nil)
+	resp, _, Err := makeRequest(ctx, msConfig, URL, "POST", nil)
 	if Err.Message != "" {
 		logAction.SetErrorFromInfo(Err)
 		return *logAction.Error
@@ -184,10 +184,10 @@ func updateCollectionImageIndex(ctx context.Context, collectionItem *models.Coll
 	return Err
 }
 
-func uploadImage(ctx context.Context, item *models.MediaItem, itemRatingKey string, imageFile models.ImageFile, imageData []byte) (Err logging.LogErrorInfo) {
+func uploadImage(ctx context.Context, msConfig config.Config_MediaServer, item *models.MediaItem, itemRatingKey string, imageFile models.ImageFile, imageData []byte, imageType string) (Err logging.LogErrorInfo) {
 	ctx, logAction := logging.AddSubActionToContext(ctx, fmt.Sprintf(
 		"%s: Uploading %s Image for %s",
-		config.Current.MediaServer.Type, utils.GetFileDownloadName(item.Title, imageFile), utils.MediaItemInfo(*item),
+		msConfig.Type, utils.GetFileDownloadName(item.Title, imageFile), utils.MediaItemInfo(*item),
 	), logging.LevelDebug)
 	defer logAction.Complete()
 	Err = logging.LogErrorInfo{}
@@ -198,7 +198,7 @@ func uploadImage(ctx context.Context, item *models.MediaItem, itemRatingKey stri
 	}
 
 	// Construct the URL for the EJ server API request
-	u, err := url.Parse(config.Current.MediaServer.URL)
+	u, err := url.Parse(msConfig.URL)
 	if err != nil {
 		logAction.SetError(logging.Error_BaseUrlParsing(err))
 		return *logAction.Error
@@ -210,7 +210,7 @@ func uploadImage(ctx context.Context, item *models.MediaItem, itemRatingKey stri
 	base64ImageData := base64.StdEncoding.EncodeToString(imageData)
 
 	// Make the HTTP Request to EJ
-	resp, _, Err := makeRequest(ctx, config.Current.MediaServer, URL, "POST", []byte(base64ImageData))
+	resp, _, Err := makeRequest(ctx, msConfig, URL, "POST", []byte(base64ImageData), imageType)
 	if Err.Message != "" {
 		logAction.SetErrorFromInfo(Err)
 		return Err
@@ -220,10 +220,10 @@ func uploadImage(ctx context.Context, item *models.MediaItem, itemRatingKey stri
 	return Err
 }
 
-func uploadCollectionImage(ctx context.Context, collectionItem *models.CollectionItem, imageFile models.ImageFile, imageData []byte) (Err logging.LogErrorInfo) {
+func uploadCollectionImage(ctx context.Context, msConfig config.Config_MediaServer, collectionItem *models.CollectionItem, imageFile models.ImageFile, imageData []byte, imageType string) (Err logging.LogErrorInfo) {
 	ctx, logAction := logging.AddSubActionToContext(ctx, fmt.Sprintf(
 		"%s: Uploading %s Image for Collection %s",
-		config.Current.MediaServer.Type, utils.GetFileDownloadName(collectionItem.Title, imageFile), utils.CollectionItemInfo(*collectionItem),
+		msConfig.Type, utils.GetFileDownloadName(collectionItem.Title, imageFile), utils.CollectionItemInfo(*collectionItem),
 	), logging.LevelDebug)
 	defer logAction.Complete()
 	Err = logging.LogErrorInfo{}
@@ -236,7 +236,7 @@ func uploadCollectionImage(ctx context.Context, collectionItem *models.Collectio
 	}
 
 	// Construct the URL for the EJ server API request
-	u, err := url.Parse(config.Current.MediaServer.URL)
+	u, err := url.Parse(msConfig.URL)
 	if err != nil {
 		logAction.SetError(logging.Error_BaseUrlParsing(err))
 		return *logAction.Error
@@ -248,7 +248,7 @@ func uploadCollectionImage(ctx context.Context, collectionItem *models.Collectio
 	base64ImageData := base64.StdEncoding.EncodeToString(imageData)
 
 	// Make the HTTP Request to EJ
-	resp, _, Err := makeRequest(ctx, config.Current.MediaServer, URL, "POST", []byte(base64ImageData))
+	resp, _, Err := makeRequest(ctx, msConfig, URL, "POST", []byte(base64ImageData), imageType)
 	if Err.Message != "" {
 		logAction.SetErrorFromInfo(Err)
 		return *logAction.Error

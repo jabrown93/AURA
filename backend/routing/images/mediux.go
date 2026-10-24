@@ -7,7 +7,6 @@ import (
 	"aura/utils"
 	"aura/utils/httpx"
 	"net/http"
-	"time"
 )
 
 // GetMediuxImage godoc
@@ -57,16 +56,18 @@ func GetMediuxImage(w http.ResponseWriter, r *http.Request) {
 	if Err.Message != "" {
 		httpx.SendResponse(w, ld, nil)
 		return
+	} else if len(imageData) == 0 {
+		logAction.SetError("Image not found", "No image found for the provided asset ID and modified date",
+			map[string]any{
+				"asset_id":      assetID,
+				"modified_date": modifiedDate,
+				"quality":       quality,
+			})
+		httpx.SendResponse(w, ld, nil)
+		return
 	}
 
 	w.Header().Set("Content-Type", imageType)
-	cacheControl := unversionedImageCacheControl
-	if assetID != "" {
-		if _, err := time.Parse(time.RFC3339Nano, modifiedDate); err == nil {
-			cacheControl = versionedImageCacheControl
-		}
-	}
-	w.Header().Set("Cache-Control", cacheControl)
 	w.WriteHeader(http.StatusOK)
 	w.Write(imageData)
 }
@@ -90,7 +91,11 @@ func GetMediuxAvatarImage(w http.ResponseWriter, r *http.Request) {
 	username := r.URL.Query().Get("username")
 
 	if avatarID == "" && username == "" {
-		logAction.SetError("Missing avatar identifier", "avatar_id or username is required", nil)
+		logAction.SetError("Missing parameters", "Either avatar_id or username must be provided",
+			map[string]any{
+				"avatar_id": avatarID,
+				"username":  username,
+			})
 		httpx.SendResponse(w, ld, nil)
 		return
 	} else if avatarID == "" && username != "" {
@@ -99,7 +104,10 @@ func GetMediuxAvatarImage(w http.ResponseWriter, r *http.Request) {
 		if found && cachedUser.Avatar != "" {
 			avatarID = cachedUser.Avatar
 		} else {
-			logAction.SetError("MediUX user avatar not found", "No avatar was found for the supplied username", map[string]any{"username": username})
+			logAction.SetError("User not found", "No user found with the provided username",
+				map[string]any{
+					"username": username,
+				})
 			httpx.SendResponse(w, ld, nil)
 			return
 		}
@@ -109,10 +117,16 @@ func GetMediuxAvatarImage(w http.ResponseWriter, r *http.Request) {
 	if Err.Message != "" {
 		httpx.SendResponse(w, ld, nil)
 		return
+	} else if len(imageData) == 0 {
+		logAction.SetError("Avatar image not found", "No avatar image found for the provided avatar ID",
+			map[string]any{
+				"avatar_id": avatarID,
+			})
+		httpx.SendResponse(w, ld, nil)
+		return
 	}
 
 	w.Header().Set("Content-Type", imageType)
-	w.Header().Set("Cache-Control", unversionedImageCacheControl)
 	w.WriteHeader(http.StatusOK)
 	w.Write(imageData)
 

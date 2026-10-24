@@ -1,59 +1,59 @@
 package jobs
 
 import (
+	"aura/config"
 	"aura/logging"
 	"aura/mediaserver"
 	"context"
-
-	"github.com/go-co-op/gocron/v2"
-	"github.com/google/uuid"
 )
+
+func runRefreshMediaItemsAndCollectionsJobBody(ctx context.Context) {
+	defer func() {
+		if r := recover(); r != nil {
+			logging.LOGGER.Error().Timestamp().Interface("recover", r).Msg("PANIC: in RefreshMediaItemsAndCollectionsJob")
+		}
+	}()
+	ctx, ld := logging.CreateLoggingContext(ctx, "Cron Job")
+	action := ld.AddAction("Refresh Media Items and Collections", logging.LevelInfo)
+	ctx = logging.WithCurrentAction(ctx, action)
+	mediaserver.GetAllLibrarySectionsAndItems(ctx, true)
+	ld.Log()
+}
 
 func StartRefreshMediaItemsAndCollectionsJob() error {
 	mu.Lock()
 	defer mu.Unlock()
 
-	if sched == nil {
+	if c == nil {
 		logging.LOGGER.Error().Timestamp().Msg("Cron Jobs Scheduler is not initialized")
 		return nil
 	}
 
-	if refreshMediaItemsAndCollectionsJobID != uuid.Nil {
-		if err := sched.RemoveJob(refreshMediaItemsAndCollectionsJobID); err != nil {
-			logging.LOGGER.Error().Timestamp().Err(err).Msg("Failed to remove existing Refresh Media Items and Collections Job")
-		}
-		refreshMediaItemsAndCollectionsJobID = uuid.Nil
-		refreshMediaItemsAndCollectionsJob = nil
+	removeScheduledJob(JobKeyRefreshMediaItemsAndCollections)
+
+	enabled, spec := config.Current.Jobs.RefreshMediaItemsAndCollections.Resolve(config.JobDefaults.RefreshMediaItemsAndCollections)
+	if !enabled {
+		logging.LOGGER.Info().Timestamp().Msg("Refresh Media Items and Collections Job Stopped")
+		return nil
 	}
 
-	spec := "*/90 * * * *"
-	job, err := sched.NewJob(
-		gocron.CronJob(spec, false),
-		gocron.NewTask(configureJobRunner("Refresh Media Items and Collections Job", func() {
-			defer func() {
-				if r := recover(); r != nil {
-					logging.LOGGER.Error().Timestamp().Interface("recover", r).Msg("PANIC: in scheduled RefreshMediaItemsAndCollectionsJob")
-				}
-			}()
-			ctx, ld := logging.CreateLoggingContext(context.Background(), "Cron Job")
-			action := ld.AddAction("Refresh Media Items and Collections", logging.LevelInfo)
-			ctx = logging.WithCurrentAction(ctx, action)
-			mediaserver.GetAllLibrarySectionsAndItems(ctx, true)
-			ld.Log()
-		}).runScheduled),
-		gocron.WithName("Refresh Media Items and Collections Job"),
-		gocron.WithSingletonMode(gocron.LimitModeReschedule),
-	)
-	if err != nil {
+	if err := addScheduledJob(JobKeyRefreshMediaItemsAndCollections, spec, func() {
+		runRefreshMediaItemsAndCollectionsJobBody(context.Background())
+	}); err != nil {
 		return err
 	}
-	refreshMediaItemsAndCollectionsJob = job
-	refreshMediaItemsAndCollectionsJobID = job.ID()
-	jobSpecs[refreshMediaItemsAndCollectionsJobID] = spec
 
 	logging.LOGGER.Info().Timestamp().
 		Str("cron", spec).
-		Str("interval", "every 90 minutes").
 		Msg("Refresh Media Items and Collections Job Started")
 	return nil
+}
+
+func RunRefreshMediaItemsAndCollectionsJobNow() {
+	go func() {
+		defer releaseJob(JobKeyRefreshMediaItemsAndCollections) // Fork: pairs with claimJob in TriggerJob
+		defer logging.RecoverPanic("Refresh Media Items and Collections Job")
+		recordManualRun(JobKeyRefreshMediaItemsAndCollections)
+		runRefreshMediaItemsAndCollectionsJobBody(context.Background())
+	}()
 }

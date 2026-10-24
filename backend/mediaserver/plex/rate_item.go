@@ -1,7 +1,6 @@
 package plex
 
 import (
-	"aura/config"
 	"aura/logging"
 	"aura/models"
 	"aura/utils"
@@ -21,7 +20,7 @@ func (c *Plex) RateMediaItem(ctx context.Context, item *models.MediaItem, rating
 	Err = logging.LogErrorInfo{}
 
 	// Construct the URL for the Plex API request
-	u, err := url.Parse(config.Current.MediaServer.URL)
+	u, err := url.Parse(c.Config.URL)
 	if err != nil {
 		logAction.SetError(logging.Error_BaseUrlParsing(err))
 		return *logAction.Error
@@ -35,7 +34,7 @@ func (c *Plex) RateMediaItem(ctx context.Context, item *models.MediaItem, rating
 	URL := u.String()
 
 	// Make the HTTP Request to Plex
-	resp, _, Err := makeRequest(ctx, config.Current.MediaServer, URL, "PUT", nil)
+	resp, _, Err := makeRequest(ctx, c.Config, URL, "PUT", nil)
 	if Err.Message != "" {
 		logAction.SetErrorFromInfo(Err)
 		return *logAction.Error

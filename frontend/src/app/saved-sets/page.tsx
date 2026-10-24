@@ -5,14 +5,21 @@ import { ReturnErrorMessage } from "@/services/api-error-return";
 import { AutoDownloadForceCheck, type AutodownloadResult } from "@/services/database/autodownload-force-check";
 import { DeleteItemFromDB } from "@/services/database/delete";
 import { getAllItemsFromDB } from "@/services/database/get-all";
+import { UpdateItemInDB } from "@/services/database/update";
+import { UpgradeSavedSets, upgradeSetsMessage } from "@/services/downloads/favorite-creators";
 import { AddItemToDownloadQueue } from "@/services/downloads/queue-add";
 import { ApplyLabelsAndTagsToItem } from "@/services/labels-tags/apply";
+import { GetLibrarySummaries } from "@/services/mediaserver/library-items";
 import {
+  ArrowBigUpDash,
   ArrowDownAZ,
   ArrowDownZA,
+  BookmarkIcon,
   ClockArrowDown,
   ClockArrowUp,
+  CloudCheck,
   CloudDownload,
+  CloudOff,
   RefreshCcw as RefreshIcon,
   Tag,
   Trash2,
@@ -28,6 +35,7 @@ import { ErrorMessage } from "@/components/shared/error-message";
 import { FilterSavedSets } from "@/components/shared/filter-saved-sets";
 import Loader from "@/components/shared/loader";
 import { RefreshButton } from "@/components/shared/refresh-button";
+import { RefreshProgress } from "@/components/shared/refresh-progress";
 import { ResponsiveGrid } from "@/components/shared/responsive-grid";
 import SavedSetsCard from "@/components/shared/saved-sets-cards";
 import SavedSetsTableRow from "@/components/shared/saved-sets-table";
@@ -36,17 +44,26 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectSeparator,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Table, TableBody, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 import { cn } from "@/lib/cn";
 import { log } from "@/lib/logger";
-import { useLibrarySectionsStore } from "@/lib/stores/global-store-library-sections";
 import { useSearchQueryStore } from "@/lib/stores/global-store-search-query";
 import { useSavedSetsPageStore } from "@/lib/stores/page-store-saved-sets";
 
 import { extractInfoFromSearchQuery } from "@/hooks/search-query";
+import { useRefreshing } from "@/hooks/use-refreshing";
 
 import type { APIResponse } from "@/types/api/api-response";
 import type { DBSavedItem } from "@/types/database/db-poster-set";
@@ -54,17 +71,38 @@ import type { DBSavedItem } from "@/types/database/db-poster-set";
 const SavedSetsPage: React.FC = () => {
   const [savedSets, setSavedSets] = useState<DBSavedItem[]>([]);
   const [loading, setLoading] = useState(true);
+  // A refresh keeps the page showing, with its progress at the top
+  const [refreshing, handleRefresh] = useRefreshing(() => fetchSavedSets());
   const [error, setError] = useState<APIResponse<unknown> | null>(null);
   const isFetchingRef = useRef(false);
   const { searchQuery, setSearchQuery } = useSearchQueryStore();
   const [recheckStatus, setRecheckStatus] = useState<Record<string, AutodownloadResult>>({});
 
   const [bulkEditMode, setBulkEditMode] = useState(false);
-  const [bulkEditActionsList] = useState<{ value: string; label: string }[]>([
-    { value: "force-recheck", label: "Force Autodownload Recheck" },
-    { value: "apply-label-tag", label: "Apply Labels/Tags" },
-    { value: "delete-selected", label: "Delete Selected Sets" },
-    { value: "force-redownload", label: "Force Redownload" },
+  const [bulkEditActionGroups] = useState<{ group: string; actions: { value: string; label: string }[] }[]>([
+    {
+      group: "Autodownload",
+      actions: [
+        { value: "force-recheck", label: "Force Autodownload Recheck" },
+        { value: "enable-autodownload", label: "Enable Autodownload" },
+        { value: "disable-autodownload", label: "Disable Autodownload" },
+      ],
+    },
+    {
+      group: "Downloads",
+      actions: [
+        { value: "force-redownload", label: "Force Redownload" },
+        { value: "upgrade-sets", label: "Upgrade to Favorite Creators" },
+      ],
+    },
+    {
+      group: "Metadata",
+      actions: [{ value: "apply-label-tag", label: "Apply Labels/Tags" }],
+    },
+    {
+      group: "Danger Zone",
+      actions: [{ value: "delete-selected", label: "Delete Selected Sets" }],
+    },
   ]);
   const [bulkEditSelectedAction, setBulkEditSelectedAction] = useState<string>("");
   const [bulkEditSelectedItems, setBulkEditSelectedItems] = useState<Set<string>>(new Set());
@@ -94,9 +132,16 @@ const SavedSetsPage: React.FC = () => {
     setFilterMediaItemOnServer,
   } = useSavedSetsPageStore();
 
-  // Get the library options from Global Library Store
-  const { getSectionSummaries } = useLibrarySectionsStore();
-  const librarySectionsLoaded = useLibrarySectionsStore((state) => state.hasHydrated);
+  // The library options, from aura
+  const [librarySummaries, setLibrarySummaries] = useState<{ title: string; type: string }[]>([]);
+  const [librarySectionsLoaded, setLibrarySectionsLoaded] = useState(false);
+  useEffect(() => {
+    void GetLibrarySummaries().then((libraries) => {
+      setLibrarySummaries(libraries);
+      setLibrarySectionsLoaded(true);
+    });
+  }, []);
+  const getSectionSummaries = useCallback(() => librarySummaries, [librarySummaries]);
 
   // User Filter Options: all unique users from the savedSets
   const [filterUserOptions, setFilterUserOptions] = useState<string[]>([]);
@@ -161,7 +206,8 @@ const SavedSetsPage: React.FC = () => {
       }
 
       if (!response.data) {
-        setError(ReturnErrorMessage<Error>("No saved sets found in the database"));
+        // Nothing saved yet is not an error
+        setError(null);
         setSavedSets([]);
         setTotalItems(0);
         setFilterUserOptions([]);
@@ -223,7 +269,21 @@ const SavedSetsPage: React.FC = () => {
   // Calculate total pages
   const totalPages = Math.ceil(totalItems / itemsPerPage);
 
-  if (loading) {
+  // Whether a filter or search is applied
+  const hasActiveFilters =
+    !!searchQuery ||
+    filteredLibraries.length > 0 ||
+    !!filterAutoDownload ||
+    filteredUsers.length > 0 ||
+    filteredTypes.length > 0 ||
+    !!filterMediaItemOnServer ||
+    !!filterMultiSetOnly;
+
+  // Nothing saved yet, so only show the empty state
+  const nothingSavedYet =
+    (!savedSets || savedSets.length === 0) && !hasActiveFilters && !Object.keys(recheckStatus).length;
+
+  if (loading && !refreshing) {
     return <Loader className="mt-10" message="Loading saved sets..." />;
   }
 
@@ -358,6 +418,50 @@ const SavedSetsPage: React.FC = () => {
     fetchSavedSets();
   };
 
+  const actionBulkSetAutodownload = async (setsToUpdate: DBSavedItem[], autoDownload: boolean) => {
+    const actionLabel = autoDownload ? "Enable Autodownload" : "Disable Autodownload";
+    log(
+      "INFO",
+      "Saved Sets Page",
+      actionLabel,
+      `Setting autodownload to ${autoDownload} for ${setsToUpdate.length} sets`,
+      { setsToUpdate }
+    );
+
+    toast.loading(`Updating autodownload for ${setsToUpdate.length} sets...`, {
+      id: "bulk-set-autodownload",
+      duration: 0, // Keep it open until we manually close it
+    });
+
+    for (const [index, set] of setsToUpdate.entries()) {
+      toast.loading(`Updating ${index + 1} of ${setsToUpdate.length} - ${set.media_item.title}`, {
+        id: "bulk-set-autodownload",
+        duration: 0, // Keep it open until we manually close it
+      });
+
+      const updatedSet: DBSavedItem = {
+        ...set,
+        poster_sets: set.poster_sets.map((posterSet) => ({
+          ...posterSet,
+          auto_download: autoDownload,
+        })),
+      };
+
+      const response = await UpdateItemInDB(updatedSet);
+      if (response.status === "error") {
+        toast.error(response.error?.message || `Failed to update ${set.media_item.title}`);
+      }
+    }
+
+    toast.success(`Autodownload ${autoDownload ? "enabled" : "disabled"} successfully`, {
+      id: "bulk-set-autodownload",
+      duration: 2000,
+    });
+
+    setBulkEditSelectedItems(new Set());
+    fetchSavedSets();
+  };
+
   const actionApplyLabelsTags = async (setsToApply: DBSavedItem[]) => {
     log("INFO", "Saved Sets Page", "Apply Labels/Tags", `Applying labels/tags to ${setsToApply.length} sets`, {
       setsToApply,
@@ -382,6 +486,25 @@ const SavedSetsPage: React.FC = () => {
       id: "apply-labels-tags",
       duration: 2000,
     });
+  };
+
+  // actionUpgradeSets replaces the selected sets with a set from a higher ranked favorite creator
+  const actionUpgradeSets = async (setsToUpgrade: DBSavedItem[]) => {
+    toast.loading(`Checking ${setsToUpgrade.length} ${setsToUpgrade.length === 1 ? "item" : "items"} for upgrades...`, {
+      id: "upgrade-sets",
+    });
+    const response = await UpgradeSavedSets(
+      setsToUpgrade.map((set) => ({
+        tmdb_id: set.media_item.tmdb_id,
+        library_title: set.media_item.library_title,
+        edition: set.media_item.edition ?? "",
+      }))
+    );
+    if (response.status === "error" || !response.data) {
+      toast.error(response.error?.message || "Could not upgrade the selected sets", { id: "upgrade-sets" });
+      return;
+    }
+    toast.success(upgradeSetsMessage(response.data), { id: "upgrade-sets", duration: 5000 });
   };
 
   const actionDeleteSelectedSets = async (setsToDelete: DBSavedItem[]) => {
@@ -446,12 +569,18 @@ const SavedSetsPage: React.FC = () => {
 
     if (bulkEditSelectedAction === "force-recheck") {
       actionForceAutoDownloadRecheck(selectedSavedItems as DBSavedItem[]);
+    } else if (bulkEditSelectedAction === "enable-autodownload") {
+      actionBulkSetAutodownload(selectedSavedItems as DBSavedItem[], true);
+    } else if (bulkEditSelectedAction === "disable-autodownload") {
+      actionBulkSetAutodownload(selectedSavedItems as DBSavedItem[], false);
     } else if (bulkEditSelectedAction === "apply-label-tag") {
       actionApplyLabelsTags(selectedSavedItems as DBSavedItem[]);
     } else if (bulkEditSelectedAction === "delete-selected") {
       actionDeleteSelectedSets(selectedSavedItems as DBSavedItem[]);
     } else if (bulkEditSelectedAction === "force-redownload") {
       actionForceRedownload(selectedSavedItems as DBSavedItem[]);
+    } else if (bulkEditSelectedAction === "upgrade-sets") {
+      actionUpgradeSets(selectedSavedItems as DBSavedItem[]);
     }
 
     // Set the Selected Action back to empty
@@ -460,74 +589,80 @@ const SavedSetsPage: React.FC = () => {
 
   return (
     <div className="container mx-auto p-4 min-h-screen flex flex-col items-center">
-      {/* Row 1: Filter Icon (left), Autodownload (right) */}
-      <div className="w-full flex items-center justify-between mb-2">
-        <div>
-          <FilterSavedSets
-            getSectionSummaries={getSectionSummaries}
-            librarySectionsLoaded={librarySectionsLoaded}
-            filteredLibraries={filteredLibraries}
-            setFilteredLibraries={setFilteredLibraries}
-            typeOptions={typeOptions}
-            filteredTypes={filteredTypes}
-            setFilteredTypes={setFilteredTypes}
-            filterAutoDownload={filterAutoDownload}
-            setFilterAutoDownload={setFilterAutoDownload}
-            filterUserOptions={filterUserOptions}
-            filteredUsers={filteredUsers}
-            setFilteredUsers={setFilteredUsers}
-            filterMultiSetOnly={filterMultiSetOnly}
-            setFilterMultiSetOnly={setFilterMultiSetOnly}
-            searchTitle={searchTitle}
-            searchYear={searchYear}
-            searchTMDBID={searchTMDBID}
-            searchLibrary={searchLibrary}
-            sortOption={sortOption}
-            sortOrder={sortOrder}
-            setSortOption={setSortOption}
-            setSortOrder={setSortOrder}
-            setCurrentPage={setCurrentPage}
-            itemsPerPage={itemsPerPage}
-            setItemsPerPage={setItemsPerPage}
-            filterMediaItemOnServer={filterMediaItemOnServer}
-            setFilterMediaItemOnServer={setFilterMediaItemOnServer}
-          />
-        </div>
+      {refreshing && <RefreshProgress title="Loading the saved sets from the database" />}
 
-        {/* Bulk Edit Mode Button  */}
-        <div>
-          <Button
-            variant={bulkEditMode ? "destructive" : "secondary"}
-            onClick={handleBulkEditButtonToggleClick}
-            className={cn(
-              "flex items-center gap-1 text-xs sm:text-sm cursor-pointer",
-              bulkEditMode
-                ? "border-red-600 bg-red-600/10 hover:bg-red-600/20"
-                : "border border-1 border-yellow-500 hover:bg-yellow-800"
-            )}
-          >
-            {bulkEditMode ? "Cancel Bulk Edit" : "Bulk Edit"}
-          </Button>
+      {/* Row 1: Filter Icon (left), Autodownload (right) */}
+      {!nothingSavedYet && (
+        <div className="w-full flex items-center justify-between mb-2">
+          <div>
+            <FilterSavedSets
+              getSectionSummaries={getSectionSummaries}
+              librarySectionsLoaded={librarySectionsLoaded}
+              filteredLibraries={filteredLibraries}
+              setFilteredLibraries={setFilteredLibraries}
+              typeOptions={typeOptions}
+              filteredTypes={filteredTypes}
+              setFilteredTypes={setFilteredTypes}
+              filterAutoDownload={filterAutoDownload}
+              setFilterAutoDownload={setFilterAutoDownload}
+              filterUserOptions={filterUserOptions}
+              filteredUsers={filteredUsers}
+              setFilteredUsers={setFilteredUsers}
+              filterMultiSetOnly={filterMultiSetOnly}
+              setFilterMultiSetOnly={setFilterMultiSetOnly}
+              searchTitle={searchTitle}
+              searchYear={searchYear}
+              searchTMDBID={searchTMDBID}
+              searchLibrary={searchLibrary}
+              sortOption={sortOption}
+              sortOrder={sortOrder}
+              setSortOption={setSortOption}
+              setSortOrder={setSortOrder}
+              setCurrentPage={setCurrentPage}
+              itemsPerPage={itemsPerPage}
+              setItemsPerPage={setItemsPerPage}
+              filterMediaItemOnServer={filterMediaItemOnServer}
+              setFilterMediaItemOnServer={setFilterMediaItemOnServer}
+            />
+          </div>
+
+          {/* Bulk Edit Mode Button, hidden when there are no sets */}
+          <div className={cn(!bulkEditMode && (!savedSets || savedSets.length === 0) && "hidden")}>
+            <Button
+              variant={bulkEditMode ? "destructive" : "secondary"}
+              onClick={handleBulkEditButtonToggleClick}
+              className={cn(
+                "flex items-center gap-1 text-xs sm:text-sm cursor-pointer",
+                bulkEditMode
+                  ? "border-red-600 bg-red-600/10 hover:bg-red-600/20"
+                  : "border border-1 border-yellow-500 hover:bg-yellow-800"
+              )}
+            >
+              {bulkEditMode ? "Cancel Bulk Edit" : "Bulk Edit"}
+            </Button>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Row 2: ViewControl (right) */}
-      <div className="w-full flex items-center justify-end mb-0">
-        {isWideScreen && (
-          <ViewControl
-            options={[
-              { value: "card", label: "Card View" },
-              { value: "table", label: "Table View" },
-            ]}
-            viewOption={viewOption}
-            setViewOption={setViewOption}
-            label="View:"
-            showLabel={true}
-          />
-        )}
-      </div>
+      {!nothingSavedYet && (
+        <div className="w-full flex items-center justify-end mb-0">
+          {isWideScreen && (
+            <ViewControl
+              options={[
+                { value: "card", label: "Card View" },
+                { value: "table", label: "Table View" },
+              ]}
+              viewOption={viewOption}
+              setViewOption={setViewOption}
+              label="View:"
+              showLabel={true}
+            />
+          )}
+        </div>
+      )}
 
-      <Separator className="mt-0 my-4 w-full" />
+      {!nothingSavedYet && <Separator className="mt-0 my-4 w-full" />}
 
       {Object.keys(recheckStatus).length > 0 && (
         <div className="w-full">
@@ -633,62 +768,75 @@ const SavedSetsPage: React.FC = () => {
         </div>
       )}
 
-      {/* If there are no saved sets, show a message */}
-      {(!savedSets || savedSets.length === 0) && !loading && !error && !Object.keys(recheckStatus).length && (
-        <div className="w-full">
-          <ErrorMessage
-            error={ReturnErrorMessage<string>(
-              [
-                `No ${filterMultiSetOnly ? "Multi-Poster" : ""} Sets found`,
-                filteredLibraries.length > 0 ? `in ${filteredLibraries.map((lib) => `"${lib}"`).join(", ")}` : null,
-                filterAutoDownload === "on"
-                  ? "that are set to Auto Download"
-                  : filterAutoDownload === "off"
-                    ? "that are not set to Auto Download"
-                    : null,
-                filteredTypes.length > 0
-                  ? `with ${makePlural(filteredTypes.length, "type")} ${filteredTypes
-                      .map((t) => `"${typeOptions.find((opt) => opt.value === t)?.label || t}"`)
-                      .join(", ")}`
-                  : null,
-                filteredUsers.length > 0
-                  ? `for ${makePlural(filteredUsers.length, "user")} ${filteredUsers
-                      .map((u) => (u === "|||no-user|||" ? '"No User"' : `"${u}"`))
-                      .join(", ")}`
-                  : null,
-                searchQuery ? `matching "${searchQuery}"` : null,
-              ]
-                .filter(Boolean)
-                .join("\n")
-            )}
-          />
-          <div className="text-center text-muted-foreground mt-4">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setSearchQuery("");
-                setFilteredLibraries([]);
-                if (setFilterAutoDownload) setFilterAutoDownload("");
-                setFilteredUsers([]);
-                setFilteredTypes([]);
-                setFilterMediaItemOnServer("");
-                setCurrentPage(1);
-                if (filterMultiSetOnly) setFilterMultiSetOnly(false);
-              }}
-              className="text-sm"
-            >
-              <XCircle className="inline mr-1" />
-              Clear All Filters & Search Query
-            </Button>
-          </div>
+      {/* If nothing has been saved yet, explain how to save a set */}
+      {nothingSavedYet && (
+        <div className="mx-auto mt-10 flex max-w-md flex-col items-center gap-2 text-center">
+          <BookmarkIcon className="h-10 w-10 text-muted-foreground" />
+          <p className="text-lg font-medium">No saved sets yet</p>
+          <p className="text-sm text-muted-foreground">Once you have saved a set, it will appear here.</p>
         </div>
       )}
 
+      {/* If no saved sets match the filters or search */}
+      {(!savedSets || savedSets.length === 0) &&
+        !loading &&
+        !error &&
+        !Object.keys(recheckStatus).length &&
+        hasActiveFilters && (
+          <div className="w-full">
+            <ErrorMessage
+              error={ReturnErrorMessage<string>(
+                [
+                  `No ${filterMultiSetOnly ? "Multi-Poster" : ""} Sets found`,
+                  filteredLibraries.length > 0 ? `in ${filteredLibraries.map((lib) => `"${lib}"`).join(", ")}` : null,
+                  filterAutoDownload === "on"
+                    ? "that are set to Auto Download"
+                    : filterAutoDownload === "off"
+                      ? "that are not set to Auto Download"
+                      : null,
+                  filteredTypes.length > 0
+                    ? `with ${makePlural(filteredTypes.length, "type")} ${filteredTypes
+                        .map((t) => `"${typeOptions.find((opt) => opt.value === t)?.label || t}"`)
+                        .join(", ")}`
+                    : null,
+                  filteredUsers.length > 0
+                    ? `for ${makePlural(filteredUsers.length, "user")} ${filteredUsers
+                        .map((u) => (u === "|||no-user|||" ? '"No User"' : `"${u}"`))
+                        .join(", ")}`
+                    : null,
+                  searchQuery ? `matching "${searchQuery}"` : null,
+                ]
+                  .filter(Boolean)
+                  .join("\n")
+              )}
+            />
+            <div className="text-center text-muted-foreground mt-4">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setSearchQuery("");
+                  setFilteredLibraries([]);
+                  if (setFilterAutoDownload) setFilterAutoDownload("");
+                  setFilteredUsers([]);
+                  setFilteredTypes([]);
+                  setFilterMediaItemOnServer("");
+                  setCurrentPage(1);
+                  if (filterMultiSetOnly) setFilterMultiSetOnly(false);
+                }}
+                className="text-sm"
+              >
+                <XCircle className="inline mr-1" />
+                Clear All Filters & Search Query
+              </Button>
+            </div>
+          </div>
+        )}
+
       {/* Table View (only available for larger screens) */}
       {viewOption === "table" && savedSets && savedSets.length > 0 && (
-        <Table>
-          <TableHeader>
+        <Table className="border-separate border-spacing-x-0 border-spacing-y-2">
+          <TableHeader className="[&_th]:border-b">
             <TableRow>
               <TableHead className="w-[20px]">
                 {bulkEditMode && (
@@ -831,7 +979,7 @@ const SavedSetsPage: React.FC = () => {
               savedSets.length > 0 &&
               savedSets.map((savedSet) => (
                 <SavedSetsTableRow
-                  key={savedSet.media_item.rating_key}
+                  key={`${savedSet.media_item.library_title}-${savedSet.media_item.rating_key}`}
                   savedSet={savedSet}
                   onUpdate={fetchSavedSets}
                   handleRecheckItem={handleRecheckItem}
@@ -876,7 +1024,7 @@ const SavedSetsPage: React.FC = () => {
               savedSets.length > 0 &&
               savedSets.map((savedSet) => (
                 <SavedSetsCard
-                  key={savedSet.media_item.rating_key}
+                  key={`${savedSet.media_item.library_title}-${savedSet.media_item.rating_key}`}
                   savedSet={savedSet}
                   onUpdate={fetchSavedSets}
                   handleRecheckItem={handleRecheckItem}
@@ -892,63 +1040,73 @@ const SavedSetsPage: React.FC = () => {
 
       {/* Bulk Edit Mode Options */}
       {bulkEditMode && (
-        <div className="sticky bottom-0 mt-10 z-101 flex justify-center w-full">
-          <div className="mx-auto w-fit bg-background/90 backdrop-blur border rounded-md shadow px-4 py-3 flex flex-col items-center gap-2">
-            <div className="flex flex-row items-center gap-2 w-full">
-              <Select value={bulkEditSelectedAction} onValueChange={(value) => setBulkEditSelectedAction(value)}>
-                <SelectTrigger className="w-full min-w-[180px]">
-                  <SelectValue placeholder="Select Bulk Action" />
-                </SelectTrigger>
-                <SelectContent className="z-102">
-                  {bulkEditActionsList.map((action) => (
-                    <SelectItem key={action.value} value={action.value}>
-                      {action.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {bulkEditSelectedItems.size >= 0 &&
-                bulkEditSelectedAction &&
-                bulkEditSelectedAction !== "delete-selected" && (
-                  <Button
-                    size="icon"
-                    variant={bulkEditSelectedAction === "delete-selected" ? "destructive" : "default"}
-                    disabled={bulkEditSelectedItems.size === 0 || !bulkEditSelectedAction}
-                    onClick={handleBulkEditButtonRunClick}
-                  >
-                    {bulkEditSelectedAction === "apply-label-tag" && <Tag className="h-4 w-4" />}
-                    {bulkEditSelectedAction === "force-recheck" && <RefreshIcon className="h-4 w-4" />}
-                    {bulkEditSelectedAction === "force-redownload" && <CloudDownload className="h-4 w-4" />}
-                  </Button>
-                )}
-              {bulkEditSelectedItems.size > 0 && bulkEditSelectedAction === "delete-selected" && (
-                <ConfirmDestructiveDialogActionButton
-                  onConfirm={async () => {
-                    // Your delete logic here
-                    handleBulkEditButtonRunClick();
-                  }}
-                  title="Confirm Bulk Delete"
-                  description={`You are about to delete ${bulkEditSelectedItems.size} ${bulkEditSelectedItems.size === 1 ? "set" : "sets"} from the database. This action cannot be undone.`}
-                  confirmText={`Yes, delete ${bulkEditSelectedItems.size} ${bulkEditSelectedItems.size === 1 ? "set" : "sets"}`}
-                  cancelText="Cancel"
-                  variant="destructive"
-                  disabled={bulkEditSelectedItems.size === 0}
-                >
-                  <Trash2 className="h-4 w-4" />
-                </ConfirmDestructiveDialogActionButton>
-              )}
-            </div>
-            <span className="text-xs text-muted-foreground">
-              {bulkEditSelectedItems.size > 0
-                ? `${bulkEditSelectedItems.size} selected`
-                : "Select items to enable action"}
-            </span>
+        <div className="sticky bottom-4 z-101 flex justify-center w-full pointer-events-none mt-2">
+          <div className="pointer-events-auto flex items-center gap-2 rounded-full border bg-background/95 backdrop-blur-md shadow-lg px-2 py-1.5">
+            <Badge variant="secondary" className="rounded-full px-2.5 py-1 text-xs font-medium tabular-nums shrink-0">
+              {bulkEditSelectedItems.size} selected
+            </Badge>
+
+            <Separator orientation="vertical" className="h-5" />
+
+            <Select value={bulkEditSelectedAction} onValueChange={(value) => setBulkEditSelectedAction(value)}>
+              <SelectTrigger className="h-8 w-[190px] rounded-full border-0 bg-muted/60 text-xs shadow-none focus-visible:ring-1">
+                <SelectValue placeholder="Choose an action" />
+              </SelectTrigger>
+              <SelectContent className="z-102">
+                {bulkEditActionGroups.map((group, index) => (
+                  <React.Fragment key={group.group}>
+                    {index > 0 && <SelectSeparator />}
+                    <SelectGroup>
+                      <SelectLabel>{group.group}</SelectLabel>
+                      {group.actions.map((action) => (
+                        <SelectItem key={action.value} value={action.value}>
+                          {action.label}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </React.Fragment>
+                ))}
+              </SelectContent>
+            </Select>
+
+            {bulkEditSelectedAction && bulkEditSelectedAction !== "delete-selected" && (
+              <Button
+                size="icon"
+                className="h-8 w-8 rounded-full shrink-0"
+                disabled={bulkEditSelectedItems.size === 0 || !bulkEditSelectedAction}
+                onClick={handleBulkEditButtonRunClick}
+              >
+                {bulkEditSelectedAction === "apply-label-tag" && <Tag className="h-4 w-4" />}
+                {bulkEditSelectedAction === "force-recheck" && <RefreshIcon className="h-4 w-4" />}
+                {bulkEditSelectedAction === "force-redownload" && <CloudDownload className="h-4 w-4" />}
+                {bulkEditSelectedAction === "upgrade-sets" && <ArrowBigUpDash className="h-4 w-4" />}
+                {bulkEditSelectedAction === "enable-autodownload" && <CloudCheck className="h-4 w-4" />}
+                {bulkEditSelectedAction === "disable-autodownload" && <CloudOff className="h-4 w-4" />}
+              </Button>
+            )}
+
+            {bulkEditSelectedAction === "delete-selected" && (
+              <ConfirmDestructiveDialogActionButton
+                onConfirm={async () => {
+                  handleBulkEditButtonRunClick();
+                }}
+                title="Confirm Bulk Delete"
+                description={`You are about to delete ${bulkEditSelectedItems.size} ${bulkEditSelectedItems.size === 1 ? "set" : "sets"} from the database. This action cannot be undone.`}
+                confirmText={`Yes, delete ${bulkEditSelectedItems.size} ${bulkEditSelectedItems.size === 1 ? "set" : "sets"}`}
+                cancelText="Cancel"
+                variant="destructive"
+                disabled={bulkEditSelectedItems.size === 0}
+                className="h-8 w-8 rounded-full shrink-0 p-0 inline-flex items-center justify-center bg-destructive text-white hover:bg-destructive/90"
+              >
+                <Trash2 className="h-4 w-4" />
+              </ConfirmDestructiveDialogActionButton>
+            )}
           </div>
         </div>
       )}
 
       {/* Pagination */}
-      {itemsPerPage && (
+      {itemsPerPage && !nothingSavedYet && (
         <CustomPagination
           currentPage={currentPage}
           totalPages={totalPages}
@@ -960,7 +1118,7 @@ const SavedSetsPage: React.FC = () => {
       )}
 
       {/* Refresh Button */}
-      <RefreshButton onClick={fetchSavedSets} />
+      <RefreshButton onClick={() => void handleRefresh()} refreshing={refreshing} />
     </div>
   );
 };

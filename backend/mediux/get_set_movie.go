@@ -26,7 +26,7 @@ type movieSetBySetID_MovieSetsByID struct {
 	Movie BaseMovieInfo `json:"movie_id"`
 }
 
-func GetMovieSetByID(ctx context.Context, setID string, itemLibraryTitle string) (set models.SetRef, includedItems map[string]models.IncludedItem, Err logging.LogErrorInfo) {
+func GetMovieSetByID(ctx context.Context, setID string, itemLibraryTitle string, edition string) (set models.SetRef, includedItems map[string]models.IncludedItem, Err logging.LogErrorInfo) {
 	ctx, logAction := logging.AddSubActionToContext(ctx, "Get Movie Set By ID", logging.LevelInfo)
 	defer logAction.Complete()
 
@@ -73,7 +73,7 @@ func GetMovieSetByID(ctx context.Context, setID string, itemLibraryTitle string)
 	includedItems[mediuxMovieSet.Movie.ID] = models.IncludedItem{MediuxInfo: baseItem}
 
 	// Get the Media Item from the cache
-	mediaItem, found := cache.LibraryStore.GetMediaItemFromSectionByTMDBID(itemLibraryTitle, mediuxMovieSet.Movie.ID)
+	mediaItem, found := cache.LibraryStore.GetMediaItemFromSectionByTMDBIDAndEdition(itemLibraryTitle, mediuxMovieSet.Movie.ID, edition)
 	if found {
 		// Update the included item with additional info from the media item
 		includedItem := includedItems[mediuxMovieSet.Movie.ID]

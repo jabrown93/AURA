@@ -3,13 +3,13 @@ package config
 import (
 	"aura/logging"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/url"
-	"os"
 	"slices"
 	"strings"
 
-	"aura/utils/argon2id"
+	"aura/utils/argon2id" // Fork: in-tree replacement for the inactive alexedwards/argon2id
 	"github.com/robfig/cron/v3"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
@@ -29,11 +29,17 @@ func (config *Config) Validate(ctx context.Context) {
 	// // Sub-action: MediaServer Config
 	isMediaServerValid := ValidateMediaServer(ctx, &config.MediaServer)
 
+	// Sub-action: MediaServers Config
+	isMediaServersValid := ValidateMediaServers(ctx, config.MediaServers, config.MainMediaServer)
+
 	// Sub-action: MediUX Config
 	isMediuxValid := ValidateMediux(ctx, &config.Mediux)
 
-	// Sub-action: AutoDownload Config
-	isAutoDownloadValid := ValidateAutoDownload(ctx, &config.AutoDownload)
+	// Sub-action: Jobs Config
+	isJobsValid := ValidateJobs(ctx, &config.Jobs)
+
+	// Sub-action: Backups Config
+	isBackupsValid := ValidateBackups(ctx, &config.Backups)
 
 	// Sub-action: Images Config
 	isImagesValid := ValidateImages(ctx, &config.Images, config.MediaServer)
@@ -44,16 +50,14 @@ func (config *Config) Validate(ctx context.Context) {
 	// Sub-action: SonarrRadarr Config
 	isSonarrRadarrValid := ValidateSonarrRadarr(ctx, &config.SonarrRadarr, config.MediaServer)
 
-	// Sub-action: Database Config
-	isDatabaseValid := ValidateDatabase(ctx, &config.Database)
-
 	// Sub-action: LabelsAndTags Config
 	isLabelsAndTagsValid := ValidateLabelsAndTags(ctx, &config.LabelsAndTags)
 
+	// Sub-action: UserPreferences Config
+	isUserPreferencesValid := ValidateUserPreferences(ctx, &config.UserPreferences)
+
 	// If any validation failed, set status to error
-	if !isAuthValid || !isLoggingValid || !isMediaServerValid ||
-		!isMediuxValid || !isAutoDownloadValid ||
-		!isImagesValid || !isNotificationsValid || !isSonarrRadarrValid || !isDatabaseValid || !isLabelsAndTagsValid {
+	if !isAuthValid || !isLoggingValid || !isMediaServerValid || !isMediaServersValid || !isMediuxValid || !isJobsValid || !isBackupsValid || !isImagesValid || !isNotificationsValid || !isSonarrRadarrValid || !isLabelsAndTagsValid || !isUserPreferencesValid {
 		logAction.SetError("Config validation failed", "One or more config sections are invalid", nil)
 		Valid = false
 	} else {
@@ -69,66 +73,70 @@ func ValidateAuth(ctx context.Context, Auth *Config_Auth) bool {
 
 	isValid := true
 
-	if Auth.Enabled {
-		if Auth.Password != "" {
-			if _, _, _, err := argon2id.DecodeHash(Auth.Password); err != nil {
-				logAction.SetError("Auth.Password is not a valid Argon2id hash", err.Error(), nil)
-				isValid = false
-			}
-		} else if !Auth.OIDC.Enabled {
-			// Locking every sign-in method out while requiring auth would make the app
-			// unreachable, so treat it as a config error rather than a runtime surprise.
-			logAction.SetError("No authentication method is configured", "Set Auth.Password or enable Auth.OIDC when auth is enabled", nil)
-			isValid = false
-		}
-
-		if !ValidateOIDC(ctx, &Auth.OIDC) {
-			isValid = false
-		}
-	}
-
-	return isValid
-}
-
-func ValidateOIDC(ctx context.Context, OIDC *Config_OIDC) bool {
-	_, logAction := logging.AddSubActionToContext(ctx, "Validating OIDC Config", logging.LevelTrace)
-	defer logAction.Complete()
-
-	if !OIDC.Enabled {
-		return true
-	}
-
-	isValid := true
-
-	required := []struct {
-		field string
-		value string
-	}{
-		{"Auth.OIDC.IssuerURL", OIDC.IssuerURL},
-		{"Auth.OIDC.ClientID", OIDC.ClientID},
-		{"Auth.OIDC.ClientSecret", OIDC.ClientSecret},
-		{"Auth.OIDC.RedirectURL", OIDC.RedirectURL},
-	}
-	for _, r := range required {
-		if strings.TrimSpace(r.value) == "" {
-			logAction.SetError(fmt.Sprintf("%s is not set", r.field), "This field is required when OIDC is enabled", nil)
-			isValid = false
-		}
-	}
-
-	if OIDC.IssuerURL != "" && !strings.HasPrefix(OIDC.IssuerURL, "https://") && !strings.HasPrefix(OIDC.IssuerURL, "http://") {
-		logAction.SetError("Auth.OIDC.IssuerURL is not a valid URL", "The issuer must start with http:// or https://", nil)
+	if Auth.Enabled && !Auth.PasswordEnabled && !Auth.OIDC.Enabled {
+		logAction.SetError("Auth has no way to log in", "Turn on the password or Single Sign-On (OIDC) when auth is enabled", nil)
 		isValid = false
 	}
 
-	if OIDC.RedirectURL != "" {
-		parsed, err := url.Parse(OIDC.RedirectURL)
-		// The redirect must be absolute because the provider sends the browser there
-		// directly; a relative value would be registered as-is and never resolve.
-		if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-			logAction.SetError("Auth.OIDC.RedirectURL is not an absolute URL", "Use the full callback URL, e.g. https://aura.example.com/api/auth/oidc/callback", nil)
+	if Auth.Enabled && Auth.PasswordEnabled {
+		if Auth.Password == "" {
+			logAction.SetError("Auth.Password is not set", "Password must be set when auth is enabled", nil)
 			isValid = false
+		} else {
+			_, _, _, err := argon2id.DecodeHash(Auth.Password)
+			if err != nil {
+				logAction.SetError("Auth.Password is not a valid Argon2id hash", err.Error(), nil)
+
+				isValid = false
+			}
 		}
+	}
+
+	if Auth.OIDC.Enabled {
+		// The Issuer URL is the base URL of the identity provider, not its discovery document
+		Auth.OIDC.IssuerURL = strings.TrimSpace(Auth.OIDC.IssuerURL)
+		if trimmed := strings.TrimSuffix(strings.TrimRight(Auth.OIDC.IssuerURL, "/"), "/.well-known/openid-configuration"); trimmed != strings.TrimRight(Auth.OIDC.IssuerURL, "/") {
+			logAction.AppendWarning("message", fmt.Sprintf("Auth.OIDC.IssuerURL should not include /.well-known/openid-configuration, using '%s'", trimmed))
+			Auth.OIDC.IssuerURL = trimmed
+		}
+		redirectURLs := []string{}
+		for _, redirectURL := range Auth.OIDC.RedirectURLs {
+			withPath := WithOIDCCallbackPath(redirectURL)
+			if withPath == "" {
+				continue
+			}
+			if withPath != strings.TrimSpace(redirectURL) {
+				logAction.AppendWarning("message", fmt.Sprintf("Auth.OIDC.RedirectURLs should end with %s, using '%s'", OIDCCallbackPath, withPath))
+			}
+			redirectURLs = append(redirectURLs, withPath)
+		}
+		Auth.OIDC.RedirectURLs = redirectURLs
+
+		if Auth.OIDC.IssuerURL == "" || Auth.OIDC.ClientID == "" || Auth.OIDC.ClientSecret == "" || len(Auth.OIDC.RedirectURLs) == 0 {
+			logAction.SetError("Auth.OIDC is missing required fields", "IssuerURL, ClientID, ClientSecret, and at least one RedirectURL are required when OIDC is enabled", nil)
+			isValid = false
+		} else {
+			if _, err := url.ParseRequestURI(Auth.OIDC.IssuerURL); err != nil {
+				logAction.SetError("Auth.OIDC.IssuerURL is not a valid URL", err.Error(), nil)
+				isValid = false
+			}
+			for _, redirectURL := range Auth.OIDC.RedirectURLs {
+				if _, err := url.ParseRequestURI(redirectURL); err != nil {
+					logAction.SetError("Auth.OIDC.RedirectURLs has a URL that isn't valid", err.Error(), map[string]any{"redirect_url": redirectURL})
+					isValid = false
+				}
+			}
+		}
+	}
+
+	// Default Auth.SessionCookieSecure to "auto" if not set
+	switch Auth.SessionCookieSecure {
+	case "":
+		Auth.SessionCookieSecure = "auto"
+	case "auto", "always", "never":
+	default:
+		logAction.SetError("Auth.SessionCookieSecure is invalid", "Must be one of: auto, always, never", nil)
+		isValid = false
 	}
 
 	return isValid
@@ -155,12 +163,45 @@ func ValidateLogging(ctx context.Context, Logging *Config_Logging) bool {
 		logging.SetLogLevel(Logging.Level)
 	}
 
+	// Logging.KeepDays: default to 7 days, at most 365 days
+	if Logging.KeepDays <= 0 {
+		Logging.KeepDays = 7
+	} else if Logging.KeepDays > 365 {
+		logAction.SetError("Logging.KeepDays is too large", "Use a value between 1 and 365", nil)
+		isValid = false
+	}
+
+	// Logging.KeepFiles: default to 7 files, at most 100
+	if Logging.KeepFiles <= 0 {
+		Logging.KeepFiles = 7
+	} else if Logging.KeepFiles > 100 {
+		logAction.SetError("Logging.KeepFiles is too large", "Use a value between 1 and 100", nil)
+		isValid = false
+	}
+
+	if isValid {
+		logging.SetLogKeepDays(Logging.KeepDays)
+		logging.SetLogKeepFiles(Logging.KeepFiles)
+	}
+
 	return isValid
 }
 
 func ValidateMediaServer(ctx context.Context, MediaServer *Config_MediaServer) bool {
+	return validateMediaServer(ctx, MediaServer, "")
+}
+
+// validateMediaServer checks a media server. name is set for media servers that aren't the main one, so errors say which one.
+func validateMediaServer(ctx context.Context, MediaServer *Config_MediaServer, name string) bool {
 	ctx, logAction := logging.AddSubActionToContext(ctx, "Validating MediaServer Config", logging.LevelTrace)
 	defer logAction.Complete()
+
+	field := func(field string) string {
+		if name == "" {
+			return "MediaServer." + field
+		}
+		return fmt.Sprintf("Media server '%s': %s", name, field)
+	}
 
 	isValid := true
 
@@ -169,31 +210,31 @@ func ValidateMediaServer(ctx context.Context, MediaServer *Config_MediaServer) b
 
 	// Check if MediaServer.Type is set
 	if MediaServer.Type == "" {
-		logAction.SetError("MediaServer.Type is not set", "Media server type must be specified", nil)
+		logAction.SetError(field("Type")+" is not set", "Media server type must be specified", nil)
 		isValid = false
-	} else if MediaServer.Type != "Plex" && MediaServer.Type != "Emby" && MediaServer.Type != "Jellyfin" {
-		logAction.SetError(fmt.Sprintf("MediaServer.Type: '%s' is not a valid type", MediaServer.Type), "Valid types are Plex, Emby, Jellyfin", nil)
+	} else if MediaServer.Type != "Plex" && MediaServer.Type != "Emby" && MediaServer.Type != "Jellyfin" && MediaServer.Type != "Silo" {
+		logAction.SetError(fmt.Sprintf("%s: '%s' is not a valid type", field("Type"), MediaServer.Type), "Valid types are Plex, Emby, Jellyfin, Silo", nil)
 		isValid = false
 	}
 
 	// Check if MediaServer.URL is set
 	if MediaServer.URL == "" {
-		logAction.SetError("MediaServer.URL is not set", "Media server URL must be specified", nil)
+		logAction.SetError(field("URL")+" is not set", "Media server URL must be specified", nil)
 		isValid = false
 	} else if !strings.HasPrefix(MediaServer.URL, "http://") && !strings.HasPrefix(MediaServer.URL, "https://") {
-		logAction.SetError(fmt.Sprintf("MediaServer.URL: '%s' must start with http:// or https:// ", MediaServer.URL), "", nil)
+		logAction.SetError(fmt.Sprintf("%s: '%s' must start with http:// or https:// ", field("URL"), MediaServer.URL), "", nil)
 		isValid = false
 	}
 
 	// Check if MediaServer.ApiToken is set
 	if MediaServer.ApiToken == "" {
-		logAction.SetError("MediaServer.ApiToken is not set", "Media server ApiToken must be specified", nil)
+		logAction.SetError(field("ApiToken")+" is not set", "Media server ApiToken must be specified", nil)
 		isValid = false
 	}
 
 	// Check if MediaServer.Libraries is set
 	if len(MediaServer.Libraries) == 0 {
-		logAction.SetError("MediaServer.Libraries is not set", "At least one media server library must be specified", nil)
+		logAction.SetError(field("Libraries")+" is not set", "At least one media server library must be specified", nil)
 		isValid = false
 	}
 
@@ -235,27 +276,67 @@ func ValidateMediux(ctx context.Context, Mediux *Config_Mediux) bool {
 	return isValid
 }
 
-func ValidateAutoDownload(ctx context.Context, AutoDownload *Config_AutoDownload) bool {
-	ctx, logAction := logging.AddSubActionToContext(ctx, "Validating AutoDownload Config", logging.LevelTrace)
+func ValidateJobs(ctx context.Context, Jobs *Config_Jobs) bool {
+	ctx, logAction := logging.AddSubActionToContext(ctx, "Validating Jobs Config", logging.LevelTrace)
 	defer logAction.Complete()
 
 	isValid := true
 
-	// Check if AutoDownload is enabled
-	if !AutoDownload.Enabled {
+	// Check each job setting
+	if !ValidateJobSetting(ctx, &Jobs.AutoDownload, JobDefaults.AutoDownload) {
+		isValid = false
+	}
+	if !ValidateJobSetting(ctx, &Jobs.RefreshMediaItemsAndCollections, JobDefaults.RefreshMediaItemsAndCollections) {
+		isValid = false
+	}
+	if !ValidateJobSetting(ctx, &Jobs.CheckForMediaItemChanges, JobDefaults.CheckForMediaItemChanges) {
+		isValid = false
+	}
+	if !ValidateJobSetting(ctx, &Jobs.CheckForNewMediaItems, JobDefaults.CheckForNewMediaItems) {
+		isValid = false
+	}
+	if !ValidateJobSetting(ctx, &Jobs.HandleTempIgnoredItems, JobDefaults.HandleTempIgnoredItems) {
+		isValid = false
+	}
+	if !ValidateJobSetting(ctx, &Jobs.RefreshMediuxUsers, JobDefaults.RefreshMediuxUsers) {
+		isValid = false
+	}
+	if !ValidateJobSetting(ctx, &Jobs.CheckMediuxSiteLink, JobDefaults.CheckMediuxSiteLink) {
+		isValid = false
+	}
+	if !ValidateJobSetting(ctx, &Jobs.BackupDatabase, JobDefaults.BackupDatabase) {
+		isValid = false
+	}
+	if !ValidateJobSetting(ctx, &Jobs.UpgradeSavedSets, JobDefaults.UpgradeSavedSets) {
+		isValid = false
+	}
+
+	return isValid
+}
+
+func ValidateJobSetting(ctx context.Context, job *Config_JobSetting, def JobSettingDefault) bool {
+	ctx, logAction := logging.AddSubActionToContext(ctx, "Validating Job Setting", logging.LevelTrace)
+	defer logAction.Complete()
+
+	isValid := true
+
+	enabled, _ := job.Resolve(def)
+
+	// Check if the job is enabled
+	if !enabled {
 		return isValid
 	}
 
-	// Check if AutoDownload.Cron is set
-	if AutoDownload.Cron == "" {
-		AutoDownload.Cron = "0 0 * * *"
-		logging.LOGGER.Warn().Timestamp().Msg("AutoDownload.Cron not set, defaulting to '0 0 * * *' (every day at midnight)")
-		logAction.AppendWarning("message", "AutoDownload.Cron not set, defaulting to '0 0 * * *' (every day at midnight)")
+	// Check if the job's cron expression is set
+	if job.Cron == "" {
+		job.Cron = def.Cron
+		logging.LOGGER.Warn().Timestamp().Str("cron", def.Cron).Msg("Job Cron not set, defaulting to its built-in schedule")
+		logAction.AppendWarning("message", fmt.Sprintf("Job Cron not set, defaulting to '%s'", def.Cron))
 	}
 
 	// Validate the cron expression
-	if !ValidateCron(AutoDownload.Cron) {
-		logAction.SetError(fmt.Sprintf("AutoDownload.Cron: '%s' is not a valid cron expression", AutoDownload.Cron), "Please provide a valid cron expression", nil)
+	if !ValidateCron(job.Cron) {
+		logAction.SetError(fmt.Sprintf("Job.Cron: '%s' is not a valid cron expression", job.Cron), "Please provide a valid cron expression", nil)
 		isValid = false
 	}
 
@@ -273,80 +354,35 @@ func ValidateImages(ctx context.Context, Images *Config_Images, msConfig Config_
 
 	isValid := true
 
-	// If Images.SaveImagesLocally.Enabled is true, validate the EpisodeNamingConvention
-	if Images.SaveImagesLocally.Enabled {
-		if msConfig.Type != "Plex" {
-			return isValid
+	// An empty template, or one with unknown variables or .., uses the standard name
+	templates := &Images.SaveImagesLocally.NameTemplates
+	defaults := DefaultImageNameTemplates()
+	for _, t := range []struct {
+		name     string
+		template *string
+		fallback string
+	}{
+		{"Poster", &templates.Poster, defaults.Poster},
+		{"Backdrop", &templates.Backdrop, defaults.Backdrop},
+		{"SeasonPoster", &templates.SeasonPoster, defaults.SeasonPoster},
+		{"SpecialSeasonPoster", &templates.SpecialSeasonPoster, defaults.SpecialSeasonPoster},
+		{"Titlecard", &templates.Titlecard, defaults.Titlecard},
+	} {
+		*t.template = strings.TrimSpace(*t.template)
+		if *t.template == "" {
+			*t.template = t.fallback
+			continue
 		}
-
-		validEpisodeNamingConventions := []string{"match", "static"}
-
-		Images.SaveImagesLocally.EpisodeNamingConvention = strings.ToLower(Images.SaveImagesLocally.EpisodeNamingConvention)
-		if !stringSliceContains(validEpisodeNamingConventions, Images.SaveImagesLocally.EpisodeNamingConvention) {
-			if msConfig.Type == "Plex" && Images.SaveImagesLocally.EpisodeNamingConvention == "" {
-				Images.SaveImagesLocally.EpisodeNamingConvention = "match"
-				logAction.AppendWarning("message", "Images.SaveImagesLocally.EpisodeNamingConvention not set, defaulting to 'match'")
-			} else if msConfig.Type == "Plex" && Images.SaveImagesLocally.EpisodeNamingConvention != "match" && Images.SaveImagesLocally.EpisodeNamingConvention != "static" {
-				Images.SaveImagesLocally.EpisodeNamingConvention = "match"
-				logAction.AppendWarning("message", "Images.SaveImagesLocally.EpisodeNamingConvention invalid, defaulting to 'match'")
-			}
-		}
-
-	}
-
-	// If Images.Kometa.Enabled is true, validate the Kometa settings (Plex only)
-	if Images.Kometa.Enabled {
-		if msConfig.Type != "Plex" {
-			logAction.SetError("Images.Kometa is only supported for Plex media servers", "Disable Kometa mode or switch to a Plex media server", nil)
-			return false
-		}
-
-		if Images.Kometa.AssetDirectory == "" {
-			logAction.SetError("Images.Kometa.AssetDirectory is required when Kometa mode is enabled", "Set AssetDirectory to the path Kometa reads assets from", nil)
-			return false
-		}
-
-		info, err := os.Stat(Images.Kometa.AssetDirectory)
-		if err != nil || !info.IsDir() {
-			logAction.SetError(
-				fmt.Sprintf("Images.Kometa.AssetDirectory '%s' does not exist or is not a directory", Images.Kometa.AssetDirectory),
-				"Ensure the Kometa asset directory is mounted into the container at this path",
-				nil,
-			)
-			return false
-		}
-
-		if Images.Kometa.ImportCron != "" && !ValidateCron(Images.Kometa.ImportCron) {
-			logAction.SetError(
-				fmt.Sprintf("Images.Kometa.ImportCron: '%s' is not a valid cron expression", Images.Kometa.ImportCron),
-				"Provide a valid cron expression or leave it empty for manual-only imports",
-				nil,
-			)
-			return false
-		}
-
-		// Per-library subfolders must be safe paths relative to AssetDirectory. Reject absolute
-		// or parent-escaping values (which would redirect writes outside the asset directory) and
-		// normalize the rest in place so the write and import paths agree on the same value. Empty
-		// values are dropped, meaning that library keeps writing flat to AssetDirectory.
-		for title, raw := range Images.Kometa.LibraryAssetFolders {
-			if strings.TrimSpace(raw) == "" {
-				delete(Images.Kometa.LibraryAssetFolders, title)
-				continue
-			}
-			sub := SanitizeKometaSubfolder(raw)
-			if sub == "" {
-				logAction.SetError(
-					fmt.Sprintf("Images.Kometa.LibraryAssetFolders['%s']: '%s' is not a valid relative subfolder", title, raw),
-					"Use a path relative to the Kometa asset directory (no leading '/' and no '..')",
-					nil,
-				)
-				return false
-			}
-			Images.Kometa.LibraryAssetFolders[title] = sub
+		if !validateTemplateVariables(*t.template, ImageNameTemplateVariables) || slices.Contains(strings.Split(*t.template, "/"), "..") {
+			logAction.AppendWarning("message", fmt.Sprintf("Images.SaveImagesLocally.NameTemplates.%s has invalid variables or .., using the standard name", t.name))
+			*t.template = t.fallback
 		}
 	}
 
+	// Fork: Kometa asset-directory mode.
+	if !validateKometa(ctx, &Images.Kometa, msConfig) {
+		isValid = false
+	}
 	return isValid
 }
 
@@ -371,134 +407,50 @@ func ValidateNotifications(ctx context.Context, Notifications *Config_Notificati
 		Notifications.Providers[i] = provider
 	}
 
-	// If notifications are enabled, valiate the templates
-	if Notifications.NotificationTemplate.AppStartup == (Config_CustomNotification{}) {
-		Notifications.NotificationTemplate.AppStartup = defaults.AppStartup
-		logging.LOGGER.Warn().Timestamp().Msg("Notifications.NotificationTemplate.AppStartup not set, defaulting to built-in template")
-		logAction.AppendWarning("message", "Notifications.NotificationTemplate.AppStartup not set, defaulting to built-in template")
-	} else {
-		validAppStartupVariables := AllowedTemplateVariables(TemplateTypeAppStartup)
-		if !validateTemplateVariables(Notifications.NotificationTemplate.AppStartup.Title, validAppStartupVariables) {
-			logging.LOGGER.Warn().Timestamp().Msg("Notifications.NotificationTemplate.AppStartup.Title contains invalid variables, please check the config documentation for valid variables")
-			logAction.AppendWarning("message", "Notifications.NotificationTemplate.AppStartup.Title contains invalid variables, please check the config documentation for valid variables")
-			Notifications.NotificationTemplate.AppStartup.Title = defaults.AppStartup.Title
-		}
-		if !validateTemplateVariables(Notifications.NotificationTemplate.AppStartup.Message, validAppStartupVariables) {
-			logging.LOGGER.Warn().Timestamp().Msg("Notifications.NotificationTemplate.AppStartup.Message contains invalid variables, please check the config documentation for valid variables")
-			logAction.AppendWarning("message", "Notifications.NotificationTemplate.AppStartup.Message contains invalid variables, please check the config documentation for valid variables")
-			Notifications.NotificationTemplate.AppStartup.Message = defaults.AppStartup.Message
-		}
-	}
-
-	if Notifications.NotificationTemplate.TestNotification == (Config_CustomNotification{}) {
-		Notifications.NotificationTemplate.TestNotification = defaults.TestNotification
-		logging.LOGGER.Warn().Timestamp().Msg("Notifications.NotificationTemplate.TestNotification not set, defaulting to built-in template")
-		logAction.AppendWarning("message", "Notifications.NotificationTemplate.TestNotification not set, defaulting to built-in template")
-	} else {
-		validTestNotificationVariables := AllowedTemplateVariables(TemplateTypeTestNotification)
-		if !validateTemplateVariables(Notifications.NotificationTemplate.TestNotification.Title, validTestNotificationVariables) {
-			logging.LOGGER.Warn().Timestamp().Msg("Notifications.NotificationTemplate.TestNotification.Title contains invalid variables, please check the config documentation for valid variables")
-			logAction.AppendWarning("message", "Notifications.NotificationTemplate.TestNotification.Title contains invalid variables, please check the config documentation for valid variables")
-			Notifications.NotificationTemplate.TestNotification.Title = defaults.TestNotification.Title
-		}
-		if !validateTemplateVariables(Notifications.NotificationTemplate.TestNotification.Message, validTestNotificationVariables) {
-			logging.LOGGER.Warn().Timestamp().Msg("Notifications.NotificationTemplate.TestNotification.Message contains invalid variables, please check the config documentation for valid variables")
-			logAction.AppendWarning("message", "Notifications.NotificationTemplate.TestNotification.Message contains invalid variables, please check the config documentation for valid variables")
-			Notifications.NotificationTemplate.TestNotification.Message = defaults.TestNotification.Message
-		}
-	}
-
-	if Notifications.NotificationTemplate.Autodownload == (Config_CustomNotification{}) {
-		Notifications.NotificationTemplate.Autodownload = defaults.Autodownload
-		logging.LOGGER.Warn().Timestamp().Msg("Notifications.NotificationTemplate.Autodownload not set, defaulting to built-in template")
-		logAction.AppendWarning("message", "Notifications.NotificationTemplate.Autodownload not set, defaulting to built-in template")
-	} else {
-		validAutodownloadVariables := AllowedTemplateVariables(TemplateTypeAutodownload)
-		if !validateTemplateVariables(Notifications.NotificationTemplate.Autodownload.Title, validAutodownloadVariables) {
-			logging.LOGGER.Warn().Timestamp().Msg("Notifications.NotificationTemplate.Autodownload.Title contains invalid variables, please check the config documentation for valid variables")
-			logAction.AppendWarning("message", "Notifications.NotificationTemplate.Autodownload.Title contains invalid variables, please check the config documentation for valid variables")
-			Notifications.NotificationTemplate.Autodownload.Title = defaults.Autodownload.Title
-		}
-		if !validateTemplateVariables(Notifications.NotificationTemplate.Autodownload.Message, validAutodownloadVariables) {
-			logging.LOGGER.Warn().Timestamp().Msg("Notifications.NotificationTemplate.Autodownload.Message contains invalid variables, please check the config documentation for valid variables")
-			logAction.AppendWarning("message", "Notifications.NotificationTemplate.Autodownload.Message contains invalid variables, please check the config documentation for valid variables")
-			Notifications.NotificationTemplate.Autodownload.Message = defaults.Autodownload.Message
-		}
-	}
-
-	if Notifications.NotificationTemplate.DownloadQueue == (Config_CustomNotification{}) {
-		Notifications.NotificationTemplate.DownloadQueue = defaults.DownloadQueue
-		logging.LOGGER.Warn().Timestamp().Msg("Notifications.NotificationTemplate.DownloadQueue not set, defaulting to built-in template")
-		logAction.AppendWarning("message", "Notifications.NotificationTemplate.DownloadQueue not set, defaulting to built-in template")
-	} else {
-		validDownloadQueueVariables := AllowedTemplateVariables(TemplateTypeDownloadQueue)
-		if !validateTemplateVariables(Notifications.NotificationTemplate.DownloadQueue.Title, validDownloadQueueVariables) {
-			logging.LOGGER.Warn().Timestamp().Msg("Notifications.NotificationTemplate.DownloadQueue.Title contains invalid variables, please check the config documentation for valid variables")
-			logAction.AppendWarning("message", "Notifications.NotificationTemplate.DownloadQueue.Title contains invalid variables, please check the config documentation for valid variables")
-			Notifications.NotificationTemplate.DownloadQueue.Title = defaults.DownloadQueue.Title
-		}
-		if !validateTemplateVariables(Notifications.NotificationTemplate.DownloadQueue.Message, validDownloadQueueVariables) {
-			logging.LOGGER.Warn().Timestamp().Msg("Notifications.NotificationTemplate.DownloadQueue.Message contains invalid variables, please check the config documentation for valid variables")
-			logAction.AppendWarning("message", "Notifications.NotificationTemplate.DownloadQueue.Message contains invalid variables, please check the config documentation for valid variables")
-			Notifications.NotificationTemplate.DownloadQueue.Message = defaults.DownloadQueue.Message
-		}
-	}
-
-	if Notifications.NotificationTemplate.NewSetsAvailableForIgnoredItems == (Config_CustomNotification{}) {
-		Notifications.NotificationTemplate.NewSetsAvailableForIgnoredItems = defaults.NewSetsAvailableForIgnoredItems
-		logging.LOGGER.Warn().Timestamp().Msg("Notifications.NotificationTemplate.NewSetsAvailableForIgnoredItems not set, defaulting to built-in template")
-		logAction.AppendWarning("message", "Notifications.NotificationTemplate.NewSetsAvailableForIgnoredItems not set, defaulting to built-in template")
-	} else {
-		validNewSetsAvailableForIgnoredItemsVariables := AllowedTemplateVariables(TemplateTypeNewSetsAvailableForIgnoredItems)
-		if !validateTemplateVariables(Notifications.NotificationTemplate.NewSetsAvailableForIgnoredItems.Title, validNewSetsAvailableForIgnoredItemsVariables) {
-			logging.LOGGER.Warn().Timestamp().Msg("Notifications.NotificationTemplate.NewSetsAvailableForIgnoredItems.Title contains invalid variables, please check the config documentation for valid variables")
-			logAction.AppendWarning("message", "Notifications.NotificationTemplate.NewSetsAvailableForIgnoredItems.Title contains invalid variables, please check the config documentation for valid variables")
-			Notifications.NotificationTemplate.NewSetsAvailableForIgnoredItems.Title = defaults.NewSetsAvailableForIgnoredItems.Title
-		}
-		if !validateTemplateVariables(Notifications.NotificationTemplate.NewSetsAvailableForIgnoredItems.Message, validNewSetsAvailableForIgnoredItemsVariables) {
-			logging.LOGGER.Warn().Timestamp().Msg("Notifications.NotificationTemplate.NewSetsAvailableForIgnoredItems.Message contains invalid variables, please check the config documentation for valid variables")
-			logAction.AppendWarning("message", "Notifications.NotificationTemplate.NewSetsAvailableForIgnoredItems.Message contains invalid variables, please check the config documentation for valid variables")
-			Notifications.NotificationTemplate.NewSetsAvailableForIgnoredItems.Message = defaults.NewSetsAvailableForIgnoredItems.Message
-		}
-	}
-
-	if Notifications.NotificationTemplate.CheckForMediaItemChangesJob == (Config_CustomNotification{}) {
-		Notifications.NotificationTemplate.CheckForMediaItemChangesJob = defaults.CheckForMediaItemChangesJob
-		logging.LOGGER.Warn().Timestamp().Msg("Notifications.NotificationTemplate.CheckForMediaItemChangesJob not set, defaulting to built-in template")
-		logAction.AppendWarning("message", "Notifications.NotificationTemplate.CheckForMediaItemChangesJob not set, defaulting to built-in template")
-	} else {
-		validCheckForMediaItemChangesJobVariables := AllowedTemplateVariables(TemplateTypeCheckForMediaItemChangesJob)
-		if !validateTemplateVariables(Notifications.NotificationTemplate.CheckForMediaItemChangesJob.Title, validCheckForMediaItemChangesJobVariables) {
-			logging.LOGGER.Warn().Timestamp().Msg("Notifications.NotificationTemplate.CheckForMediaItemChangesJob.Title contains invalid variables, please check the config documentation for valid variables")
-			logAction.AppendWarning("message", "Notifications.NotificationTemplate.CheckForMediaItemChangesJob.Title contains invalid variables, please check the config documentation for valid variables")
-			Notifications.NotificationTemplate.CheckForMediaItemChangesJob.Title = defaults.CheckForMediaItemChangesJob.Title
-		}
-		if !validateTemplateVariables(Notifications.NotificationTemplate.CheckForMediaItemChangesJob.Message, validCheckForMediaItemChangesJobVariables) {
-			logging.LOGGER.Warn().Timestamp().Msg("Notifications.NotificationTemplate.CheckForMediaItemChangesJob.Message contains invalid variables, please check the config documentation for valid variables")
-			logAction.AppendWarning("message", "Notifications.NotificationTemplate.CheckForMediaItemChangesJob.Message contains invalid variables, please check the config documentation for valid variables")
-			Notifications.NotificationTemplate.CheckForMediaItemChangesJob.Message = defaults.CheckForMediaItemChangesJob.Message
-		}
-	}
-
-	if Notifications.NotificationTemplate.SonarrNotification == (Config_CustomNotification{}) {
-		Notifications.NotificationTemplate.SonarrNotification = defaults.SonarrNotification
-		logging.LOGGER.Warn().Timestamp().Msg("Notifications.NotificationTemplate.SonarrNotification not set, defaulting to built-in template")
-		logAction.AppendWarning("message", "Notifications.NotificationTemplate.SonarrNotification not set, defaulting to built-in template")
-	} else {
-		validSonarrNotificationVariables := AllowedTemplateVariables(TemplateTypeSonarrNotification)
-		if !validateTemplateVariables(Notifications.NotificationTemplate.SonarrNotification.Title, validSonarrNotificationVariables) {
-			logging.LOGGER.Warn().Timestamp().Msg("Notifications.NotificationTemplate.SonarrNotification.Title contains invalid variables, please check the config documentation for valid variables")
-			logAction.AppendWarning("message", "Notifications.NotificationTemplate.SonarrNotification.Title contains invalid variables, please check the config documentation for valid variables")
-			Notifications.NotificationTemplate.SonarrNotification.Title = defaults.SonarrNotification.Title
-		}
-		if !validateTemplateVariables(Notifications.NotificationTemplate.SonarrNotification.Message, validSonarrNotificationVariables) {
-			logging.LOGGER.Warn().Timestamp().Msg("Notifications.NotificationTemplate.SonarrNotification.Message contains invalid variables, please check the config documentation for valid variables")
-			logAction.AppendWarning("message", "Notifications.NotificationTemplate.SonarrNotification.Message contains invalid variables, please check the config documentation for valid variables")
-			Notifications.NotificationTemplate.SonarrNotification.Message = defaults.SonarrNotification.Message
-		}
+	// If notifications are enabled, validate the templates
+	templates := &Notifications.NotificationTemplate
+	for _, t := range []struct {
+		name         string
+		templateType string
+		template     *Config_CustomNotification
+		fallback     Config_CustomNotification
+	}{
+		{"AppStartup", TemplateTypeAppStartup, &templates.AppStartup, defaults.AppStartup},
+		{"TestNotification", TemplateTypeTestNotification, &templates.TestNotification, defaults.TestNotification},
+		{"Autodownload", TemplateTypeAutodownload, &templates.Autodownload, defaults.Autodownload},
+		{"DownloadQueue", TemplateTypeDownloadQueue, &templates.DownloadQueue, defaults.DownloadQueue},
+		{"NewItemAutoDownload", TemplateTypeNewItemAutoDownload, &templates.NewItemAutoDownload, defaults.NewItemAutoDownload},
+		{"NewSetsAvailableForIgnoredItems", TemplateTypeNewSetsAvailableForIgnoredItems, &templates.NewSetsAvailableForIgnoredItems, defaults.NewSetsAvailableForIgnoredItems},
+		{"CheckForMediaItemChangesJob", TemplateTypeCheckForMediaItemChangesJob, &templates.CheckForMediaItemChangesJob, defaults.CheckForMediaItemChangesJob},
+		{"SonarrNotification", TemplateTypeSonarrNotification, &templates.SonarrNotification, defaults.SonarrNotification},
+		{"SiloPlugin", TemplateTypeSiloPlugin, &templates.SiloPlugin, defaults.SiloPlugin},
+	} {
+		validateNotificationTemplate(logAction, t.name, t.templateType, t.template, t.fallback)
 	}
 
 	return isValid
+}
+
+// validateNotificationTemplate uses the built-in parts of a template that are missing or have unknown variables
+func validateNotificationTemplate(logAction *logging.LogAction, name, templateType string, template *Config_CustomNotification, fallback Config_CustomNotification) {
+	warn := func(message string) {
+		logging.LOGGER.Warn().Timestamp().Msg(message)
+		logAction.AppendWarning("message", message)
+	}
+	if *template == (Config_CustomNotification{}) {
+		*template = fallback
+		warn(fmt.Sprintf("Notifications.NotificationTemplate.%s not set, defaulting to built-in template", name))
+		return
+	}
+	validVariables := AllowedTemplateVariables(templateType)
+	if !validateTemplateVariables(template.Title, validVariables) {
+		warn(fmt.Sprintf("Notifications.NotificationTemplate.%s.Title contains invalid variables, please check the config documentation for valid variables", name))
+		template.Title = fallback.Title
+	}
+	if !validateTemplateVariables(template.Message, validVariables) {
+		warn(fmt.Sprintf("Notifications.NotificationTemplate.%s.Message contains invalid variables, please check the config documentation for valid variables", name))
+		template.Message = fallback.Message
+	}
 }
 
 func validateTemplateVariables(userStr string, validVariables []string) bool {
@@ -639,28 +591,52 @@ func ValidateSonarrRadarr(ctx context.Context, apps *Config_SonarrRadarr_Apps, m
 	return isValid
 }
 
-func ValidateDatabase(ctx context.Context, Database *Config_Database) bool {
-	ctx, logAction := logging.AddSubActionToContext(ctx, "Validating Database Config", logging.LevelTrace)
+func ValidateUserPreferences(ctx context.Context, UserPreferences *Config_UserPreferences) bool {
+	_, logAction := logging.AddSubActionToContext(ctx, "Validating UserPreferences Config", logging.LevelTrace)
 	defer logAction.Complete()
 
 	isValid := true
 
-	// If Database.Type is not set, set to default "sqlite3"
-	if Database.Type == "" {
-		Database.Type = "sqlite3"
-		logAction.AppendWarning("message", "Database.Type not set, defaulting to 'sqlite3'")
-	} else if Database.Type != "sqlite3" && Database.Type != "mysql" && Database.Type != "postgresql" {
-		logAction.AppendWarning("message", "Database.Type invalid, defaulting to 'sqlite3'")
-		Database.Type = "sqlite3"
-		Database.Path = "AURA.db"
-	}
-
-	switch Database.Type {
-	case "sqlite3":
-		if Database.Path == "" {
-			Database.Path = "AURA.db"
+	// Remove any unknown or duplicate image types from DownloadDefaults
+	downloadDefaults := []string{}
+	for _, imageType := range UserPreferences.DownloadDefaults {
+		if !stringSliceContains(DownloadImageTypes, imageType) {
+			logAction.AppendWarning("message", fmt.Sprintf("UserPreferences.DownloadDefaults: '%s' is not a valid image type, removing it", imageType))
+			continue
+		}
+		if !stringSliceContains(downloadDefaults, imageType) {
+			downloadDefaults = append(downloadDefaults, imageType)
 		}
 	}
+	UserPreferences.DownloadDefaults = downloadDefaults
+
+	// Remove blank and repeated favorite creators, keeping the best rank of each
+	favoriteCreators := []string{}
+	seen := map[string]bool{}
+	for _, username := range UserPreferences.FavoriteCreators {
+		username = strings.TrimSpace(username)
+		if username == "" || seen[strings.ToLower(username)] {
+			continue
+		}
+		seen[strings.ToLower(username)] = true
+		favoriteCreators = append(favoriteCreators, username)
+	}
+	UserPreferences.FavoriteCreators = favoriteCreators
+
+	// Each page's saved sort and filter options, only for known pages and not too large
+	pageViews := map[string]map[string]any{}
+	for page, view := range UserPreferences.PageViews {
+		if !slices.Contains(PageViewPages, page) {
+			logAction.AppendWarning("message", fmt.Sprintf("UserPreferences.PageViews has an unknown page %q, removing it", page))
+			continue
+		}
+		if encoded, err := json.Marshal(view); err != nil || len(encoded) > maxPageViewSize {
+			logAction.AppendWarning("message", fmt.Sprintf("UserPreferences.PageViews.%s is too large, removing it", page))
+			continue
+		}
+		pageViews[page] = view
+	}
+	UserPreferences.PageViews = pageViews
 
 	return isValid
 }
@@ -695,4 +671,45 @@ func ValidateLabelsAndTags(ctx context.Context, LabelsAndTags *Config_LabelsAndT
 // stringSliceContains checks if a string is present in a slice of strings.
 func stringSliceContains(slice []string, item string) bool {
 	return slices.Contains(slice, item)
+}
+
+// IsSetUp reports whether any of the required settings have been entered.
+// A config that is not set up yet is not treated as having errors
+func (config Config) IsSetUp() bool {
+	return config.MediaServer.Type != "" ||
+		config.MediaServer.URL != "" ||
+		config.MediaServer.ApiToken != "" ||
+		config.Mediux.ApiToken != ""
+}
+
+func ValidateBackups(ctx context.Context, Backups *Config_Backups) bool {
+	ctx, logAction := logging.AddSubActionToContext(ctx, "Validating Backups Config", logging.LevelTrace)
+	defer logAction.Complete()
+
+	// Backups.Keep: default to 7 backups, at most 100
+	if Backups.Keep <= 0 {
+		Backups.Keep = 7
+	} else if Backups.Keep > 100 {
+		logAction.SetError("Backups.Keep is too large", "Use a value between 1 and 100", nil)
+		return false
+	}
+	return true
+}
+
+// OIDCCallbackPath is where the identity provider sends the browser back to after logging in
+const OIDCCallbackPath = "/api/auth/oidc/callback"
+
+// WithOIDCCallbackPath adds the callback path to an aura address, e.g. https://aura.example.com
+func WithOIDCCallbackPath(redirectURL string) string {
+	redirectURL = strings.TrimRight(strings.TrimSpace(redirectURL), "/")
+	if redirectURL == "" || strings.HasSuffix(redirectURL, OIDCCallbackPath) {
+		return redirectURL
+	}
+	// Finish a callback path that was only partly typed
+	for _, partial := range []string{"/api/auth/oidc", "/api/auth", "/api"} {
+		if strings.HasSuffix(redirectURL, partial) {
+			return strings.TrimSuffix(redirectURL, partial) + OIDCCallbackPath
+		}
+	}
+	return redirectURL + OIDCCallbackPath
 }

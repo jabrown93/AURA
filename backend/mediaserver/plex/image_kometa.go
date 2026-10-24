@@ -289,3 +289,22 @@ func (p *Plex) UploadImageBytes(ctx context.Context, ratingKey string, imageType
 func (p *Plex) ResolveRatingKey(item models.MediaItem, imageFile models.ImageFile) string {
 	return getItemRatingKeyFromImageFile(item, imageFile)
 }
+
+// convertWindowsPathToDockerPath mirrors localimage's unexported helper. Fork: Kometa mode.
+func convertWindowsPathToDockerPath(windowsPath string) string {
+	if !config.Current.Images.SaveImagesLocally.RunningOnWindows {
+		return windowsPath
+	} else {
+		logging.LOGGER.Debug().Timestamp().Msg("ConvertWindowsPathToDockerPath called, fixing path for Windows")
+	}
+	// Replace backslashes with forward slashes
+	dockerPath := strings.ReplaceAll(windowsPath, "\\", "/")
+
+	// Handle drive letter conversion (e.g., C:/ to /C/)
+	if len(dockerPath) > 1 && dockerPath[1] == ':' {
+		driveLetter := string(dockerPath[0])
+		dockerPath = "/" + driveLetter + dockerPath[2:]
+	}
+
+	return dockerPath
+}

@@ -1,15 +1,12 @@
 package downloadqueue
 
 import (
+	"aura/database"
 	"aura/logging"
 	"aura/models"
 	"aura/utils"
 	"context"
-	"encoding/json"
 	"fmt"
-	"os"
-	"path"
-	"strings"
 	"time"
 )
 
@@ -18,44 +15,34 @@ func AddToQueue(ctx context.Context, saveItem models.DBSavedItem) (Err logging.L
 		fmt.Sprintf("Add Entry for %s",
 			utils.MediaItemInfo(saveItem.MediaItem)),
 		logging.LevelDebug)
+	defer logAction.Complete()
 
 	Err = logging.LogErrorInfo{}
 
-	// If no matching file is found, create a new file name with the format: LibraryTitle_TMDBID_timestamp.json
-	timestamp := time.Now().Unix()
-	fileName := path.Join(FolderPath, fmt.Sprintf("%s_%s_%d.json",
-		strings.ReplaceAll(saveItem.MediaItem.LibraryTitle, " ", `_`),
-		saveItem.MediaItem.TMDB_ID,
-		timestamp,
-	))
-
-	// Marshal the saveItem to JSON
-	jsonData, marshallErr := json.Marshal(saveItem)
-	if marshallErr != nil {
-		logAction.SetError("Failed to marshal Save Item to JSON",
-			"Ensure that the Save Item can be converted to JSON",
-			map[string]any{
-				"error": marshallErr.Error(),
-				"item":  saveItem,
-			})
-		logAction.Complete()
-		return Err
+	jobID, addErr := database.EnqueueDownloadQueueJob(ctx, saveItem)
+	if addErr.Message != "" {
+		logAction.SetErrorFromInfo(addErr)
+		return *logAction.Error
 	}
 
-	// Write the JSON data to a file in the download queue folder
-	writeErr := os.WriteFile(fileName, jsonData, 0644)
-	if writeErr != nil {
-		logAction.SetError("Failed to write Save Item to download queue file",
-			"Ensure that the application has permission to write to the download queue folder",
-			map[string]any{
-				"error": writeErr.Error(),
-				"file":  fileName,
-			})
-		logAction.Complete()
-		return Err
-	}
+	logAction.AppendResult("job_id", jobID)
 
-	logAction.AppendResult("file", fileName)
-	logAction.Complete()
+	tmdbID, libraryTitle, edition, title := saveItem.QueueEntry()
+	QueueBroadcaster.Publish(QueueEvent{
+		Type: "job_added",
+		Job: &database.DownloadQueueJob{
+			ID:             jobID,
+			TMDB_ID:        tmdbID,
+			LibraryTitle:   libraryTitle,
+			Edition:        edition,
+			MediaItemTitle: title,
+			Payload:        saveItem,
+			Status:         "pending",
+			CreatedAt:      time.Now(),
+		},
+	})
+
+	SignalNewJob()
+
 	return Err
 }

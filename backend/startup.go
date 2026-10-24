@@ -1,30 +1,31 @@
 package main
 
 import (
-	"aura/anidb"
 	"aura/cache"
 	"aura/config"
 	"aura/database"
 	"aura/database/migration"
 	autodownload "aura/download/auto"
-	downloadqueue "aura/download/queue"
 	"aura/jobs"
 	"aura/logging"
 	"aura/mediaserver"
 	"aura/mediux"
+	"aura/models"
 	"aura/utils"
+	"aura/utils/httpx"
 	"context"
-	"crypto/tls"
+	"errors"
 	"fmt"
 	"net/http"
-	"os"
-	"time"
 )
+
+// Whether the database was created on this startup
+var databaseIsNew bool
 
 func runBootstrap() (success bool) {
 	ctx, ld := logging.CreateLoggingContext(context.Background(), "Bootstrap")
 	defer ld.Log()
-	config.AppLoadingStep = "Bootstrapping Application"
+	config.SetAppLoadingStep("Bootstrapping Application")
 
 	logAction := ld.AddAction("Application Startup", logging.LevelInfo)
 	ctx = logging.WithCurrentAction(ctx, logAction)
@@ -37,20 +38,44 @@ func runBootstrap() (success bool) {
 	config.AppVersion = APP_VERSION
 
 	// Set Umask for file permissions (if needed)
-	config.AppLoadingStep = "Setting UMask for File Permissions"
+	config.SetAppLoadingStep("Setting UMask for File Permissions")
 	utils.SetUMask(ctx)
 
-	// Load the config file
-	config.AppLoadingStep = "Loading Configuration"
-	config.LoadYAML(ctx)
+	// Database: Initialize
+	// Done before loading the config, as the config is stored in the database
+	config.SetAppLoadingStep("Initializing Database")
+	newDB, dbInitErr := database.Init(ctx)
+	if dbInitErr.Message != "" {
+		logging.LOGGER.Error().Timestamp().Str("path", config.DatabasePath()).
+			Str("help", "Make sure no other program (e.g. a SQLite viewer) has the database open. If you deleted AURA.db, also delete AURA.db-wal and AURA.db-shm next to it.").
+			Msgf("Failed to initialize database: %s", dbInitErr.Message)
+		return false
+	}
+	databaseIsNew = newDB
+	config.SetStore(database.ConfigStore())
+	logging.LOGGER.Info().Timestamp().Bool("new_database", newDB).Str("path", config.DatabasePath()).Msg("Database initialized")
+
+	// Load the config from the database
+	config.SetAppLoadingStep("Loading Configuration")
+	config.Load(ctx)
 	logAction.Complete()
+
+	// Warn while AURA_DISABLE_AUTH is set, so it isn't left on by accident
+	if config.AuthDisabledByEnv() {
+		logging.LOGGER.Warn().Timestamp().Bool("auth_enabled_in_config", config.Current.Auth.Enabled).
+			Msgf("Authentication is turned off by %s. Anyone who can reach aura can use it. Remove %s once you have access again.", config.DisableAuthEnv, config.DisableAuthEnv)
+	}
 
 	// Print the config details (sanitized)
 	config.Current.PrintDetails()
 
-	// If the config is loaded, validate it
-	if config.Loaded {
-		config.AppLoadingStep = "Validating Configuration"
+	// If the config is loaded, validate it.
+	// A config that isn't set up yet goes straight to setup instead.
+	if config.Loaded && !config.Current.IsSetUp() {
+		config.Valid = false
+		logging.LOGGER.Info().Timestamp().Msg("aura is not set up yet, starting setup")
+	} else if config.Loaded {
+		config.SetAppLoadingStep("Validating Configuration")
 		config.Current.Validate(ctx)
 	}
 
@@ -64,41 +89,47 @@ func runBootstrap() (success bool) {
 func runPreFlight() (success bool) {
 	ctx, ld := logging.CreateLoggingContext(context.Background(), "Preflight")
 	defer ld.Log()
-	config.AppLoadingStep = "Performing Pre-Flight Checks"
+	config.SetAppLoadingStep("Performing Pre-Flight Checks")
 
 	action := ld.AddAction("Checking Services", logging.LevelInfo)
 	ctx = logging.WithCurrentAction(ctx, action)
 	defer action.Complete()
 
 	success = false
-
-	// Note: config.AppFullyLoaded is intentionally NOT reset here. It is owned solely by
-	// activateFullRoutes (main.go), only ever transitions false->true, and only once. It
-	// is already false on every path that reaches preflight (boot, onboarding, retry).
-	// Clobbering it back to false here would let a background preflight retry undo the
-	// onboarding path's activation, stranding the UI on /app-loading even though full
-	// routes are live.
+	config.AppFullyLoaded = false
 
 	// Validate Media Server Connection
-	config.AppLoadingStep = "Validating Media Server Connection"
-	connectionOk, serverName, serverVersion, msErr := mediaserver.TestConnection(ctx, &config.Current.MediaServer)
-	if msErr.Message != "" || !connectionOk || serverVersion == "" || serverName == "" {
+	// The media server may still be starting, for example when it starts with aura, so it's tried for a while
+	config.SetAppLoadingStep("Validating Media Server Connection")
+	// Fork: an unsupported server type is a config error, not something to wait out.
+	if _, clientErr := mediaserver.NewMediaServerClient(&config.Current.MediaServer); clientErr.Message != "" {
 		config.MediaServerValid = false
 		config.MediaServerReachable = false
 		return success
 	}
-	if config.Current.MediaServer.Type == "Jellyfin" || config.Current.MediaServer.Type == "Emby" {
-		// Get Admin User for Emby/Jellyfin
-		config.AppLoadingStep = "Retrieving Media Server Admin User"
+	var serverName, serverVersion string
+	msErr := waitUntilReady(config.Current.MediaServer.Type, "Waiting for Media Server to Start", func() logging.LogErrorInfo {
+		connectionOk, name, version, Err := mediaserver.TestConnection(ctx, &config.Current.MediaServer)
+		if Err.Message == "" && (!connectionOk || name == "" || version == "") {
+			Err = logging.LogErrorInfo{Message: fmt.Sprintf("%s didn't return its name and version", config.Current.MediaServer.Type)}
+		}
+		serverName, serverVersion = name, version
+		return Err
+	})
+	if msErr.Message != "" {
+		recordPreflightFailure(msErr, &config.MediaServerValid, &config.MediaServerReachable) // Fork
+		return success
+	}
+	if config.Current.MediaServer.Type == "Jellyfin" || config.Current.MediaServer.Type == "Emby" || config.Current.MediaServer.Type == "Silo" {
+		// Get Admin User for Emby/Jellyfin/Silo
+		config.SetAppLoadingStep("Retrieving Media Server Admin User")
 		ejUserID, initErr := mediaserver.GetAdminUser(ctx, &config.Current.MediaServer)
 		if initErr.Message != "" {
 			config.MediaServerValid = false
-			config.MediaServerReachable = false
 			return success
 		} else if ejUserID == "" {
 			config.MediaServerValid = false
-			config.MediaServerReachable = false
-			logging.LOGGER.Error().Timestamp().Msg("Failed to retrieve admin user ID from Emby/Jellyfin server")
+			logging.LOGGER.Error().Timestamp().Msgf("Failed to retrieve admin user ID from %s server", config.Current.MediaServer.Type)
 			return success
 		}
 		config.Current.MediaServer.UserID = ejUserID
@@ -111,13 +142,22 @@ func runPreFlight() (success bool) {
 	config.MediaServerReachable = true
 
 	// Validate MediUX Token
-	config.AppLoadingStep = "Validating MediUX Token"
-	if validateMediuxToken(ctx) == mediuxTokenRejected {
-		// MediUX answered and refused the token, so the configured token is wrong.
-		// Fail preflight to keep the app on onboarding until the user fixes it,
-		// rather than starting degraded as we do for an outage.
+	config.SetAppLoadingStep("Validating MediUX Token")
+	mediuxErr := waitUntilReady("MediUX", "Waiting for MediUX", func() logging.LogErrorInfo {
+		_, Err := mediux.ValidateToken(ctx, config.Current.Mediux.ApiToken)
+		return Err
+	})
+	if mediuxErr.Message != "" {
+		// Fork: a MediUX outage starts degraded and is rechecked in the background; only a
+		// refused token keeps the app on setup.
+		recordPreflightFailure(mediuxErr, &config.MediuxValid, &config.MediuxReachable)
+		if !config.MediuxReachable && config.MediaServerValid {
+			return true
+		}
 		return success
 	}
+	config.MediuxValid = true
+	config.MediuxReachable = true
 
 	if config.MediaServerValid || config.MediuxValid {
 		success = true
@@ -126,110 +166,53 @@ func runPreFlight() (success bool) {
 	return success
 }
 
-type mediuxTokenResult int
-
-const (
-	mediuxTokenAccepted mediuxTokenResult = iota
-	mediuxTokenRejected
-	mediuxUnreachable
-)
-
-var (
-	preloadMediuxUsers         = mediux.PreloadMediuxUsers
-	preloadMediuxItemsWithSets = mediux.PreLoadMediuxItemsWithSets
-	refreshLibraryItems        = mediaserver.GetAllLibrarySectionsAndItems
-)
-
-// validateMediuxToken checks the configured MediUX token and records the outcome
-// on the config package's flags. It separates "MediUX said no" from "MediUX did
-// not answer": the first is a config problem the user must fix, the second is an
-// outage the app can run through in a degraded state.
-func validateMediuxToken(ctx context.Context) mediuxTokenResult {
-	tokenValid, mediuxErr := mediux.ValidateToken(ctx, config.Current.Mediux.ApiToken)
-	switch {
-	case mediuxErr.Message == "" && tokenValid:
-		config.MediuxValid = true
-		config.MediuxReachable = true
-		return mediuxTokenAccepted
-	case mediuxAuthRejected(mediuxErr):
-		config.MediuxValid = false
-		config.MediuxReachable = true
-		return mediuxTokenRejected
-	default:
-		config.MediuxValid = false
-		config.MediuxReachable = false
-		return mediuxUnreachable
-	}
-}
-
-// mediuxAuthRejected reports whether MediUX explicitly refused the token rather
-// than failing to answer. mediux.makeRequest records the response status under
-// status_code in the error detail; a transport failure carries no status at all.
-func mediuxAuthRejected(err logging.LogErrorInfo) bool {
-	status, ok := err.Detail["status_code"].(int)
-	return ok && (status == http.StatusUnauthorized || status == http.StatusForbidden)
-}
-
 func runWarmup() (success bool) {
 	ctx, ld := logging.CreateLoggingContext(context.Background(), "Warmup")
 
 	action := ld.AddAction("Initializing Application", logging.LevelInfo)
 	ctx = logging.WithCurrentAction(ctx, action)
-	config.AppLoadingStep = "Warming Up Application"
+	config.SetAppLoadingStep("Warming Up Application")
 
 	success = false
+	mediuxRecoveryNeeded := !config.MediuxReachable // Fork: started degraded
 
-	mediuxRecoveryNeeded := !config.MediuxReachable
+	// Cache: Add all MediUX users
+	config.SetAppLoadingStep("Preloading MediUX Users into Cache")
+	mediux.PreloadMediuxUsers(ctx)
 
-	// Cache: Load AniDB -> TMDB mappings (Fribb anime-lists) so anime items that
-	// Plex matched with the HAMA agent (AniDB IDs only) resolve to TMDB instead
-	// of being dropped. Plex-only: the mapping is consumed solely by the Plex
-	// library path (Emby/Jellyfin resolve via ProviderIds), so gating it here
-	// keeps non-Plex startups from blocking on the Fribb fetch. Must run before
-	// the media-server preload below.
-	if config.Current.MediaServer.Type == "Plex" {
-		config.AppLoadingStep = "Preloading AniDB Mappings into Cache"
-		anidb.PreloadAnidbMappings(ctx)
-	}
-
-	// Database: Initialize
-	config.AppLoadingStep = "Initializing Database"
-	newDB, dbInitErr := database.Init(ctx)
-	if dbInitErr.Message != "" {
-		return false
-	}
-	logging.LOGGER.Info().Timestamp().Bool("new_database", newDB).Msg("Database initialized")
+	// Cache: Get a list of all items in MediUX that has a set
+	config.SetAppLoadingStep("Preloading MediUX Items with Sets into Cache")
+	mediux.PreLoadMediuxItemsWithSets(ctx)
 
 	// Database-Migration: If not a new DB, run migrations
-	if !newDB {
-		config.AppLoadingStep = "Running Database Migrations"
-		migrationsCompleted, migrateErr := migration.RunMigrations()
+	// The database is initialized in runBootstrap
+	if !databaseIsNew {
+		config.SetAppLoadingStep("Running Database Migrations")
+		migrationsCompleted, _ := migration.RunMigrations()
 		logging.LOGGER.Info().Timestamp().Msgf("%d database migrations performed", migrationsCompleted)
-		if migrateErr.Message != "" {
-			// A failed migration leaves the schema partially applied and the VERSION row
-			// unbumped, so booting on would run every query against a schema that does not
-			// match the code. Fail warmup instead of half-booting.
-			config.AppLoadingStep = "Database Migration Failed"
-			logging.LOGGER.Error().Timestamp().
-				Str("help", migrateErr.Help).
-				Interface("detail", migrateErr.Detail).
-				Msgf("Database migration failed: %s", migrateErr.Message)
-			return false
-		}
 	}
 
-	// Cache: Build MediUX-derived state after database initialization so the
-	// library stage can load saved item state and publish HasMediuxSets values.
-	config.AppLoadingStep = "Preloading MediUX and Media Server Data into Cache"
-	if recoveryErr := recoverMediuxRuntimeState(ctx); recoveryErr.Message != "" {
-		mediuxRecoveryNeeded = true
+	// New items get a set from a favorite creator, if that is turned on
+	mediaserver.OnNewItems = func(ctx context.Context, items []models.MediaItem) {
+		_, _ = autodownload.DownloadFromFavoriteCreators(ctx, items, models.SourceFavoriteCreatorsNewItem)
 	}
-	logging.LOGGER.Info().Timestamp().Int("sections", cache.LibraryStore.GetSectionsCount()).Int("items", cache.LibraryStore.GetItemsCount()).Msg("Loaded Media Server sections and items into cache")
-	logging.LOGGER.Info().Timestamp().Int("collection_items", len(cache.CollectionsStore.GetAllCollections())).
-		Msg("Loaded Media Server collections into cache")
+
+	forkWarmup(ctx) // Fork
+
+	// Cache: Load the library saved by the last load
+	config.SetAppLoadingStep("Loading Media Server Data from the Database")
+	loadedFromDatabase := mediaserver.LoadLibraryCacheFromDatabase(ctx)
+	logging.LOGGER.Info().Timestamp().Int("items", loadedFromDatabase).Msg("Loaded Media Server items from the database into cache")
+
+	// Cache: Without a saved library, wait for the media server
+	if loadedFromDatabase == 0 {
+		config.SetAppLoadingStep("Preloading Media Server Data into Cache")
+		_ = mediaserver.GetAllLibrarySectionsAndItems(ctx, false)
+		logMediaServerCache()
+	}
 
 	// Database: Vacuum
-	config.AppLoadingStep = "Optimizing Database"
+	config.SetAppLoadingStep("Optimizing Database")
 	vacuumErr := database.Vacuum(ctx)
 	if vacuumErr.Message != "" {
 		logging.LOGGER.Error().Timestamp().Msgf("Database VACUUM failed: %s", vacuumErr.Message)
@@ -239,35 +222,27 @@ func runWarmup() (success bool) {
 	action.Complete()
 	ld.Log()
 
+	// Cache: With a saved library, load the media server in the background
+	if loadedFromDatabase > 0 {
+		go func() {
+			defer logging.RecoverPanic("Loading Media Server Data in the Background")
+			ctx, ld := logging.CreateLoggingContext(context.Background(), "Warmup")
+			ctx = logging.WithCurrentAction(ctx, ld.AddAction("Loading Media Server Data in the Background", logging.LevelInfo))
+			defer ld.Log()
+			_ = mediaserver.GetAllLibrarySectionsAndItems(ctx, false)
+			logMediaServerCache()
+		}()
+	}
+
 	// Cronjob: Auto Download Processing
-	config.AppLoadingStep = "Starting Background Jobs"
+	config.SetAppLoadingStep("Starting Background Jobs")
 	jobs.StartAutoDownloadJob()
 
-	// Cronjob: Kometa Asset Import (only schedules if enabled + ImportCron set)
-	if err := jobs.StartKometaImportJob(); err != nil {
-		logging.LOGGER.Error().Timestamp().Err(err).Msg("Failed to schedule Kometa Asset Import cron job")
-	}
-
-	// Cronjob: Download Queue Processing
-	err := jobs.StartDownloadQueueJob()
-	if err != nil {
-		logging.LOGGER.Error().Timestamp().Err(err).Msg("Failed to schedule Download Queue Processing cron job")
-		downloadqueue.UpdateLatestInfo(func(info *downloadqueue.LatestInfo) {
-			info.Time = time.Now()
-			info.Status = downloadqueue.LAST_STATUS_ERROR
-			info.Message = "Failed to schedule Download Queue Processing"
-			info.Errors = []string{err.Error()}
-			info.Warnings = []string{}
-		})
-	} else {
-		downloadqueue.UpdateLatestInfo(func(info *downloadqueue.LatestInfo) {
-			info.Time = time.Now()
-			info.Status = downloadqueue.LAST_STATUS_IDLE
-		})
-	}
+	// Download Queue: Start the worker that processes download queue jobs from the database
+	jobs.StartDownloadQueueWorker(context.Background())
 
 	// Cronjob: Refresh Media Items and Collections
-	err = jobs.StartRefreshMediaItemsAndCollectionsJob()
+	err := jobs.StartRefreshMediaItemsAndCollectionsJob()
 	if err != nil {
 		logging.LOGGER.Error().Timestamp().Err(err).Msg("Failed to schedule Refresh Media Items and Collections cron job")
 	}
@@ -284,18 +259,22 @@ func runWarmup() (success bool) {
 		logging.LOGGER.Error().Timestamp().Err(err).Msg("Failed to schedule Check MediUX Site Link Availability cron job")
 	}
 
-	// Cronjob: Refresh AniDB Mappings (Plex-only; see the preload above)
-	if config.Current.MediaServer.Type == "Plex" {
-		err = jobs.StartRefreshAnidbMappingsJob()
-		if err != nil {
-			logging.LOGGER.Error().Timestamp().Err(err).Msg("Failed to schedule Refresh AniDB Mappings cron job")
-		}
-	}
-
 	// Cronjob: Start Check for Media Item Changes Job
 	err = jobs.StartCheckForMediaItemChangesJob()
 	if err != nil {
 		logging.LOGGER.Error().Timestamp().Err(err).Msg("Failed to schedule Check for Media Item Changes cron job")
+	}
+
+	// Cronjob: Start Check for New Media Items Job
+	err = jobs.StartCheckForNewMediaItemsJob()
+	if err != nil {
+		logging.LOGGER.Error().Timestamp().Err(err).Msg("Failed to schedule Check for New Media Items cron job")
+	}
+
+	// Cronjob: Start Upgrade Saved Sets Job
+	err = jobs.StartUpgradeSavedSetsJob()
+	if err != nil {
+		logging.LOGGER.Error().Timestamp().Err(err).Msg("Failed to schedule Upgrade Saved Sets cron job")
 	}
 
 	// Cronjob: Start Handle Temp Ignored Items Job
@@ -304,13 +283,20 @@ func runWarmup() (success bool) {
 		logging.LOGGER.Error().Timestamp().Err(err).Msg("Failed to schedule Handle Temp Ignored Items cron job")
 	}
 
-	// Check MediUX Site Link Availability before starting the scheduler so the
-	// immediate check cannot overlap its scheduled counterpart.
-	config.AppLoadingStep = "Checking MediUX Site Link Availability"
-	mediux.CheckSiteLinkAvailability()
+	// Cronjob: Start Backup Database Job
+	err = jobs.StartBackupDatabaseJob()
+	if err != nil {
+		logging.LOGGER.Error().Timestamp().Err(err).Msg("Failed to schedule Backup Database cron job")
+	}
+
+	startForkJobs() // Fork
 
 	// Cron: Start Jobs Scheduler
 	jobs.StartJobs()
+
+	// Check MediUX Site Link Availability immediately on startup
+	config.SetAppLoadingStep("Checking MediUX Site Link Availability")
+	mediux.CheckSiteLinkAvailability()
 
 	// Initialize MediUX WebSocket Listener
 	//go autodownload.StartMediuxWebSocketClient()
@@ -319,69 +305,31 @@ func runWarmup() (success bool) {
 	autodownload.StartOrRestartPlexWebSocketClient()
 
 	if mediuxRecoveryNeeded {
-		go recheckMediuxUntilReachable()
+		go recheckMediuxUntilReachable() // Fork
 	}
 
 	success = true
 	return success
 }
 
-// newAPIServer builds a listener with timeouts. ReadHeaderTimeout is the one that matters:
-// without it a client can hold a connection open indefinitely by dribbling out headers.
-// WriteTimeout is deliberately left unset, because image and log responses are proxied from
-// a media server that can legitimately be slow.
-func newAPIServer(addr string) *http.Server {
-	return &http.Server{
-		Addr:              addr,
-		Handler:           http.HandlerFunc(dispatch),
-		ReadHeaderTimeout: 15 * time.Second,
-		ReadTimeout:       60 * time.Second,
-		IdleTimeout:       120 * time.Second,
-	}
-}
+// The HTTP server, kept so it can be shut down
+var apiServer = &http.Server{Handler: http.HandlerFunc(dispatch)}
 
 func startAPI() {
-	startTLSIfConfigured()
+	// Event streams stay open, so end them when shutting down
+	apiServer.RegisterOnShutdown(httpx.CloseStreams)
+	startTLSIfConfigured() // Fork
+	hardenServer(apiServer)
 
 	// Start HTTP Server
 	logging.LOGGER.Info().Timestamp().Int("port", APP_PORT).
 		Bool("full_routes", config.Loaded && config.Valid).
 		Str("log_level", logging.LOGGER.GetLevel().String()).
 		Msg("Starting HTTP Server")
-	if err := newAPIServer(fmt.Sprintf(":%d", APP_PORT)).ListenAndServe(); err != nil {
+	apiServer.Addr = fmt.Sprintf(":%d", APP_PORT)
+	if err := apiServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		logging.LOGGER.Fatal().Err(err).Msg("Failed to start server")
 	}
-}
-
-// startTLSIfConfigured starts an HTTPS listener on APP_TLS_PORT when
-// TLS_CERT_FILE and TLS_KEY_FILE are set. It is an additional listener rather
-// than a replacement: the UI's build-time /api rewrite targets
-// http://localhost:8888, so the plain HTTP listener must stay up for
-// UI-to-API traffic. Certificates are loaded once at startup; a restart is
-// required to pick up rotated certs.
-func startTLSIfConfigured() {
-	certFile := os.Getenv("TLS_CERT_FILE")
-	keyFile := os.Getenv("TLS_KEY_FILE")
-	if certFile == "" && keyFile == "" {
-		return
-	}
-	// Half-configured TLS is treated as fatal: silently serving HTTP only
-	// would defeat the point of the user asking for HTTPS.
-	if certFile == "" || keyFile == "" {
-		logging.LOGGER.Fatal().Str("TLS_CERT_FILE", certFile).Str("TLS_KEY_FILE", keyFile).
-			Msg("TLS_CERT_FILE and TLS_KEY_FILE must both be set to enable HTTPS")
-	}
-	if _, err := tls.LoadX509KeyPair(certFile, keyFile); err != nil {
-		logging.LOGGER.Fatal().Err(err).Str("TLS_CERT_FILE", certFile).Str("TLS_KEY_FILE", keyFile).
-			Msg("Failed to load TLS certificate/key pair")
-	}
-
-	go func() {
-		logging.LOGGER.Info().Timestamp().Int("port", APP_TLS_PORT).Msg("Starting HTTPS Server")
-		if err := newAPIServer(fmt.Sprintf(":%d", APP_TLS_PORT)).ListenAndServeTLS(certFile, keyFile); err != nil {
-			logging.LOGGER.Fatal().Err(err).Msg("Failed to start HTTPS server")
-		}
-	}()
 }
 
 // dispatch forwards to the currently active router.
@@ -399,4 +347,10 @@ func dispatch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.ServeHTTP(w, r)
+}
+
+func logMediaServerCache() {
+	logging.LOGGER.Info().Timestamp().Int("sections", cache.LibraryStore.GetSectionsCount()).Int("items", cache.LibraryStore.GetItemsCount()).Msg("Loaded Media Server sections and items into cache")
+	logging.LOGGER.Info().Timestamp().Int("collection_items", len(cache.CollectionsStore.GetAllCollections())).
+		Msg("Loaded Media Server collections into cache")
 }

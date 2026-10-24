@@ -70,3 +70,16 @@ export const formatUnixSeconds = (unixSeconds: number) => {
     hour12: false,
   });
 };
+
+// A date like 10/18/2026 at 1:00:07 AM, empty when there's no date
+export const formatDateAndTime = (value: string | number | Date | undefined | null) => {
+  if (!value) return "";
+  const date = new Date(value);
+  if (isNaN(date.getTime()) || date.getTime() <= 0) return "";
+  return `${date.toLocaleDateString("en-US")} at ${date.toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "numeric",
+    second: "numeric",
+    hour12: true,
+  })}`;
+};

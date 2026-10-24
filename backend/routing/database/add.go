@@ -1,6 +1,7 @@
 package routes_db
 
 import (
+	"aura/cache"
 	"aura/database"
 	"aura/logging"
 	"aura/mediaserver"
@@ -31,7 +32,8 @@ type addItemResponse struct {
 // @Accept       json
 // @Produce      json
 // @Param        req  body      addItemRequest  true  "Add Item Request"
-// @Security 	 BearerAuth
+// @Security     SessionCookie
+// @Security     ApiKeyAuth
 // @Failure      401  {object}  httpx.UnauthorizedResponse "Unauthorized (only when Auth.Enabled=true)"
 // @Success      200           {object}  httpx.JSONResponse{data=addItemResponse}
 // @Failure      500  {object}  httpx.JSONResponse "Internal Server Error"
@@ -97,21 +99,21 @@ func AddNewItemToDB(w http.ResponseWriter, r *http.Request) {
 		// We also need a full PosterSet with ImageFiles
 		switch req.PosterSet.Type {
 		case "show":
-			showSet, _, Err := mediux.GetShowSetByID(ctx, req.PosterSet.ID, req.MediaItem.LibraryTitle)
+			showSet, _, Err := mediux.GetShowSetByID(ctx, req.PosterSet.ID, req.MediaItem.LibraryTitle, req.MediaItem.Edition)
 			if Err.Message != "" {
 				httpx.SendResponse(w, ld, response)
 				return
 			}
 			fullSet.PosterSet = showSet.PosterSet
 		case "movie":
-			movieSet, _, Err := mediux.GetMovieSetByID(ctx, req.PosterSet.ID, req.MediaItem.LibraryTitle)
+			movieSet, _, Err := mediux.GetMovieSetByID(ctx, req.PosterSet.ID, req.MediaItem.LibraryTitle, req.MediaItem.Edition)
 			if Err.Message != "" {
 				httpx.SendResponse(w, ld, response)
 				return
 			}
 			fullSet.PosterSet = movieSet.PosterSet
 		case "collection":
-			collectionSet, _, Err := mediux.GetMovieCollectionSetByID(ctx, req.PosterSet.ID, req.MediaItem.TMDB_ID, req.MediaItem.LibraryTitle, true)
+			collectionSet, _, Err := mediux.GetMovieCollectionSetByID(ctx, req.PosterSet.ID, req.MediaItem.TMDB_ID, req.MediaItem.LibraryTitle, req.MediaItem.Edition, true)
 			if Err.Message != "" {
 				httpx.SendResponse(w, ld, response)
 				return
@@ -140,17 +142,11 @@ func AddNewItemToDB(w http.ResponseWriter, r *http.Request) {
 
 	// If this is the first time adding the item, we need to update the cache
 	// Run this asynchronously
-	cachedItem := saveItem.MediaItem
 	go func() {
-		ctx, ld := logging.CreateLoggingContext(context.Background(), "Saved Sets Cache Refresh")
-		logAction := ld.AddAction("Refresh Cached DB Saved Sets for Added Item", logging.LevelInfo)
-		ctx = logging.WithCurrentAction(ctx, logAction)
-		defer ld.Log()
-
-		// Update only database-owned saved-set state on hits; insert request data on misses.
-		if Err := database.SyncCachedSavedSets(ctx, cachedItem, true); Err.Message != "" {
-			logAction.SetErrorFromInfo(Err)
-		}
+		defer logging.RecoverPanic("Update Saved Sets in the Cache")
+		_, _, dbSets, _ := database.CheckIfMediaItemExists(ctx, saveItem.MediaItem.TMDB_ID, saveItem.MediaItem.LibraryTitle, saveItem.MediaItem.Edition)
+		saveItem.MediaItem.DBSavedSets = dbSets
+		cache.LibraryStore.UpdateMediaItem(saveItem.MediaItem.LibraryTitle, &saveItem.MediaItem)
 	}()
 	response.SavedItem = saveItem
 
@@ -161,6 +157,7 @@ func AddNewItemToDB(w http.ResponseWriter, r *http.Request) {
 
 	// Handle any labels and tags asynchronously
 	go func() {
+		defer logging.RecoverPanic("Labels and Tags Handling")
 		ctx, ld := logging.CreateLoggingContext(context.Background(), "Labels and Tags Handling")
 		logAction := ld.AddAction("Handle Labels and Tags for Added Item", logging.LevelInfo)
 		ctx = logging.WithCurrentAction(ctx, logAction)

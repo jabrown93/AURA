@@ -1,3 +1,4 @@
+import { markOpenMediaItemSetSaved } from "@/helper/update-open-media-item";
 import apiClient from "@/services/api-client";
 import { ReturnErrorMessage } from "@/services/api-error-return";
 
@@ -40,6 +41,18 @@ export const AddItemToDownloadQueue = async (
         `Added '${dbItem.media_item.title}' (TMDB ID: ${dbItem.media_item.tmdb_id}) to the download queue`,
         response.data
       );
+    }
+
+    // Show the sets as saved now, the queue saves them to the DB later
+    for (const posterSet of dbItem.poster_sets) {
+      markOpenMediaItemSetSaved({
+        tmdbID: dbItem.media_item.tmdb_id,
+        libraryTitle: dbItem.media_item.library_title,
+        edition: dbItem.media_item.edition,
+        setID: posterSet.id,
+        setUser: posterSet.user_created,
+        selectedTypes: posterSet.selected_types,
+      });
     }
     return response.data;
   } catch (error) {

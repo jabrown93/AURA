@@ -1,12 +1,12 @@
 "use client";
 
+import type { CollectionItem } from "@/app/collections/page";
+
 import { AssetImage } from "@/components/shared/asset-image";
 import { CollectionMediaItemsCarousel } from "@/components/shared/collection-media-items-carousel";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
 import { H1, Lead } from "@/components/ui/typography";
-
-import type { CollectionItem } from "@/types/media-and-posters/collection-item";
 
 type CollectionItemDetailsProps = {
   collectionItem: CollectionItem;
@@ -26,7 +26,7 @@ export function CollectionItemDetails({ collectionItem }: CollectionItemDetailsP
         {/* Poster Image */}
         <div className="flex-shrink-0 mb-4 lg:mb-0 lg:mr-8 flex justify-center">
           <AssetImage
-            image={`/api/images/media/collection?rating_key=${collectionItem?.rating_key}&image_type=poster&v=${collectionItem?.artwork_version}`}
+            image={`/api/images/media/collection?rating_key=${collectionItem?.rating_key}&image_type=poster&cb=${Date.now()}`}
             imageType="url"
             className="w-[200px] h-auto transition-transform hover:scale-105 select-none"
           />

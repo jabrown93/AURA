@@ -20,7 +20,8 @@ type CheckAuthStatusWithPlex_Response struct {
 // @Accept       json
 // @Produce      json
 // @Param        plex_id  query     string  true  "Plex ID to check for authentication"
-// @Security 	 BearerAuth
+// @Security     SessionCookie
+// @Security     ApiKeyAuth
 // @Failure      401  {object}  httpx.UnauthorizedResponse "Unauthorized (only when Auth.Enabled=true)"
 // @Success      200      {object}  httpx.JSONResponse{data=CheckAuthStatusWithPlex_Response}
 // @Failure      500      {object}  httpx.JSONResponse "Internal Server Error"

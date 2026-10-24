@@ -18,8 +18,7 @@ type MediaItem struct {
 
 	// Used in Home Page - sorting and filtering
 	HasMediuxSets        bool  `json:"has_mediux_sets"` // Whether the item has MediUX sets
-	UpdatedAt            int64 `json:"updated_at"`      // Last updated timestamp from the media server
-	ArtworkVersion       int64 `json:"artwork_version"` // Opaque image cache version
+	UpdatedAt            int64 `json:"updated_at"`      // Last updated timestamp
 	AddedAt              int64 `json:"added_at"`        // Added timestamp
 	ReleasedAt           int64 `json:"released_at"`     // Release date timestamp
 	LatestEpisodeAddedAt int64 `json:"latest_episode_added_at"`
@@ -30,6 +29,7 @@ type MediaItem struct {
 	// Used in MediaItem Details Page - For more information about the item
 	ContentRating string `json:"content_rating"` // Content rating (e.g., "PG-13")
 	Summary       string `json:"summary"`        // Summary or description of the media item
+	Edition       string `json:"edition"`        // Edition of the media item (e.g., "Director's Cut")
 }
 
 type MediaItemGuid struct {
@@ -85,15 +85,21 @@ type SelectedTypes struct {
 	Titlecard           bool `json:"titlecard"`
 }
 
+// ForSetType keeps the image types a set of this type can have, movie and collection sets only have posters and backdrops
+func (s SelectedTypes) ForSetType(setType string) SelectedTypes {
+	if setType == "movie" || setType == "collection" {
+		return SelectedTypes{Poster: s.Poster, Backdrop: s.Backdrop}
+	}
+	return s
+}
+
 type CollectionItem struct {
-	RatingKey      string      `json:"rating_key"`
-	Index          string      `json:"index"` // Unique identifier for the collection in Plex
-	TMDB_ID        string      `json:"tmdb_id,omitempty"`
-	Title          string      `json:"title"`
-	Summary        string      `json:"summary,omitempty"`
-	ChildCount     int         `json:"child_count"`
-	MediaItems     []MediaItem `json:"media_items"`
-	LibraryTitle   string      `json:"library_title,omitempty"`
-	UpdatedAt      int64       `json:"updated_at"`
-	ArtworkVersion int64       `json:"artwork_version"`
+	RatingKey    string      `json:"rating_key"`
+	Index        string      `json:"index"` // Unique identifier for the collection in Plex
+	TMDB_ID      string      `json:"tmdb_id,omitempty"`
+	Title        string      `json:"title"`
+	Summary      string      `json:"summary,omitempty"`
+	ChildCount   int         `json:"child_count"`
+	MediaItems   []MediaItem `json:"media_items"`
+	LibraryTitle string      `json:"library_title,omitempty"`
 }

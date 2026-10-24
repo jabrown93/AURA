@@ -1,11 +1,10 @@
 "use client";
 
+import type { CollectionItem } from "@/app/collections/page";
 import { formatDownloadSize } from "@/helper/format-download-size";
-import { AddCollectionToQueue } from "@/services/downloads/collection-queue-add";
 import { DownloadImageFileForCollectionItem } from "@/services/downloads/download-collection-image";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Check, Download, ListEnd, LoaderIcon, User, X } from "lucide-react";
-import { toast } from "sonner";
+import { Check, Download, LoaderIcon, User, X } from "lucide-react";
 import { z } from "zod";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -14,6 +13,7 @@ import { useForm, useWatch } from "react-hook-form";
 import Link from "next/link";
 
 import { AssetImage } from "@/components/shared/asset-image";
+import { DownloadProgressBar } from "@/components/shared/download-progress-bar";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -30,14 +30,11 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel } from "@/components/ui/form";
-import { Progress } from "@/components/ui/progress";
 
 import { cn } from "@/lib/cn";
 import { log } from "@/lib/logger";
 import { useUserPreferencesStore } from "@/lib/stores/global-user-preferences";
 
-import type { CollectionQueueItem } from "@/types/database/db-collection-queue";
-import type { CollectionItem } from "@/types/media-and-posters/collection-item";
 import type { CollectionItemImageFile, CollectionItemSetRef } from "@/types/media-and-posters/sets";
 import {
   DOWNLOAD_COLLECTION_IMAGE_TYPE_OPTIONS,
@@ -47,7 +44,6 @@ import {
 export interface CollectionsDownloadModalProps {
   item: CollectionItem;
   set: CollectionItemSetRef;
-  onArtworkApplied?: (item: CollectionItem) => void;
 }
 
 const downloadSchema = z.object({
@@ -55,7 +51,7 @@ const downloadSchema = z.object({
   backdrop: z.boolean(),
 });
 
-const CollectionsDownloadModal: React.FC<CollectionsDownloadModalProps> = ({ item, set, onArtworkApplied }) => {
+const CollectionsDownloadModal: React.FC<CollectionsDownloadModalProps> = ({ item, set }) => {
   const [isMounted, setIsMounted] = useState(false);
 
   // Cancel Button Text
@@ -73,11 +69,6 @@ const CollectionsDownloadModal: React.FC<CollectionsDownloadModalProps> = ({ ite
     poster_error?: string;
     backdrop_error?: string;
   }>({});
-
-  // State - Add to Queue. Defaults to true to match the media-item download
-  // modal: queueing runs the download in the background instead of blocking the
-  // dialog until every image is applied.
-  const [addToQueueOnly, setAddToQueueOnly] = useState(true);
 
   // User Preferences
   const { downloadDefaults } = useUserPreferencesStore();
@@ -129,16 +120,13 @@ const CollectionsDownloadModal: React.FC<CollectionsDownloadModalProps> = ({ ite
 
   type ProgressValues = {
     value: number;
-    color: string;
   };
 
   // Download Progress
   const [progressValues, setProgressValues] = useState<ProgressValues>({
     value: 0,
-    color: "",
   });
 
-  // Add this with your other state declarations
   const progressRef = useRef(0);
   const progressIncrementRef = useRef(0);
   const progressDownloadRef = useRef(0);
@@ -160,7 +148,6 @@ const CollectionsDownloadModal: React.FC<CollectionsDownloadModalProps> = ({ ite
     progressDownloadRef.current = 0;
     setProgressValues({
       value: 0,
-      color: "",
     });
   };
 
@@ -195,7 +182,6 @@ const CollectionsDownloadModal: React.FC<CollectionsDownloadModalProps> = ({ ite
       if (response.status === "error") {
         throw new Error(response.error?.message || `Unknown error downloading ${imageLabel}`);
       }
-      onArtworkApplied?.({ ...collectionItem });
 
       // Mark as done and set progress to target
       isDone = true;
@@ -232,27 +218,6 @@ const CollectionsDownloadModal: React.FC<CollectionsDownloadModalProps> = ({ ite
     setIsMounted(true);
 
     try {
-      // Add to Queue: enqueue the selected images and let the background download
-      // worker apply them, instead of downloading synchronously in this dialog.
-      if (addToQueueOnly) {
-        const images: CollectionItemImageFile[] = [];
-        if (data.poster && posterImage) images.push(posterImage);
-        if (data.backdrop && backdropImage) images.push(backdropImage);
-
-        const queueItem: CollectionQueueItem = {
-          collection_item: item,
-          images,
-        };
-
-        const response = await AddCollectionToQueue(queueItem);
-        if (response.status === "error") {
-          toast.error(`Error adding to queue: ${response.error?.message || "Unknown error occurred."}`);
-        } else {
-          toast.success(response.data?.result || "Added to download queue.");
-        }
-        return;
-      }
-
       // Reset errors and progress
       setErrors({});
       setProgress({});
@@ -382,17 +347,6 @@ const CollectionsDownloadModal: React.FC<CollectionsDownloadModalProps> = ({ ite
                 <>
                   <div className="text-sm text-muted-foreground">Number of Images: {numberOfImagesSelected}</div>
                   <div className="text-sm text-muted-foreground">Total Download Size: ~{sizeOfImagesSelected}</div>
-
-                  <FormItem className="flex items-center space-x-2 mt-2">
-                    <FormControl>
-                      <Checkbox
-                        checked={addToQueueOnly}
-                        onCheckedChange={(checked) => setAddToQueueOnly(checked === true)}
-                        className="h-5 w-5 sm:h-4 sm:w-4 cursor-pointer"
-                      />
-                    </FormControl>
-                    <FormLabel className="text-md font-normal cursor-pointer">Add to Queue</FormLabel>
-                  </FormItem>
                 </>
               ) : (
                 <div className="text-sm text-destructive">
@@ -402,15 +356,13 @@ const CollectionsDownloadModal: React.FC<CollectionsDownloadModalProps> = ({ ite
 
               {progressValues.value > 0 && (
                 <div className="w-full">
-                  <div className="flex items-center justify-between">
-                    <Progress
-                      value={progressValues.value}
-                      className={`flex-1 
-												rounded-md ${progressValues.value < 100 ? "animate-pulse" : ""}
-												${progressValues.color ? `[&>div]:bg-${progressValues.color}-500` : ""}`}
-                    />
-                    <span className="ml-2 text-sm text-muted-foreground">{Math.round(progressValues.value)}%</span>
-                  </div>
+                  <DownloadProgressBar
+                    value={progressValues.value}
+                    label={[progress.poster_progress, progress.backdrop_progress].find((status) =>
+                      status?.toLowerCase().startsWith("downloading")
+                    )}
+                    hasErrors={!!(errors.poster_error || errors.backdrop_error)}
+                  />
 
                   {(progress.poster_progress || progress.backdrop_progress) && (
                     <div className="space-y-1 mt-2">
@@ -454,14 +406,7 @@ const CollectionsDownloadModal: React.FC<CollectionsDownloadModalProps> = ({ ite
                   </Button>
                 </DialogClose>
                 <Button type="submit" disabled={!form.watch("poster") && !form.watch("backdrop")}>
-                  {addToQueueOnly && numberOfImagesSelected > 0 ? (
-                    <>
-                      <ListEnd className="mr-1 h-4 w-4" />
-                      Add to Queue
-                    </>
-                  ) : (
-                    downloadButtonText
-                  )}
+                  {downloadButtonText}
                 </Button>
               </DialogFooter>
             </form>

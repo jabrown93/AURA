@@ -1,8 +1,8 @@
+import { markOpenMediaItemSetSaved } from "@/helper/update-open-media-item";
 import apiClient from "@/services/api-client";
 import { ReturnErrorMessage } from "@/services/api-error-return";
 
 import { log } from "@/lib/logger";
-import { useLibrarySectionsStore } from "@/lib/stores/global-store-library-sections";
 
 import type { APIResponse } from "@/types/api/api-response";
 import type { DBSavedItem } from "@/types/database/db-poster-set";
@@ -45,11 +45,11 @@ export const UpdateItemInDB = async (saveItem: DBSavedItem): Promise<APIResponse
         response.data
       );
     }
-    const { upsertMediaItemSavedSet } = useLibrarySectionsStore.getState();
     for (const savedSet of saveItem.poster_sets) {
-      upsertMediaItemSavedSet({
+      markOpenMediaItemSetSaved({
         tmdbID: saveItem.media_item.tmdb_id,
         libraryTitle: saveItem.media_item.library_title,
+        edition: saveItem.media_item.edition,
         setID: savedSet.id,
         setUser: savedSet.user_created,
         selectedTypes: savedSet.selected_types,

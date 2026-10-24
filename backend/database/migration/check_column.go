@@ -48,6 +48,13 @@ func checkColumnExists(ctx context.Context, tableName string, columnName string)
 			break
 		}
 	}
+	if err = rows.Err(); err != nil {
+		Err = logging.LogErrorInfo{
+			Message: "Failed to read " + tableName + " table info",
+			Detail:  map[string]any{"error": err.Error()},
+		}
+		return false, Err
+	}
 
 	return exists, Err
 }

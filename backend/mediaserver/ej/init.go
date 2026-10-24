@@ -15,7 +15,7 @@ type EJ struct {
 }
 
 func (e *EJ) GetAdminUser(ctx context.Context, msConfig config.Config_MediaServer) (userID string, Err logging.LogErrorInfo) {
-	ctx, logAction := logging.AddSubActionToContext(ctx, "Getting Admin User for %s Media Server", msConfig.Type)
+	ctx, logAction := logging.AddSubActionToContext(ctx, fmt.Sprintf("Getting Admin User for %s Media Server", msConfig.Type), logging.LevelDebug)
 	defer logAction.Complete()
 
 	userID = ""
@@ -42,7 +42,7 @@ func (e *EJ) GetAdminUser(ctx context.Context, msConfig config.Config_MediaServe
 	var ejResp EmbyJellyUserIDResponse
 	Err = httpx.DecodeResponseToJSON(ctx, respBody, &ejResp, fmt.Sprintf("%s User ID Response", msConfig.Type))
 	if Err.Message != "" {
-		return userID, *logAction.Error
+		return userID, Err
 	}
 
 	// Find the first Admin user ID

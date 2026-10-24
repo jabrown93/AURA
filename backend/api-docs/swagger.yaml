@@ -26,24 +26,54 @@ definitions:
       user_created:
         type: string
     type: object
+  autodownload.FavoriteCreatorsResult:
+    properties:
+      checked:
+        description: Items without a saved set
+        type: integer
+      no_set:
+        description: Items none of the favorite creators have a set for
+        type: integer
+      queued:
+        description: Items a set was added to the Download Queue for
+        type: integer
+    type: object
+  autodownload.UpgradeItem:
+    properties:
+      edition:
+        type: string
+      library_title:
+        type: string
+      tmdb_id:
+        type: string
+    type: object
+  autodownload.UpgradeSavedSetsResult:
+    properties:
+      checked:
+        description: Saved items that can be upgraded
+        type: integer
+      upgraded:
+        description: Items a better set was added to the Download Queue for
+        type: integer
+    type: object
   config.Config:
     properties:
       auth:
         allOf:
         - $ref: '#/definitions/config.Config_Auth'
         description: Authentication settings.
-      auto_download:
+      backups:
         allOf:
-        - $ref: '#/definitions/config.Config_AutoDownload'
-        description: Auto-download settings.
-      database:
-        allOf:
-        - $ref: '#/definitions/config.Config_Database'
-        description: Database configuration settings.
+        - $ref: '#/definitions/config.Config_Backups'
+        description: Database backup settings.
       images:
         allOf:
         - $ref: '#/definitions/config.Config_Images'
         description: Image settings.
+      jobs:
+        allOf:
+        - $ref: '#/definitions/config.Config_Jobs'
+        description: Background jobs scheduling configuration.
       labels_and_tags:
         allOf:
         - $ref: '#/definitions/config.Config_LabelsAndTags'
@@ -52,10 +82,19 @@ definitions:
         allOf:
         - $ref: '#/definitions/config.Config_Logging'
         description: Logging configuration settings.
+      main_media_server:
+        description: ID of the main media server.
+        type: string
       media_server:
         allOf:
         - $ref: '#/definitions/config.Config_MediaServer'
-        description: Media server integration settings.
+        description: The main media server, kept in sync with its entry in MediaServers.
+          Not stored.
+      media_servers:
+        description: Every media server. One of them is the main server.
+        items:
+          $ref: '#/definitions/config.Config_MediaServer'
+        type: array
       mediux:
         allOf:
         - $ref: '#/definitions/config.Config_Mediux'
@@ -72,28 +111,85 @@ definitions:
         allOf:
         - $ref: '#/definitions/config.Config_TMDB'
         description: TMDB (The Movie Database) integration settings.
+      user_preferences:
+        allOf:
+        - $ref: '#/definitions/config.Config_UserPreferences'
+        description: User preferences, shared between sessions and devices.
     type: object
   config.Config_Auth:
     properties:
+      allowed_origins:
+        description: |-
+          AllowedOrigins is an optional list of extra origins allowed to make credentialed
+          cross-origin requests (cookies/API key headers). The standard deployment (Next.js server
+          proxying /api/* to the Go backend) never needs this - the browser only ever talks to one
+          origin. Only set this if you're calling the API directly from a different origin.
+        items:
+          type: string
+        type: array
       enabled:
         description: Whether to enable authentication.
         type: boolean
       oidc:
         allOf:
-        - $ref: '#/definitions/config.Config_OIDC'
-        description: Single sign-on via an OpenID Connect provider.
+        - $ref: '#/definitions/config.Config_Auth_OIDC'
+        description: OIDC (Single Sign-On) login settings.
       password:
         description: Password for authentication.
         type: string
+      password_enabled:
+        description: Whether logging in with the password is allowed. Turn it off
+          to only log in with Single Sign-On.
+        type: boolean
+      session_cookie_secure:
+        description: SessionCookieSecure controls the Secure attribute of the browser
+          session cookie.
+        type: string
+      trust_proxy_for_cookie_secure:
+        description: |-
+          TrustProxyForCookieSecure, when true, also treats X-Forwarded-Proto: https as a secure transport
+          signal (for reverse-proxy TLS termination setups). Defaults to false since that header is
+          attacker-controllable unless the proxy is guaranteed to strip/overwrite it.
+        type: boolean
     type: object
-  config.Config_AutoDownload:
+  config.Config_Auth_OIDC:
     properties:
-      cron:
-        description: Cron expression for scheduling auto-downloads.
+      allowed_domains:
+        description: Optional allowlist of email domains (e.g. "example.com") permitted
+          to log in via OIDC. Empty = any domain allowed.
+        items:
+          type: string
+        type: array
+      allowed_emails:
+        description: Optional allowlist of exact emails permitted to log in via OIDC.
+          Empty = any authenticated IdP user is allowed.
+        items:
+          type: string
+        type: array
+      client_id:
+        description: OIDC client ID.
+        type: string
+      client_secret:
+        description: OIDC client secret.
         type: string
       enabled:
-        description: Whether auto-download is enabled.
+        description: Whether OIDC (Single Sign-On) login is enabled.
         type: boolean
+      issuer_url:
+        description: OIDC issuer URL (used for discovery).
+        type: string
+      redirect_urls:
+        description: Callback URLs registered with the IdP, one for each address aura
+          is opened at, e.g. https://aura.example.com/api/auth/oidc/callback.
+        items:
+          type: string
+        type: array
+    type: object
+  config.Config_Backups:
+    properties:
+      keep:
+        description: Number of database backups to keep before the oldest are deleted.
+        type: integer
     type: object
   config.Config_CacheImages:
     properties:
@@ -116,31 +212,17 @@ definitions:
         description: Title for the custom notification.
         type: string
     type: object
-  config.Config_Database:
+  config.Config_ImageNameTemplates:
     properties:
-      dsn:
-        description: Data Source Name for the database connection (if applicable).
+      backdrop:
         type: string
-      host:
-        description: Hostname or IP address of the database server (if applicable).
+      poster:
         type: string
-      name:
-        description: Name of the database to connect to.
+      season_poster:
         type: string
-      password:
-        description: Password for database authentication (if applicable).
+      special_season_poster:
         type: string
-      path:
-        description: File path for the database (if applicable, e.g., for SQLite).
-        type: string
-      port:
-        description: Port number of the database server (if applicable).
-        type: integer
-      type:
-        description: Type of database (e.g., "sqlite", "mysql", "postgresql").
-        type: string
-      user:
-        description: Username for database authentication (if applicable).
+      titlecard:
         type: string
     type: object
   config.Config_Images:
@@ -149,44 +231,59 @@ definitions:
         allOf:
         - $ref: '#/definitions/config.Config_CacheImages'
         description: Settings for caching images.
-      kometa:
-        allOf:
-        - $ref: '#/definitions/config.Config_Kometa'
-        description: Settings for Kometa asset directory integration (Plex only).
       save_images_locally:
         allOf:
         - $ref: '#/definitions/config.Config_SaveImagesLocally'
         description: Settings for saving images locally alongside content.
     type: object
-  config.Config_Kometa:
+  config.Config_JobSetting:
     properties:
-      asset_directory:
-        description: 'Path to the Kometa asset directory (the same directory Kometa
-          reads assets from). Uses the folder-per-item (asset_folders: true) layout.'
+      cron:
+        description: Cron expression for the job schedule.
         type: string
       enabled:
-        description: Whether to write downloaded images into the Kometa asset directory
-          using Kometa naming conventions. Plex exclusive feature.
         type: boolean
-      import_cron:
-        description: Optional cron expression for periodically importing existing
-          Kometa assets. Empty means import is manual only.
-        type: string
-      library_asset_folders:
-        additionalProperties:
-          type: string
-        description: Optional per-library subfolder (relative to AssetDirectory) keyed
-          by Plex library title. When set, a library's assets are written to <AssetDirectory>/<subfolder>/<item>/...
-          instead of directly under AssetDirectory. Must match the per-library asset_directory
-          configured in Kometa itself. A library with no entry keeps writing flat
-          to AssetDirectory.
-        type: object
-      sonarr_radarr_fallback:
-        description: When a media-server lookup fails (e.g. Plex returns a 404) but
-          the item exists in Sonarr/Radarr, still write the downloaded images into
-          the Kometa asset directory, deriving the asset folder name from the Sonarr/Radarr
-          path. Requires Enabled. Plex exclusive feature.
-        type: boolean
+    type: object
+  config.Config_Jobs:
+    properties:
+      auto_download:
+        allOf:
+        - $ref: '#/definitions/config.Config_JobSetting'
+        description: Schedule for auto-downloads.
+      backup_database:
+        allOf:
+        - $ref: '#/definitions/config.Config_JobSetting'
+        description: Schedule for backing up the database.
+      check_for_media_item_changes:
+        allOf:
+        - $ref: '#/definitions/config.Config_JobSetting'
+        description: Schedule for checking rating keys and metadata changes.
+      check_for_new_media_items:
+        allOf:
+        - $ref: '#/definitions/config.Config_JobSetting'
+        description: Schedule for adding the media server's newest items.
+      check_mediux_site_link:
+        allOf:
+        - $ref: '#/definitions/config.Config_JobSetting'
+        description: Schedule for checking MediUX site link availability.
+      handle_temp_ignored_items:
+        allOf:
+        - $ref: '#/definitions/config.Config_JobSetting'
+        description: Schedule for checking if temporarily ignored items now have sets
+          on MediUX.
+      refresh_media_items_and_collections:
+        allOf:
+        - $ref: '#/definitions/config.Config_JobSetting'
+        description: Schedule for refreshing media items and collections from media
+          server.
+      refresh_mediux_users:
+        allOf:
+        - $ref: '#/definitions/config.Config_JobSetting'
+        description: Schedule for refreshing tracked MediUX users/creators.
+      upgrade_saved_sets:
+        allOf:
+        - $ref: '#/definitions/config.Config_JobSetting'
+        description: Schedule for upgrading saved sets to higher ranked favorite creators.
     type: object
   config.Config_LabelsAndTags:
     properties:
@@ -224,6 +321,12 @@ definitions:
       file:
         description: File path for logging output.
         type: string
+      keep_days:
+        description: Number of days to keep old log files before they are deleted.
+        type: integer
+      keep_files:
+        description: Number of old log files to keep before the oldest are deleted.
+        type: integer
       level:
         description: Logging level (e.g., TRACE, DEBUG, INFO, WARN, ERROR).
         type: string
@@ -241,11 +344,27 @@ definitions:
         description: Whether to check episodes for added date when getting Media Items.
           This is only for Plex servers.
         type: boolean
+      enabled:
+        description: Whether aura uses this media server. The main server is always
+          enabled.
+        type: boolean
+      id:
+        description: Unique ID of the media server.
+        type: string
       libraries:
         description: List of media server libraries to manage.
         items:
           $ref: '#/definitions/models.LibrarySection'
         type: array
+      library_map:
+        additionalProperties:
+          type: string
+        description: Which main server library each library matches, by title. Not
+          used for the main server.
+        type: object
+      name:
+        description: Name of the media server shown in aura.
+        type: string
       type:
         description: Type of media server (e.g., plex, emby, jellyfin).
         type: string
@@ -255,7 +374,7 @@ definitions:
         type: string
       user_id:
         description: User ID for accessing the media server. This is used for Emby
-          and Jellyfin servers.
+          and Jellyfin servers. For Silo servers, this is the Profile ID.
         type: string
     type: object
   config.Config_Mediux:
@@ -346,11 +465,21 @@ definitions:
         allOf:
         - $ref: '#/definitions/config.Config_CustomNotification'
         description: Custom notification settings for download queue events.
+      new_item_auto_download:
+        allOf:
+        - $ref: '#/definitions/config.Config_CustomNotification'
+        description: Custom notification settings for sets downloaded automatically
+          from the favorite creators.
       new_sets_available_for_ignored_items:
         allOf:
         - $ref: '#/definitions/config.Config_CustomNotification'
         description: Custom notification settings for when new sets become available
           for ignored items.
+      silo_plugin:
+        allOf:
+        - $ref: '#/definitions/config.Config_CustomNotification'
+        description: Custom notification settings for sets downloaded when Silo uses
+          an image from the aura Silo plugin.
       sonarr_notification:
         allOf:
         - $ref: '#/definitions/config.Config_CustomNotification'
@@ -375,67 +504,15 @@ definitions:
         - $ref: '#/definitions/config.Config_NotificationTemplate'
         description: Custom notification templates for different events
     type: object
-  config.Config_OIDC:
-    properties:
-      allowed_emails:
-        description: Email addresses permitted to sign in.
-        items:
-          type: string
-        type: array
-      allowed_groups:
-        description: Groups permitted to sign in.
-        items:
-          type: string
-        type: array
-      allowed_subjects:
-        description: Subject identifiers permitted to sign in.
-        items:
-          type: string
-        type: array
-      button_label:
-        description: Label for the sign-in button. Defaults to "Sign in with SSO".
-        type: string
-      client_id:
-        description: Client ID registered with the provider.
-        type: string
-      client_secret:
-        description: Client secret registered with the provider.
-        type: string
-      enabled:
-        description: Whether to offer OIDC sign-in.
-        type: boolean
-      groups_claim:
-        description: |-
-          Authorization. When every list is empty, any user the provider authenticates is
-          allowed in and access is governed by the provider's own application policy.
-          When any list is set, the user must match at least one entry.
-        type: string
-      issuer_url:
-        description: Provider issuer, used for discovery (e.g. https://auth.example.com/application/o/aura/).
-        type: string
-      redirect_url:
-        description: |-
-          Callback URL registered with the provider. Must be absolute: it is never derived from
-          the request, since the Host header is attacker controlled.
-        type: string
-      rp_initiated_logout:
-        description: Whether logout should also end the session at the provider.
-        type: boolean
-      scopes:
-        description: Scopes to request. "openid" is always included.
-        items:
-          type: string
-        type: array
-    type: object
   config.Config_SaveImagesLocally:
     properties:
       enabled:
         description: Whether to save images next to their content.
         type: boolean
-      episode_naming_convention:
-        description: Episode naming convention for the media server. Only needed for
-          Plex. Will default to match
-        type: string
+      name_templates:
+        allOf:
+        - $ref: '#/definitions/config.Config_ImageNameTemplates'
+        description: File names for each image type, empty uses the standard names
       path:
         description: By default, this is set to alongside the content. If set, this
           will override that behavior and save all images to this path.
@@ -471,14 +548,256 @@ definitions:
     type: object
   config.Config_TMDB:
     type: object
+  config.Config_UserPreferences:
+    properties:
+      auto_download_new_items:
+        description: Whether images are downloaded automatically for new items, from
+          the favorite creators.
+        type: boolean
+      auto_upgrade_sets:
+        description: Whether to automatically upgrade sets when available.
+        type: boolean
+      default_add_to_db_only:
+        description: Whether "Add to Database Only" is checked by default in the Download
+          Modal.
+        type: boolean
+      default_add_to_queue:
+        description: Whether "Add to Queue" is checked by default in the Download
+          Modal.
+        type: boolean
+      default_auto_add_new_collection_items:
+        description: Whether "Auto Add New Collection Items" is checked by default
+          in the Download Modal.
+        type: boolean
+      download_defaults:
+        description: Image types selected by default in the Download Modal.
+        items:
+          type: string
+        type: array
+      favorite_creators:
+        description: MediUX usernames ranked best first, the first is rank 1.
+        items:
+          type: string
+        type: array
+      page_views:
+        additionalProperties:
+          additionalProperties: {}
+          type: object
+        description: Each page's sort and filter options, by page, so they're the
+          same on every device.
+        type: object
+      show_date_modified:
+        description: Whether to show the date modified on poster sets.
+        type: boolean
+      show_only_download_defaults:
+        description: Whether to only show the default image types in the Download
+          Modal.
+        type: boolean
+    type: object
   config.NotificationTemplateVariableCatalog:
     properties:
+      default_templates:
+        allOf:
+        - $ref: '#/definitions/config.Config_NotificationTemplate'
+        description: The built-in templates, for Restore Default
       template_variables:
         additionalProperties:
           items:
             type: string
           type: array
         type: object
+    type: object
+  creator.Boxset:
+    properties:
+      date_created:
+        description: Creation date
+        type: string
+      date_updated:
+        description: Last updated date
+        type: string
+      id:
+        description: Set ID
+        type: string
+      popularity:
+        description: Popularity score of the set
+        type: integer
+      popularity_global:
+        description: Global popularity score of the set
+        type: integer
+      set_ids:
+        additionalProperties:
+          items:
+            type: string
+          type: array
+        description: IDs of sets (show, movie, collection) in this boxset
+        type: object
+      sets:
+        items:
+          $ref: '#/definitions/models.SetRef'
+        type: array
+      title:
+        description: Set Title
+        type: string
+      type:
+        description: Set Type (movie, show, collection, boxset)
+        type: string
+      user_created:
+        description: User who created the set
+        type: string
+    type: object
+  creator.LibrarySummary:
+    properties:
+      sets:
+        type: integer
+      title:
+        type: string
+      type:
+        type: string
+    type: object
+  creator.Result:
+    properties:
+      boxsets:
+        description: The page, for the boxsets tab
+        items:
+          $ref: '#/definitions/creator.Boxset'
+        type: array
+      counts:
+        allOf:
+        - $ref: '#/definitions/creator.TabCounts'
+        description: Sets of each type matching the library and filters
+      included_items:
+        additionalProperties:
+          $ref: '#/definitions/models.IncludedItem'
+        type: object
+      libraries:
+        items:
+          $ref: '#/definitions/creator.LibrarySummary'
+        type: array
+      page:
+        type: integer
+      per_page:
+        type: integer
+      sets:
+        description: The page, for the set tabs
+        items:
+          $ref: '#/definitions/models.SetRef'
+        type: array
+      tab:
+        type: string
+      total:
+        type: integer
+      total_pages:
+        type: integer
+      totals:
+        allOf:
+        - $ref: '#/definitions/creator.TabCounts'
+        description: Sets of each type the creator has
+    type: object
+  creator.TabCounts:
+    properties:
+      box_sets:
+        type: integer
+      collection_sets:
+        type: integer
+      movie_sets:
+        type: integer
+      show_sets:
+        type: integer
+    type: object
+  database.CreatorSetCount:
+    properties:
+      sets:
+        type: integer
+      username:
+        type: string
+    type: object
+  database.DatabaseBackup:
+    properties:
+      created_at:
+        type: string
+      name:
+        type: string
+      size:
+        description: Bytes
+        type: integer
+    type: object
+  database.DownloadHistoryEntry:
+    properties:
+      created_at:
+        type: string
+      edition:
+        type: string
+      failed_images:
+        items:
+          $ref: '#/definitions/models.ImageDownloadResult'
+        type: array
+      id:
+        type: integer
+      images_failed:
+        type: integer
+      images_succeeded:
+        type: integer
+      library_title:
+        type: string
+      media_item_title:
+        type: string
+      media_item_year:
+        type: integer
+      next_retry_at:
+        description: When it's retried automatically, nil when it isn't
+        type: string
+      rating_key:
+        type: string
+      retry_count:
+        description: Times the set was retried, automatically or with Retry
+        type: integer
+      selected_types:
+        $ref: '#/definitions/models.SelectedTypes'
+      set_creator:
+        type: string
+      set_id:
+        type: string
+      set_title:
+        type: string
+      status:
+        type: string
+      tmdb_id:
+        type: string
+      warning_count:
+        type: integer
+    type: object
+  database.DownloadQueueJob:
+    properties:
+      created_at:
+        type: string
+      edition:
+        type: string
+      finished_at:
+        type: string
+      id:
+        type: integer
+      item:
+        $ref: '#/definitions/models.DBSavedItem'
+      library_title:
+        type: string
+      media_item_title:
+        type: string
+      result_errors:
+        items:
+          type: string
+        type: array
+      result_message:
+        type: string
+      result_warnings:
+        items:
+          type: string
+        type: array
+      started_at:
+        type: string
+      status:
+        type: string
+      tmdb_id:
+        type: string
     type: object
   downloadqueue.Status:
     enum:
@@ -511,6 +830,10 @@ definitions:
     type: object
   jobs.JobInfo:
     properties:
+      description:
+        type: string
+      enabled:
+        type: boolean
       id:
         type: string
       job_name:
@@ -522,59 +845,76 @@ definitions:
       spec:
         type: string
     type: object
-  kometa.FolderOutcome:
+  library.Item:
     properties:
-      detail:
-        type: string
-      folder:
-        type: string
-      images_failed:
+      added_at:
         type: integer
-      images_skipped_owned:
-        description: assets not uploaded because a MediUX set owns their image type
-        type: integer
-      images_uploaded:
-        type: integer
-      managed_by_aura:
-        description: one or more image types were skipped to protect MediUX selections
-        type: boolean
-      outcome:
-        description: matched, unmatched, collection, skipped, error
-        type: string
-      registered_in_db:
-        type: boolean
-    type: object
-  kometa.ImportResult:
-    properties:
-      collections:
-        type: integer
-      error:
-        type: string
-      finished_at:
-        type: string
-      folders:
+      db_saved_sets:
         items:
-          $ref: '#/definitions/kometa.FolderOutcome'
+          $ref: '#/definitions/models.DBSavedSet'
         type: array
-      folders_scanned:
-        type: integer
-      images_failed:
-        type: integer
-      images_skipped_owned:
-        description: assets not uploaded because a MediUX set owns their image type
-        type: integer
-      images_uploaded:
-        type: integer
-      items_registered:
-        type: integer
-      matched:
-        type: integer
-      skipped_managed_by_aura:
-        description: items where at least one image type was protected
-        type: integer
-      started_at:
+      edition:
         type: string
-      unmatched_folders:
+      has_mediux_sets:
+        type: boolean
+      ignored_in_db:
+        type: boolean
+      ignored_mode:
+        type: string
+      latest_episode_added_at:
+        type: integer
+      library_title:
+        type: string
+      rating_key:
+        type: string
+      released_at:
+        type: integer
+      title:
+        type: string
+      tmdb_id:
+        type: string
+      type:
+        type: string
+      updated_at:
+        type: integer
+      year:
+        type: integer
+    type: object
+  library.LibrarySummary:
+    properties:
+      count:
+        type: integer
+      title:
+        type: string
+      type:
+        type: string
+    type: object
+  library.Result:
+    properties:
+      has_episode_added_at:
+        description: Whether the "Latest Episode Added" sort is useful
+        type: boolean
+      has_updated_at:
+        description: Whether the "Date Updated" sort is useful
+        type: boolean
+      items:
+        items:
+          $ref: '#/definitions/library.Item'
+        type: array
+      last_full_update:
+        type: integer
+      libraries:
+        items:
+          $ref: '#/definitions/library.LibrarySummary'
+        type: array
+      page:
+        type: integer
+      per_page:
+        type: integer
+      total:
+        description: Items on every page
+        type: integer
+      total_pages:
         type: integer
     type: object
   logging.LogAction:
@@ -683,6 +1023,127 @@ definitions:
         description: Number of bytes written in the response (middleware can capture)
         type: integer
     type: object
+  mediaserver.LibraryLoad:
+    properties:
+      done:
+        type: boolean
+      loaded:
+        description: Items loaded so far
+        type: integer
+      title:
+        type: string
+      total:
+        description: Items in the library, its size last time until the media server
+          says
+        type: integer
+    type: object
+  mediaserver.LibraryProgress:
+    properties:
+      failed:
+        type: boolean
+      finished_at:
+        type: integer
+      libraries:
+        items:
+          $ref: '#/definitions/mediaserver.LibraryLoad'
+        type: array
+      running:
+        type: boolean
+      started_at:
+        type: integer
+    type: object
+  mediaserver.MediaServerSync:
+    properties:
+      applied:
+        description: Images applied
+        type: integer
+      current:
+        description: The item being applied
+        type: string
+      done:
+        description: Saved items checked
+        type: integer
+      error:
+        description: Why the sync stopped before the end
+        type: string
+      failed:
+        description: Images or items that couldn't be applied
+        type: integer
+      failures:
+        description: The first few things that couldn't be applied
+        items:
+          type: string
+        type: array
+      finished_at:
+        type: string
+      not_found:
+        description: Saved items that aren't on the media server
+        type: integer
+      running:
+        type: boolean
+      server_id:
+        type: string
+      server_name:
+        type: string
+      started_at:
+        type: string
+      stopped:
+        description: Whether it was stopped from Settings
+        type: boolean
+      total:
+        description: Saved items
+        type: integer
+    type: object
+  mediaserver.SwitchMainItem:
+    properties:
+      edition:
+        type: string
+      found:
+        description: Whether the item is on the new main media server
+        type: boolean
+      library_title:
+        type: string
+      merged:
+        description: Whether another saved item becomes the same item, e.g. two editions
+        type: boolean
+      new_edition:
+        type: string
+      new_library_title:
+        description: Empty if no library on the new main media server matches
+        type: string
+      title:
+        type: string
+      tmdb_id:
+        type: string
+      type:
+        type: string
+      year:
+        type: integer
+    type: object
+  mediaserver.SwitchMainPlan:
+    properties:
+      blocked:
+        description: Why the switch can't happen right now
+        type: string
+      items:
+        items:
+          $ref: '#/definitions/mediaserver.SwitchMainItem'
+        type: array
+      library_changes:
+        additionalProperties:
+          type: string
+        description: Library on the new main media server for each library on the
+          current one
+        type: object
+      media_server_name:
+        type: string
+      merged:
+        type: integer
+      moved:
+        type: integer
+      not_found:
+        type: integer
+    type: object
   models.BaseMediuxItemInfo:
     properties:
       date_updated:
@@ -725,44 +1186,8 @@ definitions:
         description: Item type (movie, show)
         type: string
     type: object
-  models.BoxsetRef:
-    properties:
-      date_created:
-        description: Creation date
-        type: string
-      date_updated:
-        description: Last updated date
-        type: string
-      id:
-        description: Set ID
-        type: string
-      popularity:
-        description: Popularity score of the set
-        type: integer
-      popularity_global:
-        description: Global popularity score of the set
-        type: integer
-      set_ids:
-        additionalProperties:
-          items:
-            type: string
-          type: array
-        description: IDs of sets (show, movie, collection) in this boxset
-        type: object
-      title:
-        description: Set Title
-        type: string
-      type:
-        description: Set Type (movie, show, collection, boxset)
-        type: string
-      user_created:
-        description: User who created the set
-        type: string
-    type: object
   models.CollectionItem:
     properties:
-      artwork_version:
-        type: integer
       child_count:
         type: integer
       index:
@@ -782,60 +1207,6 @@ definitions:
         type: string
       tmdb_id:
         type: string
-      updated_at:
-        type: integer
-    type: object
-  models.CollectionQueueItem:
-    properties:
-      collection_item:
-        $ref: '#/definitions/models.CollectionItem'
-      failed_at:
-        description: FailedAt is when the entry was moved to its terminal error/warning
-          state.
-        type: string
-      images:
-        items:
-          $ref: '#/definitions/models.ImageFile'
-        type: array
-      queue_errors:
-        description: QueueErrors lists the fatal reasons the entry failed to apply.
-        items:
-          type: string
-        type: array
-      queue_warnings:
-        description: QueueWarnings lists non-fatal issues recorded while processing
-          the entry.
-        items:
-          type: string
-        type: array
-    type: object
-  models.CreatorSetsResponse:
-    properties:
-      boxsets:
-        description: List of boxsets
-        items:
-          $ref: '#/definitions/models.BoxsetRef'
-        type: array
-      collection_sets:
-        description: List of collection sets
-        items:
-          $ref: '#/definitions/models.SetRef'
-        type: array
-      included_items:
-        additionalProperties:
-          $ref: '#/definitions/models.IncludedItem'
-        description: Map of included items by TMDB ID
-        type: object
-      movie_sets:
-        description: List of movie sets
-        items:
-          $ref: '#/definitions/models.SetRef'
-        type: array
-      show_sets:
-        description: List of show sets
-        items:
-          $ref: '#/definitions/models.SetRef'
-        type: array
     type: object
   models.DBPosterSetDetail:
     properties:
@@ -849,14 +1220,6 @@ definitions:
       date_updated:
         description: Last updated date
         type: string
-      force_preload_missing:
-        description: |-
-          ForcePreloadMissing, when true, pre-stages season-poster/titlecard images for
-          seasons/episodes that are not yet present on the media server by writing them to
-          the Kometa asset directory (naming-convention only, no server apply). Requires
-          Kometa asset mode enabled and the show to exist on the server with at least one
-          episode. Has no effect otherwise.
-        type: boolean
       id:
         description: Set ID
         type: string
@@ -866,6 +1229,9 @@ definitions:
         type: array
       last_downloaded:
         type: string
+      no_auto_upgrade:
+        description: Keep this set, Automatically Upgrade Sets doesn't replace it
+        type: boolean
       popularity:
         description: Popularity score of the set
         type: integer
@@ -890,26 +1256,26 @@ definitions:
     type: object
   models.DBSavedItem:
     properties:
-      failed_at:
-        description: FailedAt is when the entry was moved to the error/warning state.
-        type: string
+      collection_images:
+        allOf:
+        - $ref: '#/definitions/models.QueuedCollectionImages'
+        description: A collection's own poster and backdrop, applied to the media
+          server collection after the sets. They aren't saved.
       media_item:
         $ref: '#/definitions/models.MediaItem'
       poster_sets:
         items:
           $ref: '#/definitions/models.DBPosterSetDetail'
         type: array
-      queue_errors:
-        description: QueueErrors lists the fatal reasons the entry failed to download.
+      replace_set_ids:
+        description: Saved sets of the item this replaces, they're removed once the
+          new sets are saved
         items:
           type: string
         type: array
-      queue_warnings:
-        description: QueueWarnings lists non-fatal issues recorded while processing
-          the entry.
-        items:
-          type: string
-        type: array
+      source:
+        description: What added it to the Download Queue, empty when it was the user
+        type: string
     type: object
   models.DBSavedSet:
     properties:
@@ -919,6 +1285,19 @@ definitions:
         $ref: '#/definitions/models.SelectedTypes'
       user_created:
         type: string
+    type: object
+  models.ImageDownloadResult:
+    properties:
+      episode_number:
+        type: integer
+      failure_reason:
+        type: string
+      image_type:
+        type: string
+      season_number:
+        type: integer
+      success:
+        type: boolean
     type: object
   models.ImageFile:
     properties:
@@ -995,9 +1374,6 @@ definitions:
       added_at:
         description: Added timestamp
         type: integer
-      artwork_version:
-        description: Opaque image cache version
-        type: integer
       content_rating:
         description: Used in MediaItem Details Page - For more information about the
           item
@@ -1007,6 +1383,9 @@ definitions:
         items:
           $ref: '#/definitions/models.DBSavedSet'
         type: array
+      edition:
+        description: Edition of the media item (e.g., "Director's Cut")
+        type: string
       guids:
         description: Used in MediaItem Details Page - For ratings
         items:
@@ -1059,7 +1438,7 @@ definitions:
         description: '"movie" or "show"'
         type: string
       updated_at:
-        description: Last updated timestamp from the media server
+        description: Last updated timestamp
         type: integer
       year:
         description: Release year of the media item
@@ -1157,6 +1536,15 @@ definitions:
           $ref: '#/definitions/models.SetRef'
         type: array
     type: object
+  models.QueuedCollectionImages:
+    properties:
+      collection:
+        $ref: '#/definitions/models.CollectionItem'
+      images:
+        items:
+          $ref: '#/definitions/models.ImageFile'
+        type: array
+    type: object
   models.SelectedTypes:
     properties:
       backdrop:
@@ -1172,6 +1560,11 @@ definitions:
     type: object
   models.SetRef:
     properties:
+      collection:
+        allOf:
+        - $ref: '#/definitions/models.CollectionItem'
+        description: For a collection set on a movie's page, the media server collection
+          its collection images apply to
       date_created:
         description: Creation date
         type: string
@@ -1236,18 +1629,18 @@ definitions:
     type: object
   routes_auth.authMethodsResponse:
     properties:
-      auth_enabled:
-        description: Whether authentication is enforced at all
-        type: boolean
-      oidc_button_label:
-        description: Label for the SSO button
-        type: string
       oidc_enabled:
-        description: Whether the SSO button should be shown
         type: boolean
       password_enabled:
-        description: Whether the password form should be shown
         type: boolean
+    type: object
+  routes_auth.generateAPIKeyResponse:
+    properties:
+      api_key:
+        description: |-
+          APIKey is the plaintext key. It is only ever returned here, once - it is not stored and
+          cannot be retrieved again. Only its Argon2id hash is persisted.
+        type: string
     type: object
   routes_auth.loginRequest:
     properties:
@@ -1256,37 +1649,35 @@ definitions:
     type: object
   routes_auth.loginResponse:
     properties:
-      token:
-        type: string
+      authenticated:
+        type: boolean
     type: object
   routes_auth.logoutResponse:
     properties:
-      end_session_url:
-        description: |-
-          EndSessionURL is set when the provider should also be told to end its session.
-          The UI navigates there after logging out locally.
-        type: string
       logged_out:
         type: boolean
-    type: object
-  routes_auth.sessionResponse:
-    properties:
-      authenticated:
-        description: Whether the caller holds a usable session
-        type: boolean
-      subject:
-        description: '"sub" claim of the active token'
-        type: string
     type: object
   routes_base.healthCheckResponse:
     properties:
       app_version:
+        description: The version of aura
+        type: string
+      database:
+        description: ok, not_open or error
+        type: string
+      loading_step:
+        description: What aura is doing while it starts
         type: string
       status:
+        description: ok, starting, setup or error
         type: string
     type: object
   routes_config.AppConfigStatus:
     properties:
+      api_key_configured:
+        description: Whether a global API key has been generated (the key itself is
+          never exposed)
+        type: boolean
       app_fully_loaded:
         description: Whether the app is fully loaded and ready to use
         type: boolean
@@ -1296,6 +1687,12 @@ definitions:
       app_version:
         description: Current version of the app
         type: string
+      auth_disabled_by_env:
+        description: Whether AURA_DISABLE_AUTH has turned off authentication
+        type: boolean
+      config_has_errors:
+        description: Whether the required settings are entered, but have errors
+        type: boolean
       config_loaded:
         description: Whether a config file is loaded
         type: boolean
@@ -1309,20 +1706,14 @@ definitions:
       media_server_name:
         description: Friendly name of the media server
         type: string
-      media_server_reachable:
-        description: Whether the media server answered the last check
-        type: boolean
-      mediux_reachable:
-        description: Whether MediUX answered the last check
-        type: boolean
       mediux_site_link:
         description: Current Mediux site link
         type: string
-      mediux_valid:
-        description: Whether MediUX accepted the configured token
-        type: boolean
       needs_setup:
         description: Whether the app needs initial setup
+        type: boolean
+      setup_code_required:
+        description: Whether the setup code must be entered first
         type: boolean
     type: object
   routes_config.configStatusResponse:
@@ -1330,13 +1721,38 @@ definitions:
       status:
         $ref: '#/definitions/routes_config.AppConfigStatus'
     type: object
-  routes_config.reloadConfigResponse:
+  routes_config.importConfigRequest:
     properties:
+      yaml:
+        description: The config file contents in config.yaml format
+        type: string
+    type: object
+  routes_config.mainMediaServerRequest:
+    properties:
+      id:
+        description: ID of the media server to make the main one
+        type: string
+    type: object
+  routes_config.mainMediaServerResponse:
+    properties:
+      plan:
+        $ref: '#/definitions/mediaserver.SwitchMainPlan'
       status:
-        $ref: '#/definitions/routes_config.AppConfigStatus'
+        allOf:
+        - $ref: '#/definitions/routes_config.AppConfigStatus'
+        description: Set once the main media server has changed
     type: object
   routes_config.templateVariablesResponse:
     properties:
+      image_name_defaults:
+        allOf:
+        - $ref: '#/definitions/config.Config_ImageNameTemplates'
+        description: The standard file names
+      image_name_variables:
+        description: Variables the saved image file names can use
+        items:
+          type: string
+        type: array
       variables:
         $ref: '#/definitions/config.NotificationTemplateVariableCatalog'
     type: object
@@ -1351,6 +1767,26 @@ definitions:
         type: string
       status:
         $ref: '#/definitions/routes_config.AppConfigStatus'
+    type: object
+  routes_config.updateConfigSectionResponse:
+    properties:
+      changed:
+        description: Whether any setting changed
+        type: boolean
+      message:
+        type: string
+      status:
+        $ref: '#/definitions/routes_config.AppConfigStatus'
+    type: object
+  routes_config.verifySetupCodeRequest:
+    properties:
+      code:
+        type: string
+    type: object
+  routes_config.verifySetupCodeResponse:
+    properties:
+      valid:
+        type: boolean
     type: object
   routes_db.DeleteItemFromDB_Response:
     properties:
@@ -1392,6 +1828,38 @@ definitions:
       result:
         $ref: '#/definitions/autodownload.AutoDownloadResult'
     type: object
+  routes_db.createDatabaseBackupResponse:
+    properties:
+      backup:
+        allOf:
+        - $ref: '#/definitions/database.DatabaseBackup'
+        description: The new backup
+      backups:
+        description: Newest first
+        items:
+          $ref: '#/definitions/database.DatabaseBackup'
+        type: array
+      folder:
+        description: Where the backups are saved
+        type: string
+      keep:
+        description: How many backups are kept
+        type: integer
+    type: object
+  routes_db.databaseBackupsResponse:
+    properties:
+      backups:
+        description: Newest first
+        items:
+          $ref: '#/definitions/database.DatabaseBackup'
+        type: array
+      folder:
+        description: Where the backups are saved
+        type: string
+      keep:
+        description: How many backups are kept
+        type: integer
+    type: object
   routes_db.getAllItemsResponse:
     properties:
       items:
@@ -1403,6 +1871,13 @@ definitions:
       unique_users:
         items:
           type: string
+        type: array
+    type: object
+  routes_db.getSavedSetCreatorsResponse:
+    properties:
+      creators:
+        items:
+          $ref: '#/definitions/database.CreatorSetCount'
         type: array
     type: object
   routes_db.ignoreItemResponse:
@@ -1433,16 +1908,6 @@ definitions:
       result:
         type: string
     type: object
-  routes_download.AddCollectionToDownloadQueue_Request:
-    properties:
-      item:
-        $ref: '#/definitions/models.CollectionQueueItem'
-    type: object
-  routes_download.AddCollectionToDownloadQueue_Response:
-    properties:
-      result:
-        type: string
-    type: object
   routes_download.AddItemToDownloadQueue_Request:
     properties:
       item:
@@ -1462,8 +1927,6 @@ definitions:
     type: object
   routes_download.DownloadCollectionImage_Response:
     properties:
-      artwork_version:
-        type: integer
       result:
         type: string
     type: object
@@ -1476,40 +1939,27 @@ definitions:
     type: object
   routes_download.DownloadImageFileForMediaItem_Response:
     properties:
-      artwork_version:
-        type: integer
       result:
         type: string
     type: object
-  routes_download.GetAllCollectionDownloadQueueItems_Response:
-    properties:
-      error_entries:
-        items:
-          $ref: '#/definitions/models.CollectionQueueItem'
-        type: array
-      in_progress_entries:
-        items:
-          $ref: '#/definitions/models.CollectionQueueItem'
-        type: array
-      warning_entries:
-        items:
-          $ref: '#/definitions/models.CollectionQueueItem'
-        type: array
-    type: object
   routes_download.GetAllDownloadQueueItems_Response:
     properties:
-      error_entries:
+      jobs:
         items:
-          $ref: '#/definitions/models.DBSavedItem'
+          $ref: '#/definitions/database.DownloadQueueJob'
         type: array
-      in_progress_entries:
+    type: object
+  routes_download.GetDownloadHistory_Response:
+    properties:
+      entries:
         items:
-          $ref: '#/definitions/models.DBSavedItem'
+          $ref: '#/definitions/database.DownloadHistoryEntry'
         type: array
-      warning_entries:
-        items:
-          $ref: '#/definitions/models.DBSavedItem'
-        type: array
+      max_retries:
+        description: How many times a failed download is retried automatically
+        type: integer
+      total:
+        type: integer
     type: object
   routes_download.GetDownloadQueueStatus_Response:
     properties:
@@ -1528,45 +1978,53 @@ definitions:
           type: string
         type: array
     type: object
-  routes_download.RemoveCollectionFromDownloadQueue_Request:
+  routes_download.RemoveAllDownloadHistory_Response:
     properties:
-      item:
-        $ref: '#/definitions/models.CollectionQueueItem'
+      result:
+        type: string
     type: object
-  routes_download.RemoveCollectionFromDownloadQueue_Response:
+  routes_download.RemoveAllFromDownloadQueue_Response:
+    properties:
+      result:
+        type: string
+    type: object
+  routes_download.RemoveDownloadHistoryEntry_Request:
+    properties:
+      id:
+        type: integer
+    type: object
+  routes_download.RemoveDownloadHistoryEntry_Response:
     properties:
       result:
         type: string
     type: object
   routes_download.RemoveItemFromDownloadQueue_Request:
     properties:
-      item:
-        $ref: '#/definitions/models.DBSavedItem'
+      job_id:
+        type: integer
     type: object
   routes_download.RemoveItemFromDownloadQueue_Response:
     properties:
       result:
         type: string
     type: object
-  routes_download.RetryCollectionInDownloadQueue_Request:
+  routes_download.RetryDownloadHistoryEntry_Request:
     properties:
-      item:
-        $ref: '#/definitions/models.CollectionQueueItem'
+      id:
+        type: integer
     type: object
-  routes_download.RetryCollectionInDownloadQueue_Response:
+  routes_download.RetryDownloadHistoryEntry_Response:
     properties:
       result:
         type: string
     type: object
-  routes_download.RetryItemInDownloadQueue_Request:
+  routes_download.UpgradeSets_Request:
     properties:
-      item:
-        $ref: '#/definitions/models.DBSavedItem'
-    type: object
-  routes_download.RetryItemInDownloadQueue_Response:
-    properties:
-      result:
-        type: string
+      items:
+        description: The saved items to upgrade, empty upgrades every saved item
+        items:
+          $ref: '#/definitions/autodownload.UpgradeItem'
+        type: array
     type: object
   routes_images.DeleteTempImages_Response:
     properties:
@@ -1584,15 +2042,6 @@ definitions:
     properties:
       message:
         type: string
-    type: object
-  routes_kometa.importResponse:
-    properties:
-      message:
-        type: string
-      result:
-        $ref: '#/definitions/kometa.ImportResult'
-      running:
-        type: boolean
     type: object
   routes_labels_tags.applyLabelsTagsRequest:
     properties:
@@ -1630,11 +2079,6 @@ definitions:
         type: string
       section:
         type: string
-    type: object
-  routes_mediux.GetAllUserSets_Response:
-    properties:
-      sets:
-        $ref: '#/definitions/models.CreatorSetsResponse'
     type: object
   routes_mediux.GetSetByID_Response:
     properties:
@@ -1676,19 +2120,6 @@ definitions:
           $ref: '#/definitions/models.MediuxUserInfo'
         type: array
     type: object
-  routes_ms.GetLibrarySectionItems_Response:
-    properties:
-      has_episode_added_at:
-        type: boolean
-      has_updated_at:
-        type: boolean
-      media_items:
-        items:
-          $ref: '#/definitions/models.MediaItem'
-        type: array
-      total_items:
-        type: integer
-    type: object
   routes_ms.GetLibrarySections_Response:
     properties:
       sections:
@@ -1716,6 +2147,22 @@ definitions:
           $ref: '#/definitions/models.CollectionItem'
         type: array
     type: object
+  routes_ms.GetRelatedLibraryItems_Response:
+    properties:
+      next:
+        allOf:
+        - $ref: '#/definitions/library.Item'
+        description: The item after it on the Home page
+      other_libraries:
+        description: The same item in other libraries
+        items:
+          $ref: '#/definitions/models.MediaItem'
+        type: array
+      previous:
+        allOf:
+        - $ref: '#/definitions/library.Item'
+        description: The item before it on the Home page
+    type: object
   routes_ms.RateMediaItem_Response:
     properties:
       rated:
@@ -1739,6 +2186,19 @@ definitions:
         items:
           $ref: '#/definitions/models.LibrarySection'
         type: array
+    type: object
+  routes_ms.mediaServerSyncResponse:
+    properties:
+      sync:
+        allOf:
+        - $ref: '#/definitions/mediaserver.MediaServerSync'
+        description: The latest sync, null if there hasn't been one
+    type: object
+  routes_ms.startMediaServerSyncRequest:
+    properties:
+      server_id:
+        description: The media server to apply the saved sets to
+        type: string
     type: object
   routes_plex.CheckAuthStatusWithPlex_Response:
     properties:
@@ -1783,6 +2243,18 @@ definitions:
           $ref: '#/definitions/models.DBSavedItem'
         type: array
       search_query:
+        type: string
+    type: object
+  routes_silo_plugin.getImagesResponse:
+    properties:
+      images:
+        items:
+          $ref: '#/definitions/siloplugin.Image'
+        type: array
+    type: object
+  routes_silo_plugin.getStatusResponse:
+    properties:
+      app_version:
         type: string
     type: object
   routes_validation.SendTestNotification_Request:
@@ -1837,14 +2309,59 @@ definitions:
       valid:
         type: boolean
     type: object
+  siloplugin.Image:
+    properties:
+      creator:
+        type: string
+      download_path:
+        description: Signed, the plugin calls it with notify=1 when Silo uses the
+          image
+        type: string
+      episode_number:
+        type: integer
+      id:
+        type: string
+      kind:
+        description: poster, backdrop, season_poster or titlecard
+        type: string
+      language:
+        description: Language name from MediUX, empty for textless
+        type: string
+      modified:
+        type: string
+      original_url:
+        description: Public, Silo can only download artwork from public addresses
+          on a refresh
+        type: string
+      preview_url:
+        type: string
+      saved:
+        description: From a saved set, with its type selected
+        type: boolean
+      season_number:
+        type: integer
+      set_id:
+        type: string
+      set_rank:
+        description: 1 is the best set for the item
+        type: integer
+      set_title:
+        type: string
+      set_type:
+        type: string
+    type: object
 info:
   contact: {}
+  description: Used only by /api/sonarr/webhook, since Sonarr/Radarr's built-in Webhook
+    connection type has no custom-header support. Any username works; the password
+    must be the API key.
   title: Aura API
   version: "1.0"
 paths:
   /api/:
     get:
-      description: Check the health status of the application
+      description: Check that aura is running and its database can be read. Returns
+        500 if the database can't be read. Used by the Docker health check.
       produces:
       - application/json
       responses:
@@ -1852,81 +2369,40 @@ paths:
           description: OK
           schema:
             $ref: '#/definitions/routes_base.healthCheckResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpx.JSONResponse'
       summary: Health Check
       tags:
       - Health
-  /api/auth/methods:
-    get:
-      description: Report which sign-in methods are available. Public so the login
-        page can render before the user is authenticated.
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            allOf:
-            - $ref: '#/definitions/httpx.JSONResponse'
-            - properties:
-                data:
-                  $ref: '#/definitions/routes_auth.authMethodsResponse'
-              type: object
-      summary: Get Auth Methods
-      tags:
-      - Auth
   /api/auth/oidc/callback:
     get:
-      description: Complete the OpenID Connect code exchange and start a session
-      parameters:
-      - description: Authorization code
-        in: query
-        name: code
-        required: true
-        type: string
-      - description: Opaque state issued when sign-in started
-        in: query
-        name: state
-        required: true
-        type: string
+      description: Handles the redirect back from the OIDC identity provider, exchanges
+        the authorization code, verifies the ID token, and - if the authenticated
+        identity is allowed - starts a browser session the same way password login
+        does.
       responses:
         "302":
-          description: Redirect to the app on success, or to /login with an error
-            code
+          description: Found
       summary: OIDC Callback
       tags:
       - Auth
   /api/auth/oidc/login:
     get:
-      description: Redirect the browser to the configured OpenID Connect provider
+      description: Redirects to the configured OIDC identity provider to start a browser
+        login. Not usable programmatically - this is a browser redirect flow.
       responses:
         "302":
-          description: Redirect to the identity provider
+          description: Found
       summary: Start OIDC Login
-      tags:
-      - Auth
-  /api/auth/session:
-    get:
-      description: Report whether the caller has a valid session. Always returns 200
-        so the UI can probe without tripping the global 401 redirect.
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            allOf:
-            - $ref: '#/definitions/httpx.JSONResponse'
-            - properties:
-                data:
-                  $ref: '#/definitions/routes_auth.sessionResponse'
-              type: object
-      summary: Get Session
       tags:
       - Auth
   /api/config:
     get:
-      description: Get the current status of the app configuration and onboarding
-        process
+      description: Get the current status of the app configuration while aura is in
+        setup mode. Without the setup code (X-Setup-Code header), only the app status
+        is returned, not the config.
       produces:
       - application/json
       responses:
@@ -1939,40 +2415,7 @@ paths:
                 data:
                   $ref: '#/definitions/routes_config.configStatusResponse'
               type: object
-        "401":
-          description: Unauthorized (only when Auth.Enabled=true)
-          schema:
-            $ref: '#/definitions/httpx.UnauthorizedResponse'
-      security:
-      - BearerAuth: []
-      summary: Get Config Status
-      tags:
-      - Config
-    patch:
-      description: Reload the configuration file and return the current config status
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            allOf:
-            - $ref: '#/definitions/httpx.JSONResponse'
-            - properties:
-                data:
-                  $ref: '#/definitions/routes_config.reloadConfigResponse'
-              type: object
-        "401":
-          description: Unauthorized (only when Auth.Enabled=true)
-          schema:
-            $ref: '#/definitions/httpx.UnauthorizedResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/httpx.JSONResponse'
-      security:
-      - BearerAuth: []
-      summary: Reload Config
+      summary: Get Config Status (Setup Mode)
       tags:
       - Config
     post:
@@ -2007,14 +2450,286 @@ paths:
           schema:
             $ref: '#/definitions/httpx.JSONResponse'
       security:
-      - BearerAuth: []
+      - SessionCookie: []
+      - ApiKeyAuth: []
       summary: Update Config
+      tags:
+      - Config
+  /api/config/{section}:
+    patch:
+      consumes:
+      - application/json
+      description: Update some settings in one section of the application configuration.
+        Only the settings included in the request body are changed. The section is
+        validated and saved on its own, and only that section's changes are applied
+        (e.g. reconnecting to the media server, restarting changed jobs).
+      parameters:
+      - description: Config section
+        enum:
+        - auth
+        - logging
+        - media_server
+        - media_servers
+        - mediux
+        - jobs
+        - backups
+        - images
+        - tmdb
+        - labels_and_tags
+        - notifications
+        - sonarr_radarr
+        - user_preferences
+        in: path
+        name: section
+        required: true
+        type: string
+      - description: The settings to change, using the same field names as the config
+          (e.g. {\
+        in: body
+        name: changes
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httpx.JSONResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/routes_config.updateConfigSectionResponse'
+              type: object
+        "401":
+          description: Unauthorized (only when Auth.Enabled=true)
+          schema:
+            $ref: '#/definitions/httpx.UnauthorizedResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpx.JSONResponse'
+      security:
+      - SessionCookie: []
+      - ApiKeyAuth: []
+      summary: Update Config Section
+      tags:
+      - Config
+  /api/config/auth-methods:
+    get:
+      description: Public, minimal endpoint the login page uses to know which login
+        methods to show (password / OIDC SSO) before the user is authenticated.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httpx.JSONResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/routes_auth.authMethodsResponse'
+              type: object
+      summary: Get Available Auth Methods
+      tags:
+      - Auth
+  /api/config/auth/api-key:
+    post:
+      description: Generates a new global API key for programmatic access (e.g. Sonarr/Radarr
+        webhooks, scripts). The plaintext key is returned exactly once in this response
+        and is never stored or retrievable again - copy it immediately. Regenerating
+        replaces (revokes) any previous key immediately.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httpx.JSONResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/routes_auth.generateAPIKeyResponse'
+              type: object
+        "401":
+          description: Unauthorized (only when Auth.Enabled=true)
+          schema:
+            $ref: '#/definitions/httpx.UnauthorizedResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpx.JSONResponse'
+      security:
+      - SessionCookie: []
+      - ApiKeyAuth: []
+      summary: Generate/Regenerate API Key
+      tags:
+      - Auth
+  /api/config/export:
+    get:
+      description: Download the full application configuration as a YAML file. With
+        redacted=true, the secrets, emails and addresses are replaced so it can be
+        shared; a redacted file can't be imported.
+      parameters:
+      - description: Replace the secrets, emails and addresses, for sharing
+        in: query
+        name: redacted
+        type: boolean
+      produces:
+      - application/x-yaml
+      responses:
+        "200":
+          description: The config as YAML
+          schema:
+            type: file
+        "401":
+          description: Unauthorized (only when Auth.Enabled=true)
+          schema:
+            $ref: '#/definitions/httpx.UnauthorizedResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpx.JSONResponse'
+      security:
+      - SessionCookie: []
+      - ApiKeyAuth: []
+      summary: Export Config
+      tags:
+      - Config
+  /api/config/import:
+    post:
+      consumes:
+      - application/json
+      description: Replace the application configuration with a config file
+      parameters:
+      - description: Config file contents
+        in: body
+        name: config
+        required: true
+        schema:
+          $ref: '#/definitions/routes_config.importConfigRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httpx.JSONResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/routes_config.updateConfigResponse'
+              type: object
+        "401":
+          description: Unauthorized (only when Auth.Enabled=true)
+          schema:
+            $ref: '#/definitions/httpx.UnauthorizedResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpx.JSONResponse'
+      security:
+      - SessionCookie: []
+      - ApiKeyAuth: []
+      summary: Import Config
+      tags:
+      - Config
+  /api/config/main-media-server:
+    post:
+      consumes:
+      - application/json
+      description: Make another media server the main one. The saved items move to
+        its items, and the library maps change to its libraries.
+      parameters:
+      - description: Media server
+        in: body
+        name: server
+        required: true
+        schema:
+          $ref: '#/definitions/routes_config.mainMediaServerRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httpx.JSONResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/routes_config.mainMediaServerResponse'
+              type: object
+        "401":
+          description: Unauthorized (only when Auth.Enabled=true)
+          schema:
+            $ref: '#/definitions/httpx.UnauthorizedResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpx.JSONResponse'
+      security:
+      - SessionCookie: []
+      - ApiKeyAuth: []
+      summary: Switch Main Media Server
+      tags:
+      - Config
+  /api/config/main-media-server/preview:
+    post:
+      consumes:
+      - application/json
+      description: Show what happens to the saved items if another media server becomes
+        the main one. Nothing is changed.
+      parameters:
+      - description: Media server
+        in: body
+        name: server
+        required: true
+        schema:
+          $ref: '#/definitions/routes_config.mainMediaServerRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httpx.JSONResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/routes_config.mainMediaServerResponse'
+              type: object
+        "401":
+          description: Unauthorized (only when Auth.Enabled=true)
+          schema:
+            $ref: '#/definitions/httpx.UnauthorizedResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpx.JSONResponse'
+      security:
+      - SessionCookie: []
+      - ApiKeyAuth: []
+      summary: Preview Main Media Server Switch
+      tags:
+      - Config
+  /api/config/stream:
+    get:
+      description: Server-Sent Events stream of the app status while aura starts or
+        is in setup mode. Without the setup code, only the app status is sent, not
+        the config.
+      produces:
+      - text/event-stream
+      responses: {}
+      summary: Stream Config Status (Setup Mode)
       tags:
       - Config
   /api/config/template-variables:
     get:
       description: Get all available notification template variables grouped by category
-        and by template type.
+        and by template type, and the variables and standard names for saved image
+        file names.
       produces:
       - application/json
       responses:
@@ -2032,7 +2747,8 @@ paths:
           schema:
             $ref: '#/definitions/httpx.UnauthorizedResponse'
       security:
-      - BearerAuth: []
+      - SessionCookie: []
+      - ApiKeyAuth: []
       summary: Get Notification Template Variables
       tags:
       - Config
@@ -2052,6 +2768,11 @@ paths:
         in: query
         name: library_title
         required: true
+        type: string
+      - description: Edition of the Media Item (e.g. Director's Cut), empty for the
+          standard edition
+        in: query
+        name: edition
         type: string
       produces:
       - application/json
@@ -2074,7 +2795,8 @@ paths:
           schema:
             $ref: '#/definitions/httpx.JSONResponse'
       security:
-      - BearerAuth: []
+      - SessionCookie: []
+      - ApiKeyAuth: []
       summary: Delete Item From Database
       tags:
       - Database
@@ -2158,7 +2880,8 @@ paths:
           schema:
             $ref: '#/definitions/httpx.JSONResponse'
       security:
-      - BearerAuth: []
+      - SessionCookie: []
+      - ApiKeyAuth: []
       summary: Get All Database Items
       tags:
       - Database
@@ -2196,7 +2919,8 @@ paths:
           schema:
             $ref: '#/definitions/httpx.JSONResponse'
       security:
-      - BearerAuth: []
+      - SessionCookie: []
+      - ApiKeyAuth: []
       summary: Update Item In Database
       tags:
       - Database
@@ -2233,8 +2957,97 @@ paths:
           schema:
             $ref: '#/definitions/httpx.JSONResponse'
       security:
-      - BearerAuth: []
+      - SessionCookie: []
+      - ApiKeyAuth: []
       summary: Add Item To Database
+      tags:
+      - Database
+  /api/db/backups:
+    get:
+      description: List the database backups in the backups folder, newest first.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httpx.JSONResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/routes_db.databaseBackupsResponse'
+              type: object
+        "401":
+          description: Unauthorized (only when Auth.Enabled=true)
+          schema:
+            $ref: '#/definitions/httpx.UnauthorizedResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpx.JSONResponse'
+      security:
+      - SessionCookie: []
+      - ApiKeyAuth: []
+      summary: Get Database Backups
+      tags:
+      - Database
+    post:
+      description: Back up the database now, then delete the oldest backups so only
+        the number set in Backups.Keep are left.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httpx.JSONResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/routes_db.createDatabaseBackupResponse'
+              type: object
+        "401":
+          description: Unauthorized (only when Auth.Enabled=true)
+          schema:
+            $ref: '#/definitions/httpx.UnauthorizedResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpx.JSONResponse'
+      security:
+      - SessionCookie: []
+      - ApiKeyAuth: []
+      summary: Create Database Backup
+      tags:
+      - Database
+  /api/db/creators:
+    get:
+      description: The creators of the saved sets and how many of their sets are saved,
+        the most saved sets first.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httpx.JSONResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/routes_db.getSavedSetCreatorsResponse'
+              type: object
+        "401":
+          description: Unauthorized (only when Auth.Enabled=true)
+          schema:
+            $ref: '#/definitions/httpx.UnauthorizedResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpx.JSONResponse'
+      security:
+      - SessionCookie: []
+      - ApiKeyAuth: []
+      summary: Get Saved Set Creators
       tags:
       - Database
   /api/db/force-recheck:
@@ -2271,7 +3084,8 @@ paths:
           schema:
             $ref: '#/definitions/httpx.JSONResponse'
       security:
-      - BearerAuth: []
+      - SessionCookie: []
+      - ApiKeyAuth: []
       summary: Auto Download - Force Check
       tags:
       - Database
@@ -2292,6 +3106,11 @@ paths:
         in: query
         name: library_title
         required: true
+        type: string
+      - description: Edition of the Media Item (e.g. Director's Cut), empty for the
+          standard edition
+        in: query
+        name: edition
         type: string
       - description: Ignore mode (e.g., 'always' for permanent ignore, 'until-set-available'
           for temporary ignore until a set is available, 'until-new-set-available'
@@ -2321,7 +3140,8 @@ paths:
           schema:
             $ref: '#/definitions/httpx.JSONResponse'
       security:
-      - BearerAuth: []
+      - SessionCookie: []
+      - ApiKeyAuth: []
       summary: Ignore Item In Database
       tags:
       - Database
@@ -2342,6 +3162,11 @@ paths:
         name: library_title
         required: true
         type: string
+      - description: Edition of the Media Item (e.g. Director's Cut), empty for the
+          standard edition
+        in: query
+        name: edition
+        type: string
       produces:
       - application/json
       responses:
@@ -2354,13 +3179,201 @@ paths:
                 data:
                   $ref: '#/definitions/routes_db.ignoreItemResponse'
               type: object
+        "401":
+          description: Unauthorized (only when Auth.Enabled=true)
+          schema:
+            $ref: '#/definitions/httpx.UnauthorizedResponse'
         "500":
           description: Internal Server Error
           schema:
             $ref: '#/definitions/httpx.JSONResponse'
+      security:
+      - SessionCookie: []
+      - ApiKeyAuth: []
       summary: Stop Ignoring Item In Database
       tags:
       - Database
+  /api/download/favorite-creators:
+    post:
+      description: For every item of the main media server without a saved set, adds
+        the best set from the favorite creators to the Download Queue. Only runs when
+        Automatically Download Images for New Items is on.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httpx.JSONResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/autodownload.FavoriteCreatorsResult'
+              type: object
+        "401":
+          description: Unauthorized (only when Auth.Enabled=true)
+          schema:
+            $ref: '#/definitions/httpx.UnauthorizedResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpx.JSONResponse'
+      security:
+      - SessionCookie: []
+      - ApiKeyAuth: []
+      summary: Download Sets from Favorite Creators for All Items
+      tags:
+      - Download
+  /api/download/history:
+    delete:
+      consumes:
+      - application/json
+      description: Remove all Download History entries.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httpx.JSONResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/routes_download.RemoveAllDownloadHistory_Response'
+              type: object
+        "401":
+          description: Unauthorized (only when Auth.Enabled=true)
+          schema:
+            $ref: '#/definitions/httpx.UnauthorizedResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpx.JSONResponse'
+      security:
+      - SessionCookie: []
+      - ApiKeyAuth: []
+      summary: Download History - Clear All
+      tags:
+      - Download
+    get:
+      consumes:
+      - application/json
+      description: Retrieve the failed downloads (one per poster set), with their
+        warning/error status, per-image failure details, and how many times each was
+        retried. A failed set is retried automatically after 5 minutes, 30 minutes
+        and 2 hours.
+      parameters:
+      - description: Max entries to return (default 50, -1 for all)
+        in: query
+        name: limit
+        type: integer
+      - description: Offset for pagination (default 0)
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httpx.JSONResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/routes_download.GetDownloadHistory_Response'
+              type: object
+        "401":
+          description: Unauthorized (only when Auth.Enabled=true)
+          schema:
+            $ref: '#/definitions/httpx.UnauthorizedResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpx.JSONResponse'
+      security:
+      - SessionCookie: []
+      - ApiKeyAuth: []
+      summary: Download History - Get Entries
+      tags:
+      - Download
+  /api/download/history/item:
+    delete:
+      consumes:
+      - application/json
+      description: Remove a single Download History entry by ID.
+      parameters:
+      - description: History Remove Item Request
+        in: body
+        name: req
+        required: true
+        schema:
+          $ref: '#/definitions/routes_download.RemoveDownloadHistoryEntry_Request'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httpx.JSONResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/routes_download.RemoveDownloadHistoryEntry_Response'
+              type: object
+        "401":
+          description: Unauthorized (only when Auth.Enabled=true)
+          schema:
+            $ref: '#/definitions/httpx.UnauthorizedResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpx.JSONResponse'
+      security:
+      - SessionCookie: []
+      - ApiKeyAuth: []
+      summary: Download History - Remove Entry
+      tags:
+      - Download
+  /api/download/history/retry:
+    post:
+      consumes:
+      - application/json
+      description: Add a failed download's set back to the Download Queue, from the
+        item's saved set. The entry is cleared once the set downloads without failures.
+      parameters:
+      - description: History Retry Item Request
+        in: body
+        name: req
+        required: true
+        schema:
+          $ref: '#/definitions/routes_download.RetryDownloadHistoryEntry_Request'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httpx.JSONResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/routes_download.RetryDownloadHistoryEntry_Response'
+              type: object
+        "401":
+          description: Unauthorized (only when Auth.Enabled=true)
+          schema:
+            $ref: '#/definitions/httpx.UnauthorizedResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpx.JSONResponse'
+      security:
+      - SessionCookie: []
+      - ApiKeyAuth: []
+      summary: Download History - Retry Entry
+      tags:
+      - Download
   /api/download/image/collection:
     post:
       consumes:
@@ -2395,7 +3408,8 @@ paths:
           schema:
             $ref: '#/definitions/httpx.JSONResponse'
       security:
-      - BearerAuth: []
+      - SessionCookie: []
+      - ApiKeyAuth: []
       summary: Download Collection Image
       tags:
       - Download
@@ -2432,11 +3446,43 @@ paths:
           schema:
             $ref: '#/definitions/httpx.JSONResponse'
       security:
-      - BearerAuth: []
+      - SessionCookie: []
+      - ApiKeyAuth: []
       summary: Download Image
       tags:
       - Download
   /api/download/queue:
+    delete:
+      consumes:
+      - application/json
+      description: Remove all items from the download queue (jobs currently processing
+        are left untouched to avoid orphaning in-flight work).
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httpx.JSONResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/routes_download.RemoveAllFromDownloadQueue_Response'
+              type: object
+        "401":
+          description: Unauthorized (only when Auth.Enabled=true)
+          schema:
+            $ref: '#/definitions/httpx.UnauthorizedResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpx.JSONResponse'
+      security:
+      - SessionCookie: []
+      - ApiKeyAuth: []
+      summary: Download Queue - Clear All
+      tags:
+      - Download
     get:
       consumes:
       - application/json
@@ -2465,161 +3511,17 @@ paths:
           schema:
             $ref: '#/definitions/httpx.JSONResponse'
       security:
-      - BearerAuth: []
+      - SessionCookie: []
+      - ApiKeyAuth: []
       summary: Download Queue - Get Status
-      tags:
-      - Download
-  /api/download/queue/collection:
-    delete:
-      consumes:
-      - application/json
-      description: Remove a specific Collection entry from the download queue. This
-        can be used to cancel pending collection downloads or clean up errored entries.
-      parameters:
-      - description: Queue Remove Collection Item Request
-        in: body
-        name: req
-        required: true
-        schema:
-          $ref: '#/definitions/routes_download.RemoveCollectionFromDownloadQueue_Request'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            allOf:
-            - $ref: '#/definitions/httpx.JSONResponse'
-            - properties:
-                data:
-                  $ref: '#/definitions/routes_download.RemoveCollectionFromDownloadQueue_Response'
-              type: object
-        "401":
-          description: Unauthorized (only when Auth.Enabled=true)
-          schema:
-            $ref: '#/definitions/httpx.UnauthorizedResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/httpx.JSONResponse'
-      security:
-      - BearerAuth: []
-      summary: Download Queue - Remove Collection Item
-      tags:
-      - Download
-    get:
-      consumes:
-      - application/json
-      description: Retrieve the current items in the collection download queue, categorized
-        by their status (in-progress, warning, error).
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            allOf:
-            - $ref: '#/definitions/httpx.JSONResponse'
-            - properties:
-                data:
-                  $ref: '#/definitions/routes_download.GetAllCollectionDownloadQueueItems_Response'
-              type: object
-        "401":
-          description: Unauthorized (only when Auth.Enabled=true)
-          schema:
-            $ref: '#/definitions/httpx.UnauthorizedResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/httpx.JSONResponse'
-      security:
-      - BearerAuth: []
-      summary: Download Queue - Get Collection Items
-      tags:
-      - Download
-    post:
-      consumes:
-      - application/json
-      description: Add a Collection and its selected images to the collection download
-        queue. The entry is processed by the download worker and removed from the
-        queue once completed.
-      parameters:
-      - description: Queue Add Collection Item Request
-        in: body
-        name: req
-        required: true
-        schema:
-          $ref: '#/definitions/routes_download.AddCollectionToDownloadQueue_Request'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            allOf:
-            - $ref: '#/definitions/httpx.JSONResponse'
-            - properties:
-                data:
-                  $ref: '#/definitions/routes_download.AddCollectionToDownloadQueue_Response'
-              type: object
-        "401":
-          description: Unauthorized (only when Auth.Enabled=true)
-          schema:
-            $ref: '#/definitions/httpx.UnauthorizedResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/httpx.JSONResponse'
-      security:
-      - BearerAuth: []
-      summary: Download Queue - Add Collection Item
-      tags:
-      - Download
-  /api/download/queue/collection/retry:
-    post:
-      consumes:
-      - application/json
-      description: Retry a failed (errored) Collection entry in the download queue.
-        The errored entry is atomically re-queued as an in-progress entry so the download
-        worker reprocesses it on its next run.
-      parameters:
-      - description: Queue Retry Collection Item Request
-        in: body
-        name: req
-        required: true
-        schema:
-          $ref: '#/definitions/routes_download.RetryCollectionInDownloadQueue_Request'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            allOf:
-            - $ref: '#/definitions/httpx.JSONResponse'
-            - properties:
-                data:
-                  $ref: '#/definitions/routes_download.RetryCollectionInDownloadQueue_Response'
-              type: object
-        "401":
-          description: Unauthorized (only when Auth.Enabled=true)
-          schema:
-            $ref: '#/definitions/httpx.UnauthorizedResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/httpx.JSONResponse'
-      security:
-      - BearerAuth: []
-      summary: Download Queue - Retry Collection Item
       tags:
       - Download
   /api/download/queue/item:
     delete:
       consumes:
       - application/json
-      description: Remove a specific Media Item from the download queue. This can
-        be used to cancel pending download tasks or clean up items that are no longer
+      description: Remove a specific Job from the download queue by ID. This can be
+        used to cancel pending download tasks or clean up items that are no longer
         needed in the queue.
       parameters:
       - description: Queue Remove Item Request
@@ -2649,17 +3551,18 @@ paths:
           schema:
             $ref: '#/definitions/httpx.JSONResponse'
       security:
-      - BearerAuth: []
+      - SessionCookie: []
+      - ApiKeyAuth: []
       summary: Download Queue - Remove Item
       tags:
       - Download
     get:
       consumes:
       - application/json
-      description: Retrieve the current items in the download queue, categorized by
-        their status (in-progress, warning, error). This endpoint allows clients to
-        monitor the progress of queued download tasks and identify any issues that
-        may have occurred during processing.
+      description: Retrieve the current items in the download queue, each with its
+        status (pending, processing, success, warning, error). This endpoint allows
+        clients to monitor the progress of queued download tasks and identify any
+        issues that may have occurred during processing.
       produces:
       - application/json
       responses:
@@ -2681,7 +3584,8 @@ paths:
           schema:
             $ref: '#/definitions/httpx.JSONResponse'
       security:
-      - BearerAuth: []
+      - SessionCookie: []
+      - ApiKeyAuth: []
       summary: Download Queue - Get Items
       tags:
       - Download
@@ -2719,24 +3623,37 @@ paths:
           schema:
             $ref: '#/definitions/httpx.JSONResponse'
       security:
-      - BearerAuth: []
+      - SessionCookie: []
+      - ApiKeyAuth: []
       summary: Download Queue - Add Item
       tags:
       - Download
-  /api/download/queue/item/retry:
+  /api/download/queue/stream:
+    get:
+      description: Server-Sent Events stream of live download queue updates (job added/started/finished/removed).
+        Sends a full snapshot immediately on connect.
+      produces:
+      - text/event-stream
+      responses: {}
+      security:
+      - SessionCookie: []
+      summary: Download Queue - Stream Events
+      tags:
+      - Download
+  /api/download/upgrade-sets:
     post:
       consumes:
       - application/json
-      description: Retry a failed (errored) Media Item in the download queue. The
-        errored entry is atomically re-queued as an in-progress entry so the download
-        worker reprocesses it on its next run.
+      description: Replaces saved sets with a set from a higher ranked favorite creator,
+        for the items given or every saved item. Runs even when Automatically Upgrade
+        Sets is off. Sets with Auto Upgrade off are kept. The new sets are added to
+        the Download Queue.
       parameters:
-      - description: Queue Retry Item Request
+      - description: The saved items to upgrade
         in: body
         name: req
-        required: true
         schema:
-          $ref: '#/definitions/routes_download.RetryItemInDownloadQueue_Request'
+          $ref: '#/definitions/routes_download.UpgradeSets_Request'
       produces:
       - application/json
       responses:
@@ -2747,7 +3664,7 @@ paths:
             - $ref: '#/definitions/httpx.JSONResponse'
             - properties:
                 data:
-                  $ref: '#/definitions/routes_download.RetryItemInDownloadQueue_Response'
+                  $ref: '#/definitions/autodownload.UpgradeSavedSetsResult'
               type: object
         "401":
           description: Unauthorized (only when Auth.Enabled=true)
@@ -2758,13 +3675,15 @@ paths:
           schema:
             $ref: '#/definitions/httpx.JSONResponse'
       security:
-      - BearerAuth: []
-      summary: Download Queue - Retry Item
+      - SessionCookie: []
+      - ApiKeyAuth: []
+      summary: Upgrade Saved Sets
       tags:
       - Download
   /api/health:
     get:
-      description: Check the health status of the application
+      description: Check that aura is running and its database can be read. Returns
+        500 if the database can't be read. Used by the Docker health check.
       produces:
       - application/json
       responses:
@@ -2772,35 +3691,13 @@ paths:
           description: OK
           schema:
             $ref: '#/definitions/routes_base.healthCheckResponse'
-      summary: Health Check
-      tags:
-      - Health
-  /api/images/kometa/item:
-    get:
-      description: Serve a locally-imported Kometa asset by its image ID (kometa|<folder>/<file>)
-        from the configured asset directory.
-      parameters:
-      - description: Kometa image ID (kometa|<folder>/<file>)
-        in: query
-        name: asset_id
-        required: true
-        type: string
-      produces:
-      - image/jpeg
-      - image/png
-      - image/webp
-      responses:
-        "200":
-          description: Image data
-          schema:
-            type: string
         "500":
           description: Internal Server Error
           schema:
             $ref: '#/definitions/httpx.JSONResponse'
-      summary: Get Kometa Asset Image
+      summary: Health Check
       tags:
-      - Images
+      - Health
   /api/images/media/collection:
     get:
       description: Get a collection item image (poster or backdrop) from the media
@@ -2950,7 +3847,8 @@ paths:
           schema:
             $ref: '#/definitions/httpx.JSONResponse'
       security:
-      - BearerAuth: []
+      - SessionCookie: []
+      - ApiKeyAuth: []
       summary: Delete Temporary Images
       tags:
       - Images
@@ -2981,23 +3879,19 @@ paths:
           schema:
             $ref: '#/definitions/httpx.JSONResponse'
       security:
-      - BearerAuth: []
+      - SessionCookie: []
+      - ApiKeyAuth: []
       summary: Get All Scheduled Jobs
       tags:
       - Jobs
     post:
       consumes:
       - application/json
-      description: Trigger a specific job to run immediately by providing the job
-        name and ID as query parameters. This endpoint allows for manual execution
-        of scheduled jobs outside of their regular schedule, which can be useful for
-        testing or urgent tasks.
+      description: Trigger a specific job to run immediately by providing the job's
+        ID (key) as a query parameter. This endpoint allows for manual execution of
+        a job outside of its regular schedule - including jobs currently disabled
+        from automatic scheduling - which can be useful for testing or urgent tasks.
       parameters:
-      - description: Name of the Job to Run
-        in: query
-        name: job_name
-        required: true
-        type: string
       - description: ID of the Job to Run
         in: query
         name: job_id
@@ -3019,79 +3913,16 @@ paths:
           description: Unauthorized (only when Auth.Enabled=true)
           schema:
             $ref: '#/definitions/httpx.UnauthorizedResponse'
-        "409":
-          description: Job is already running
-          schema:
-            $ref: '#/definitions/httpx.JSONResponse'
         "500":
           description: Internal Server Error
           schema:
             $ref: '#/definitions/httpx.JSONResponse'
       security:
-      - BearerAuth: []
+      - SessionCookie: []
+      - ApiKeyAuth: []
       summary: Run Job
       tags:
       - Jobs
-  /api/kometa/import:
-    get:
-      description: Return whether a Kometa asset import is currently running and the
-        result of the most recent run.
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            allOf:
-            - $ref: '#/definitions/httpx.JSONResponse'
-            - properties:
-                data:
-                  $ref: '#/definitions/routes_kometa.importResponse'
-              type: object
-        "401":
-          description: Unauthorized (only when Auth.Enabled=true)
-          schema:
-            $ref: '#/definitions/httpx.UnauthorizedResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/httpx.JSONResponse'
-      security:
-      - BearerAuth: []
-      summary: Get Kometa Asset Import Status
-      tags:
-      - Kometa
-    post:
-      consumes:
-      - application/json
-      description: Scan the configured Kometa asset directory, upload matching assets
-        to Plex, and record them in the database. Runs asynchronously; poll GET /api/kometa/import
-        for progress.
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            allOf:
-            - $ref: '#/definitions/httpx.JSONResponse'
-            - properties:
-                data:
-                  $ref: '#/definitions/routes_kometa.importResponse'
-              type: object
-        "401":
-          description: Unauthorized (only when Auth.Enabled=true)
-          schema:
-            $ref: '#/definitions/httpx.UnauthorizedResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/httpx.JSONResponse'
-      security:
-      - BearerAuth: []
-      summary: Trigger Kometa Asset Import
-      tags:
-      - Kometa
   /api/labels-tags/apply:
     post:
       consumes:
@@ -3125,7 +3956,8 @@ paths:
           schema:
             $ref: '#/definitions/httpx.JSONResponse'
       security:
-      - BearerAuth: []
+      - SessionCookie: []
+      - ApiKeyAuth: []
       summary: Apply Labels/Tags
       tags:
       - Labels/Tags
@@ -3133,7 +3965,10 @@ paths:
     post:
       consumes:
       - application/json
-      description: Authenticate user and return a JWT token
+      description: Authenticate with the admin password and start a browser session.
+        On success, an HttpOnly session cookie is set - the response body does not
+        contain a token. Intended for browser/UI use only; for programmatic access
+        use an API key (see the X-Api-Key header on other endpoints).
       parameters:
       - description: Login Request
         in: body
@@ -3162,8 +3997,8 @@ paths:
       - Auth
   /api/logout:
     post:
-      description: Clear the session cookie, and report where to end the provider
-        session when OIDC single logout is enabled
+      description: Clear the browser session cookie. Safe to call even if no session
+        exists.
       produces:
       - application/json
       responses:
@@ -3211,7 +4046,8 @@ paths:
           schema:
             $ref: '#/definitions/httpx.JSONResponse'
       security:
-      - BearerAuth: []
+      - SessionCookie: []
+      - ApiKeyAuth: []
       summary: Clear Logs
       tags:
       - Logging
@@ -3262,8 +4098,35 @@ paths:
           schema:
             $ref: '#/definitions/httpx.JSONResponse'
       security:
-      - BearerAuth: []
+      - SessionCookie: []
+      - ApiKeyAuth: []
       summary: Get Log Entries
+      tags:
+      - Logging
+  /api/logs/debug-bundle:
+    get:
+      description: Download a zip to share when reporting a problem. It has the versions
+        and media servers, the redacted config and the recent logs. Passwords, tokens,
+        API keys, emails and addresses are replaced in the config and the logs.
+      produces:
+      - application/zip
+      responses:
+        "200":
+          description: The debug bundle as a zip
+          schema:
+            type: file
+        "401":
+          description: Unauthorized (only when Auth.Enabled=true)
+          schema:
+            $ref: '#/definitions/httpx.UnauthorizedResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpx.JSONResponse'
+      security:
+      - SessionCookie: []
+      - ApiKeyAuth: []
+      summary: Download Debug Bundle
       tags:
       - Logging
   /api/mediaserver/collections:
@@ -3295,7 +4158,8 @@ paths:
           schema:
             $ref: '#/definitions/httpx.JSONResponse'
       security:
-      - BearerAuth: []
+      - SessionCookie: []
+      - ApiKeyAuth: []
       summary: Get Movie Collections
       tags:
       - MediaServer
@@ -3336,7 +4200,8 @@ paths:
           schema:
             $ref: '#/definitions/httpx.JSONResponse'
       security:
-      - BearerAuth: []
+      - SessionCookie: []
+      - ApiKeyAuth: []
       summary: Get All Movie Collection Children Items And Posters
       tags:
       - MediaServer
@@ -3359,6 +4224,10 @@ paths:
         in: query
         name: return_type
         type: string
+      - description: Title of the library the Media Item is in
+        in: query
+        name: library_title
+        type: string
       produces:
       - application/json
       responses:
@@ -3380,7 +4249,8 @@ paths:
           schema:
             $ref: '#/definitions/httpx.JSONResponse'
       security:
-      - BearerAuth: []
+      - SessionCookie: []
+      - ApiKeyAuth: []
       summary: Get Media Item Details
       tags:
       - MediaServer
@@ -3413,7 +4283,8 @@ paths:
           schema:
             $ref: '#/definitions/httpx.JSONResponse'
       security:
-      - BearerAuth: []
+      - SessionCookie: []
+      - ApiKeyAuth: []
       summary: Get Library Sections
       tags:
       - MediaServer
@@ -3454,69 +4325,62 @@ paths:
           schema:
             $ref: '#/definitions/httpx.JSONResponse'
       security:
-      - BearerAuth: []
+      - SessionCookie: []
+      - ApiKeyAuth: []
       summary: Get Library Section Options
       tags:
       - MediaServer
-  /api/mediaserver/library/items:
+  /api/mediaserver/library/item/related:
     get:
-      consumes:
-      - application/json
-      description: Retrieve one filtered, sorted page from the warmed media-server
-        library cache.
+      description: The same item in the other libraries, and the items before and
+        after it on the Home page with the same filters, search and sort. Read from
+        aura's cache, not the media server.
       parameters:
-      - description: Library Title (repeat for multiple)
+      - description: Library of the item
         in: query
-        name: library_titles
+        name: item_library
+        required: true
         type: string
-      - description: Title search
+      - description: Rating key of the item
         in: query
-        name: search_title
+        name: rating_key
+        required: true
         type: string
-      - description: Library search
+      - description: TMDB ID of the item
         in: query
-        name: search_library
+        name: tmdb_id
         type: string
-      - description: Exact TMDB ID search
+      - collectionFormat: multi
+        description: 'Home page: only these libraries'
         in: query
-        name: search_id
+        items:
+          type: string
+        name: library
+        type: array
+      - description: 'Home page: search'
+        in: query
+        name: search
         type: string
-      - description: Release year
+      - description: 'Home page: inDB or notInDB'
         in: query
-        name: search_year
-        type: integer
-      - description: Database filter (inDB or notInDB)
-        in: query
-        name: filter_in_db
+        name: in_db
         type: string
-      - description: Ignore status or mode
+      - description: 'Home page: ignored filter'
         in: query
-        name: filter_ignored
+        name: ignored
         type: string
-      - description: MediUX set availability
+      - description: 'Home page: hasSetsAvailable or noSetsAvailable'
         in: query
-        name: filter_has_sets
+        name: sets_available
         type: string
-      - description: Sort option
+      - description: 'Home page: sort'
         in: query
-        name: sort_option
+        name: sort
         type: string
-      - description: Sort order (asc or desc)
+      - description: 'Home page: asc or desc'
         in: query
-        name: sort_order
+        name: order
         type: string
-      - description: Page number
-        in: query
-        name: page_number
-        type: integer
-      - description: Items per page (maximum 1000)
-        in: query
-        name: items_per_page
-        type: integer
-      - description: Refresh server cache before reading
-        in: query
-        name: refresh
-        type: boolean
       produces:
       - application/json
       responses:
@@ -3527,19 +4391,121 @@ paths:
             - $ref: '#/definitions/httpx.JSONResponse'
             - properties:
                 data:
-                  $ref: '#/definitions/routes_ms.GetLibrarySectionItems_Response'
+                  $ref: '#/definitions/routes_ms.GetRelatedLibraryItems_Response'
               type: object
         "401":
           description: Unauthorized (only when Auth.Enabled=true)
           schema:
             $ref: '#/definitions/httpx.UnauthorizedResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/httpx.JSONResponse'
       security:
-      - BearerAuth: []
+      - SessionCookie: []
+      - ApiKeyAuth: []
+      summary: Get Related Library Items
+      tags:
+      - MediaServer
+  /api/mediaserver/library/items:
+    get:
+      description: One page of the main media server's library, filtered, searched
+        and sorted like the Home page. Read from aura's cache, not the media server.
+      parameters:
+      - collectionFormat: multi
+        description: Only these libraries
+        in: query
+        items:
+          type: string
+        name: library
+        type: array
+      - description: 'Search, like the search bar, e.g. matrix Y:1999:'
+        in: query
+        name: search
+        type: string
+      - description: inDB or notInDB
+        in: query
+        name: in_db
+        type: string
+      - description: ignored, not_ignored, always, until-set-available or until-new-set-available
+        in: query
+        name: ignored
+        type: string
+      - description: hasSetsAvailable or noSetsAvailable
+        in: query
+        name: sets_available
+        type: string
+      - description: title, dateUpdated, dateAdded, dateReleased or newEpisodeAdded
+        in: query
+        name: sort
+        type: string
+      - description: asc or desc
+        in: query
+        name: order
+        type: string
+      - description: Page, from 1
+        in: query
+        name: page
+        type: integer
+      - description: Items per page
+        in: query
+        name: per_page
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httpx.JSONResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/library.Result'
+              type: object
+        "401":
+          description: Unauthorized (only when Auth.Enabled=true)
+          schema:
+            $ref: '#/definitions/httpx.UnauthorizedResponse'
+      security:
+      - SessionCookie: []
+      - ApiKeyAuth: []
       summary: Get Library Items
+      tags:
+      - MediaServer
+  /api/mediaserver/library/refresh:
+    post:
+      description: Start loading the main media server's libraries into aura's cache
+        again. It runs in the background, use GET /api/mediaserver/library/refresh/stream
+        for its progress. A refresh that is already running is not started again.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httpx.JSONResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/mediaserver.LibraryProgress'
+              type: object
+        "401":
+          description: Unauthorized (only when Auth.Enabled=true)
+          schema:
+            $ref: '#/definitions/httpx.UnauthorizedResponse'
+      security:
+      - SessionCookie: []
+      - ApiKeyAuth: []
+      summary: Refresh Library
+      tags:
+      - MediaServer
+  /api/mediaserver/library/refresh/stream:
+    get:
+      description: Server-Sent Events stream of how far loading the main media server's
+        libraries has got. Sends the progress now on connect, then every time it changes.
+      produces:
+      - text/event-stream
+      responses: {}
+      security:
+      - SessionCookie: []
+      summary: Refresh Library - Stream Progress
       tags:
       - MediaServer
   /api/mediaserver/rate:
@@ -3548,9 +4514,9 @@ paths:
       - application/json
       description: Rate a media item on the media server. This endpoint allows clients
         to submit a user rating for a specific media item, which will be sent to the
-        media server (currently only supported for Plex). The rating should be a number
-        between 0 and 5, and it will be converted to the appropriate scale for the
-        media server before being submitted.
+        media server (currently only supported for Plex and Silo). The rating should
+        be a number between 0 and 5, and it will be converted to the appropriate scale
+        for the media server before being submitted.
       parameters:
       - description: The rating key of the media item to rate
         in: query
@@ -3583,7 +4549,8 @@ paths:
           schema:
             $ref: '#/definitions/httpx.JSONResponse'
       security:
-      - BearerAuth: []
+      - SessionCookie: []
+      - ApiKeyAuth: []
       summary: Rate Media Item
       tags:
       - MediaServer
@@ -3629,8 +4596,98 @@ paths:
           schema:
             $ref: '#/definitions/httpx.JSONResponse'
       security:
-      - BearerAuth: []
+      - SessionCookie: []
+      - ApiKeyAuth: []
       summary: Refresh Media Item Metadata
+      tags:
+      - MediaServer
+  /api/mediaserver/sync:
+    delete:
+      description: Stop applying the saved sets to a media server. The image being
+        applied is finished first.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httpx.JSONResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/routes_ms.mediaServerSyncResponse'
+              type: object
+        "401":
+          description: Unauthorized (only when Auth.Enabled=true)
+          schema:
+            $ref: '#/definitions/httpx.UnauthorizedResponse'
+      security:
+      - SessionCookie: []
+      - ApiKeyAuth: []
+      summary: Stop Media Server Sync
+      tags:
+      - MediaServer
+    get:
+      description: The progress of the latest time the saved sets were applied to
+        a media server.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httpx.JSONResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/routes_ms.mediaServerSyncResponse'
+              type: object
+        "401":
+          description: Unauthorized (only when Auth.Enabled=true)
+          schema:
+            $ref: '#/definitions/httpx.UnauthorizedResponse'
+      security:
+      - SessionCookie: []
+      - ApiKeyAuth: []
+      summary: Get Media Server Sync Progress
+      tags:
+      - MediaServer
+    post:
+      consumes:
+      - application/json
+      description: Apply every saved set to a media server that isn't the main one.
+        It runs in the background, use GET /api/mediaserver/sync for its progress.
+      parameters:
+      - description: The media server
+        in: body
+        name: req
+        required: true
+        schema:
+          $ref: '#/definitions/routes_ms.startMediaServerSyncRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httpx.JSONResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/routes_ms.mediaServerSyncResponse'
+              type: object
+        "401":
+          description: Unauthorized (only when Auth.Enabled=true)
+          schema:
+            $ref: '#/definitions/httpx.UnauthorizedResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpx.JSONResponse'
+      security:
+      - SessionCookie: []
+      - ApiKeyAuth: []
+      summary: Apply Saved Sets to a Media Server
       tags:
       - MediaServer
   /api/mediux/set:
@@ -3664,6 +4721,11 @@ paths:
         name: item_library_title
         required: true
         type: string
+      - description: Edition of the media item (e.g. Director's Cut), empty for the
+          standard edition
+        in: query
+        name: edition
+        type: string
       produces:
       - application/json
       responses:
@@ -3685,7 +4747,8 @@ paths:
           schema:
             $ref: '#/definitions/httpx.JSONResponse'
       security:
-      - BearerAuth: []
+      - SessionCookie: []
+      - ApiKeyAuth: []
       summary: Get Mediux Set By ID
       tags:
       - Mediux
@@ -3714,6 +4777,11 @@ paths:
         name: item_library_title
         required: true
         type: string
+      - description: Edition of the media item (e.g. Director's Cut), empty for the
+          standard edition
+        in: query
+        name: edition
+        type: string
       produces:
       - application/json
       responses:
@@ -3735,25 +4803,59 @@ paths:
           schema:
             $ref: '#/definitions/httpx.JSONResponse'
       security:
-      - BearerAuth: []
+      - SessionCookie: []
+      - ApiKeyAuth: []
       summary: Get Mediux Item Sets
       tags:
       - Mediux
   /api/mediux/sets/user:
     get:
-      consumes:
-      - application/json
-      description: Retrieve all item sets created by the specified user in Mediux.
-        This endpoint returns an array of item sets, including details such as the
-        set name, type (show, movie, or collection), and the items contained within
-        each set. This allows clients to display the user's custom collections and
-        preferences within the Mediux ecosystem in the UI.
+      description: A creator's sets matched against one library, filtered, searched
+        and sorted like the user page, with one page of one tab and the counts of
+        every tab. The creator's sets are kept for 10 minutes.
       parameters:
-      - description: Username of the user whose sets are being retrieved
+      - description: MediUX username
         in: query
         name: username
         required: true
         type: string
+      - description: Library to match against. Without it, only the libraries are
+          listed
+        in: query
+        name: library
+        type: string
+      - description: showSets, movieSets, collectionSets or boxSets
+        in: query
+        name: tab
+        type: string
+      - description: Set title or the title of an item in the set
+        in: query
+        name: search
+        type: string
+      - description: inDB, notInDB or otherSetInDB
+        in: query
+        name: in_db
+        type: string
+      - description: title or dateLastUpdate
+        in: query
+        name: sort
+        type: string
+      - description: asc or desc
+        in: query
+        name: order
+        type: string
+      - description: Page, from 1
+        in: query
+        name: page
+        type: integer
+      - description: Sets per page
+        in: query
+        name: per_page
+        type: integer
+      - description: Get the creator's sets from MediUX again
+        in: query
+        name: refresh
+        type: boolean
       produces:
       - application/json
       responses:
@@ -3764,7 +4866,7 @@ paths:
             - $ref: '#/definitions/httpx.JSONResponse'
             - properties:
                 data:
-                  $ref: '#/definitions/routes_mediux.GetAllUserSets_Response'
+                  $ref: '#/definitions/creator.Result'
               type: object
         "401":
           description: Unauthorized (only when Auth.Enabled=true)
@@ -3775,10 +4877,11 @@ paths:
           schema:
             $ref: '#/definitions/httpx.JSONResponse'
       security:
-      - BearerAuth: []
-      summary: Get Mediux User Sets
+      - SessionCookie: []
+      - ApiKeyAuth: []
+      summary: Get Creator Sets for a Library
       tags:
-      - Mediux
+      - MediUX
   /api/mediux/user:
     get:
       consumes:
@@ -3809,7 +4912,8 @@ paths:
           schema:
             $ref: '#/definitions/httpx.JSONResponse'
       security:
-      - BearerAuth: []
+      - SessionCookie: []
+      - ApiKeyAuth: []
       summary: Get Mediux User Following and Hiding
       tags:
       - Mediux
@@ -3841,7 +4945,8 @@ paths:
           schema:
             $ref: '#/definitions/httpx.JSONResponse'
       security:
-      - BearerAuth: []
+      - SessionCookie: []
+      - ApiKeyAuth: []
       summary: Get Plex Pin and ID
       tags:
       - Plex
@@ -3879,20 +4984,68 @@ paths:
           schema:
             $ref: '#/definitions/httpx.JSONResponse'
       security:
-      - BearerAuth: []
+      - SessionCookie: []
+      - ApiKeyAuth: []
       summary: Check Plex Pin for Authentication
       tags:
       - Plex
-  /api/radarr/webhook:
-    post:
-      consumes:
-      - application/json
-      description: Apply saved collection sets to a movie newly imported by Radarr.
+  /api/plugin/silo/download/{token}:
+    get:
+      description: For a signed download path from Get Images, adds the set to the
+        Download Queue for items that don't have it saved, then returns the original
+        image. With notify=1 it only queues the set, the plugin calls it that way
+        when Silo uses an image. Public, the signed token is the auth.
       parameters:
-      - description: Library title the movie belongs to
-        in: query
-        name: library
+      - description: Signed download token
+        in: path
+        name: token
         required: true
+        type: string
+      - description: 1 to only queue the set, without the image
+        in: query
+        name: notify
+        type: string
+      - description: 1 to save the set with Auto Download on
+        in: query
+        name: autodownload
+        type: string
+      produces:
+      - image/jpeg
+      responses:
+        "200":
+          description: Image data
+          schema:
+            type: string
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpx.JSONResponse'
+      summary: Download an Image for the Silo Plugin
+      tags:
+      - Silo Plugin
+  /api/plugin/silo/images:
+    get:
+      description: 'The MediUX images for a movie or show in aura''s libraries, the
+        best ranked set first: saved sets, then favorite creator rank, then MediUX
+        popularity. For a refresh, a type with saved images only has those and the
+        other types only have favorite creator images; the gallery has every image.
+        Each image has a preview URL and a signed download path; Silo fetching the
+        download path saves the set in aura.'
+      parameters:
+      - description: TMDB ID of the movie or show
+        in: query
+        name: tmdb_id
+        required: true
+        type: string
+      - description: movie, show or series
+        in: query
+        name: item_type
+        required: true
+        type: string
+      - description: refresh (default) offers saved and favorite creator images only,
+          gallery offers every image
+        in: query
+        name: purpose
         type: string
       produces:
       - application/json
@@ -3900,10 +5053,51 @@ paths:
         "200":
           description: OK
           schema:
-            type: string
-      summary: Radarr Webhook
+            allOf:
+            - $ref: '#/definitions/httpx.JSONResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/routes_silo_plugin.getImagesResponse'
+              type: object
+        "401":
+          description: Unauthorized (only when Auth.Enabled=true)
+          schema:
+            $ref: '#/definitions/httpx.UnauthorizedResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpx.JSONResponse'
+      security:
+      - SessionCookie: []
+      - ApiKeyAuth: []
+      summary: Get Images for the Silo Plugin
       tags:
-      - Sonarr-Radarr
+      - Silo Plugin
+  /api/plugin/silo/status:
+    get:
+      description: Lets the aura Silo plugin check its URL and API key.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httpx.JSONResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/routes_silo_plugin.getStatusResponse'
+              type: object
+        "401":
+          description: Unauthorized (only when Auth.Enabled=true)
+          schema:
+            $ref: '#/definitions/httpx.UnauthorizedResponse'
+      security:
+      - SessionCookie: []
+      - ApiKeyAuth: []
+      summary: Silo Plugin Status
+      tags:
+      - Silo Plugin
   /api/search:
     get:
       consumes:
@@ -3957,6 +5151,60 @@ paths:
       summary: Search
       tags:
       - Search
+  /api/setup/verify:
+    post:
+      consumes:
+      - application/json
+      description: Check the setup code printed in the aura logs. The setup page then
+        sends it with each request (X-Setup-Code header) while aura is in setup mode.
+      parameters:
+      - description: Setup code
+        in: body
+        name: code
+        required: true
+        schema:
+          $ref: '#/definitions/routes_config.verifySetupCodeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httpx.JSONResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/routes_config.verifySetupCodeResponse'
+              type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpx.JSONResponse'
+      summary: Verify Setup Code
+      tags:
+      - Config
+  /api/sonarr/webhook:
+    post:
+      consumes:
+      - application/json
+      description: Receives Sonarr/Radarr "On Import"/"On Upgrade" webhook events.
+        Requires HTTP Basic Auth since Sonarr/Radarr's built-in Webhook connection
+        type has no custom-header support - set the Username field to anything, and
+        the Password field to your AURA API key (Settings > Auth).
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/httpx.JSONResponse'
+        "401":
+          description: Unauthorized - missing or invalid Basic Auth
+          schema:
+            $ref: '#/definitions/httpx.UnauthorizedResponse'
+      security:
+      - BasicAuth: []
+      summary: Sonarr/Radarr Webhook
+      tags:
+      - Sonarr/Radarr
   /api/validate/mediaserver:
     post:
       consumes:
@@ -3995,7 +5243,8 @@ paths:
           schema:
             $ref: '#/definitions/httpx.JSONResponse'
       security:
-      - BearerAuth: []
+      - SessionCookie: []
+      - ApiKeyAuth: []
       summary: Validate Media Server Info
       tags:
       - Validation
@@ -4036,7 +5285,8 @@ paths:
           schema:
             $ref: '#/definitions/httpx.JSONResponse'
       security:
-      - BearerAuth: []
+      - SessionCookie: []
+      - ApiKeyAuth: []
       summary: Validate Mediux Token
       tags:
       - Validation
@@ -4077,7 +5327,8 @@ paths:
           schema:
             $ref: '#/definitions/httpx.JSONResponse'
       security:
-      - BearerAuth: []
+      - SessionCookie: []
+      - ApiKeyAuth: []
       summary: Send Test Notification
       tags:
       - Validation
@@ -4119,7 +5370,8 @@ paths:
           schema:
             $ref: '#/definitions/httpx.JSONResponse'
       security:
-      - BearerAuth: []
+      - SessionCookie: []
+      - ApiKeyAuth: []
       summary: Validate Sonarr/Radarr Information
       tags:
       - Validation
@@ -4161,13 +5413,27 @@ paths:
           schema:
             $ref: '#/definitions/httpx.JSONResponse'
       security:
-      - BearerAuth: []
+      - SessionCookie: []
+      - ApiKeyAuth: []
       summary: Validate Sonarr/Radarr Information
       tags:
       - Validation
 securityDefinitions:
-  BearerAuth:
+  ApiKeyAuth:
+    description: API key for programmatic/integration access. Generate one under Settings
+      > Authentication, then send it as this header on every request. This is the
+      intended auth method for scripts and integrations - the session cookie above
+      is for browser use only.
     in: header
-    name: Authorization
+    name: X-Api-Key
+    type: apiKey
+  BasicAuth:
+    type: basic
+  SessionCookie:
+    description: Browser session cookie, set by POST /api/login or the OIDC callback.
+      Not usable directly via Swagger "Authorize" - log in through the app UI in the
+      same browser tab.
+    in: cookie
+    name: aura_session
     type: apiKey
 swagger: "2.0"

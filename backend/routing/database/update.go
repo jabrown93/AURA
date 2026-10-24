@@ -24,7 +24,8 @@ type updateItemResponse struct {
 // @Accept       json
 // @Produce      json
 // @Param        req  body      updateItemRequest  true  "Update Item Request"
-// @Security 	 BearerAuth
+// @Security     SessionCookie
+// @Security     ApiKeyAuth
 // @Failure      401  {object}  httpx.UnauthorizedResponse "Unauthorized (only when Auth.Enabled=true)"
 // @Success      200           {object}  httpx.JSONResponse{data=updateItemResponse}
 // @Failure      500           {object}  httpx.JSONResponse "Internal Server Error"
@@ -49,7 +50,7 @@ func UpdateItemInDB(w http.ResponseWriter, r *http.Request) {
 	for _, ps := range req.UpdateItem.PosterSets {
 		if ps.ToDelete {
 			// Delete the poster set
-			Err := database.DeletePosterSetForMediaItem(ctx, req.UpdateItem.MediaItem.TMDB_ID, req.UpdateItem.MediaItem.LibraryTitle, ps.ID)
+			Err := database.DeletePosterSetForMediaItem(ctx, req.UpdateItem.MediaItem.TMDB_ID, req.UpdateItem.MediaItem.LibraryTitle, req.UpdateItem.MediaItem.Edition, ps.ID)
 			if Err.Message != "" {
 				httpx.SendResponse(w, ld, response)
 				return

@@ -29,6 +29,9 @@ func (s *SQliteDB) UpsertSavedItem(ctx context.Context, newItem models.DBSavedIt
 		return *logAction.Error
 	}
 
+	// Movie and collection sets only have posters and backdrops
+	newItem = newItem.WithSetImageTypes()
+
 	tx, err := s.conn.BeginTx(ctx, nil)
 	if err != nil {
 		logAction.SetError("DB: TX BEGIN failed", err.Error(), map[string]any{"error": err.Error()})
@@ -46,28 +49,28 @@ func (s *SQliteDB) UpsertSavedItem(ctx context.Context, newItem models.DBSavedIt
 
 	// 1) Delete Ignore entry for this Media Item if it exists
 	if errInfo := deleteIgnoredEntryForMediaItemIfExists(ctx, tx, newItem.MediaItem); errInfo.Message != "" {
-		return *logAction.Error
+		return errInfo
 	}
 
 	mediaItemRowID, errInfo := upsertMediaItem(ctx, tx, newItem.MediaItem)
 	if errInfo.Message != "" {
-		return *logAction.Error
+		return errInfo
 	}
 
 	// Upsert per-type details
 	switch newItem.MediaItem.Type {
 	case "movie":
 		if errInfo := upsertMovie(ctx, tx, newItem.MediaItem, mediaItemRowID); errInfo.Message != "" {
-			return *logAction.Error
+			return errInfo
 		}
 		logAction.AppendResult("action", "upsert_movie")
 	case "show":
 		seriesRowID, errInfo := upsertSeries(ctx, tx, newItem.MediaItem, mediaItemRowID)
 		if errInfo.Message != "" {
-			return *logAction.Error
+			return errInfo
 		}
 		if errInfo := reconcileSeasonsAndEpisodes(ctx, tx, newItem.MediaItem, seriesRowID); errInfo.Message != "" {
-			return *logAction.Error
+			return errInfo
 		}
 		logAction.AppendResult("action", "upsert_show_reconcile")
 	default:
@@ -106,7 +109,7 @@ func (s *SQliteDB) UpsertSavedItem(ctx context.Context, newItem models.DBSavedIt
 		if ps.ToDelete {
 			continue
 		}
-		deletedLinks, errInfo := deleteSavedItemLinkAndImages(ctx, tx, newItem.MediaItem.TMDB_ID, newItem.MediaItem.LibraryTitle, ps.ID)
+		deletedLinks, errInfo := deleteSavedItemLinkAndImages(ctx, tx, newItem.MediaItem.TMDB_ID, newItem.MediaItem.LibraryTitle, newItem.MediaItem.Edition, ps.ID)
 		if errInfo.Message != "" {
 			logAction.SetError(errInfo.Message, "", errInfo.Detail)
 			return *logAction.Error
@@ -150,14 +153,14 @@ func (s *SQliteDB) UpsertSavedItem(ctx context.Context, newItem models.DBSavedIt
 	logAction.AppendResult("images_upserted", imagesUpserted)
 
 	// Apply SelectedTypes uniqueness across ALL sets for this media item
-	if errInfo := clearSelectedTypesOnOtherSets(ctx, tx, newItem.MediaItem.TMDB_ID, newItem.MediaItem.LibraryTitle, typeOwnerSetID); errInfo.Message != "" {
+	if errInfo := clearSelectedTypesOnOtherSets(ctx, tx, newItem.MediaItem.TMDB_ID, newItem.MediaItem.LibraryTitle, newItem.MediaItem.Edition, typeOwnerSetID); errInfo.Message != "" {
 		logAction.SetError(errInfo.Message, "", errInfo.Detail)
 		return *logAction.Error
 	}
 	logAction.AppendResult("selected_types_uniqueness", "applied")
 
 	// If no selected types remain, remove that SavedItems row
-	deletedEmpty, errInfo := deleteEmptySavedItemLinks(ctx, tx, newItem.MediaItem.TMDB_ID, newItem.MediaItem.LibraryTitle)
+	deletedEmpty, errInfo := deleteEmptySavedItemLinks(ctx, tx, newItem.MediaItem.TMDB_ID, newItem.MediaItem.LibraryTitle, newItem.MediaItem.Edition)
 	if errInfo.Message != "" {
 		logAction.SetError(errInfo.Message, "", errInfo.Detail)
 		return *logAction.Error
@@ -212,9 +215,9 @@ func deleteIgnoredEntryForMediaItemIfExists(ctx context.Context, tx *sql.Tx, med
 	var count int
 	query := `
 		SELECT COUNT(*) FROM IgnoredItems
-		WHERE tmdb_id = ? AND library_title = ?
+		WHERE tmdb_id = ? AND library_title = ? AND edition = ?
 	`
-	err := tx.QueryRowContext(ctx, query, mediaItem.TMDB_ID, mediaItem.LibraryTitle).Scan(&count)
+	err := tx.QueryRowContext(ctx, query, mediaItem.TMDB_ID, mediaItem.LibraryTitle, mediaItem.Edition).Scan(&count)
 	if err != nil {
 		logAction.SetError("DB: Failed to check for existing IgnoredItem", err.Error(), map[string]any{"error": err.Error()})
 		return *logAction.Error
@@ -228,9 +231,9 @@ func deleteIgnoredEntryForMediaItemIfExists(ctx context.Context, tx *sql.Tx, med
 	// Delete the Ignore entry
 	deleteQuery := `
 		DELETE FROM IgnoredItems
-		WHERE tmdb_id = ? AND library_title = ?
+		WHERE tmdb_id = ? AND library_title = ? AND edition = ?
 	`
-	_, err = tx.ExecContext(ctx, deleteQuery, mediaItem.TMDB_ID, mediaItem.LibraryTitle)
+	_, err = tx.ExecContext(ctx, deleteQuery, mediaItem.TMDB_ID, mediaItem.LibraryTitle, mediaItem.Edition)
 	if err != nil {
 		logAction.SetError("DB: Failed to delete IgnoredItem", err.Error(), map[string]any{"error": err.Error()})
 		return *logAction.Error
@@ -256,19 +259,22 @@ func upsertMediaItem(ctx context.Context, tx *sql.Tx, mediaItem models.MediaItem
 	defer logAction.Complete()
 
 	q := `
-INSERT INTO MediaItems (tmdb_id, library_title, rating_key, type, title, year, on_server)
-VALUES (?, ?, ?, ?, ?, ?, 1)
-ON CONFLICT(tmdb_id, library_title) DO UPDATE SET
-  rating_key = excluded.rating_key,
-  type       = excluded.type,
-  title      = excluded.title,
-  year       = excluded.year,
-  on_server  = 1
+INSERT INTO MediaItems (tmdb_id, library_title, edition, rating_key, type, title, year, on_server, first_seen_at, last_seen_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, 1, CAST(strftime('%s','now') AS INTEGER), CAST(strftime('%s','now') AS INTEGER))
+ON CONFLICT(tmdb_id, library_title, edition) DO UPDATE SET
+  rating_key    = excluded.rating_key,
+  type          = excluded.type,
+  title         = excluded.title,
+  year          = excluded.year,
+  on_server     = 1,
+  first_seen_at = CASE WHEN MediaItems.first_seen_at = 0 THEN excluded.first_seen_at ELSE MediaItems.first_seen_at END,
+  last_seen_at  = excluded.last_seen_at
 RETURNING id;
 `
 	err := tx.QueryRowContext(ctx, q,
 		mediaItem.TMDB_ID,
 		mediaItem.LibraryTitle,
+		mediaItem.Edition,
 		mediaItem.RatingKey,
 		mediaItem.Type,
 		mediaItem.Title,
@@ -434,7 +440,7 @@ func reconcileSeasonsAndEpisodes(ctx context.Context, tx *sql.Tx, mediaItem mode
 	for _, sn := range seasons {
 		seasonRowID, errInfo := upsertSeason(ctx, tx, seriesRowID, sn.RatingKey, sn.SeasonNumber, lenOr0(sn.Episodes))
 		if errInfo.Message != "" {
-			return *logAction.Error
+			return errInfo
 		}
 
 		if sn.Episodes == nil {
@@ -458,7 +464,7 @@ func reconcileSeasonsAndEpisodes(ctx context.Context, tx *sql.Tx, mediaItem mode
 
 		for _, ep := range sn.Episodes {
 			if errInfo := upsertEpisode(ctx, tx, seasonRowID, ep); errInfo.Message != "" {
-				return *logAction.Error
+				return errInfo
 			}
 		}
 	}
@@ -496,12 +502,12 @@ RETURNING id;
 func upsertSavedItemEntry(ctx context.Context, tx *sql.Tx, mediaItem models.MediaItem, ps models.DBPosterSetDetail, posterSetRowID int64) (Err logging.LogErrorInfo) {
 	q := `
 INSERT INTO SavedItems (
-  tmdb_id, library_title, poster_set_id,
+  tmdb_id, library_title, edition, poster_set_id,
   poster_selected, backdrop_selected, season_poster_selected, special_season_poster_selected, titlecard_selected,
-	autodownload, auto_add_new_collection_items, force_preload_missing, last_downloaded
+	autodownload, auto_add_new_collection_items, no_auto_upgrade, force_preload_missing, last_downloaded
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-ON CONFLICT(tmdb_id, library_title, poster_set_id) DO UPDATE SET
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(tmdb_id, library_title, edition, poster_set_id) DO UPDATE SET
   poster_selected               = excluded.poster_selected,
   backdrop_selected             = excluded.backdrop_selected,
   season_poster_selected        = excluded.season_poster_selected,
@@ -509,12 +515,14 @@ ON CONFLICT(tmdb_id, library_title, poster_set_id) DO UPDATE SET
   titlecard_selected            = excluded.titlecard_selected,
   autodownload                  = excluded.autodownload,
 	auto_add_new_collection_items = excluded.auto_add_new_collection_items,
-	force_preload_missing         = excluded.force_preload_missing,
+  no_auto_upgrade               = excluded.no_auto_upgrade,
+  force_preload_missing         = excluded.force_preload_missing,
   last_downloaded               = excluded.last_downloaded;
 `
 	_, err := tx.ExecContext(ctx, q,
 		mediaItem.TMDB_ID,
 		mediaItem.LibraryTitle,
+		mediaItem.Edition,
 		posterSetRowID,
 		boolToInt(ps.SelectedTypes.Poster),
 		boolToInt(ps.SelectedTypes.Backdrop),
@@ -523,8 +531,9 @@ ON CONFLICT(tmdb_id, library_title, poster_set_id) DO UPDATE SET
 		boolToInt(ps.SelectedTypes.Titlecard),
 		boolToInt(ps.AutoDownload),
 		boolToInt(ps.AutoAddNewCollectionItems),
+		boolToInt(ps.NoAutoUpgrade),
 		boolToInt(ps.ForcePreloadMissing),
-		ps.LastDownloaded,
+		lastDownloaded(ps.LastDownloaded),
 	)
 	if err != nil {
 		return logging.LogErrorInfo{Message: "DB: UPSERT SavedItems failed", Detail: map[string]any{"error": err.Error()}}
@@ -568,7 +577,7 @@ ON CONFLICT(poster_set_id, image_id, item_tmdb_id) DO UPDATE SET
 	return logging.LogErrorInfo{}
 }
 
-func clearSelectedTypesOnOtherSets(ctx context.Context, tx *sql.Tx, tmdbID, libraryTitle string, owner map[string]string) (Err logging.LogErrorInfo) {
+func clearSelectedTypesOnOtherSets(ctx context.Context, tx *sql.Tx, tmdbID, libraryTitle, edition string, owner map[string]string) (Err logging.LogErrorInfo) {
 	// For each type, find owner poster_set_id, then clear that type on all other sets for this item
 	type col struct {
 		key string
@@ -599,10 +608,10 @@ func clearSelectedTypesOnOtherSets(ctx context.Context, tx *sql.Tx, tmdbID, libr
 		q := fmt.Sprintf(`
 UPDATE SavedItems
 SET %s = 0
-WHERE tmdb_id = ? AND library_title = ? AND poster_set_id != ?;
+WHERE tmdb_id = ? AND library_title = ? AND edition = ? AND poster_set_id != ?;
 `, c.sql)
 
-		if _, err := tx.ExecContext(ctx, q, tmdbID, libraryTitle, ownerPosterSetRowID); err != nil {
+		if _, err := tx.ExecContext(ctx, q, tmdbID, libraryTitle, edition, ownerPosterSetRowID); err != nil {
 			return logging.LogErrorInfo{Message: "DB: clear selected types failed", Detail: map[string]any{"error": err.Error(), "type": c.key}}
 		}
 	}
@@ -618,7 +627,7 @@ WHERE tmdb_id = ? AND library_title = ? AND poster_set_id != ?;
 // - the PosterSets row
 //
 // Returns number of SavedItems links deleted (0 or 1).
-func deleteSavedItemLinkAndImages(ctx context.Context, tx *sql.Tx, tmdbID, libraryTitle, setID string) (deletedLinks int64, Err logging.LogErrorInfo) {
+func deleteSavedItemLinkAndImages(ctx context.Context, tx *sql.Tx, tmdbID, libraryTitle, edition, setID string) (deletedLinks int64, Err logging.LogErrorInfo) {
 	// Find poster_set PK by set_id
 	var posterSetRowID int64
 	if err := tx.QueryRowContext(ctx, `SELECT id FROM PosterSets WHERE set_id = ? LIMIT 1;`, setID).Scan(&posterSetRowID); err != nil {
@@ -634,7 +643,7 @@ func deleteSavedItemLinkAndImages(ctx context.Context, tx *sql.Tx, tmdbID, libra
 	}
 
 	// Delete SavedItems link (for this item)
-	res, err := tx.ExecContext(ctx, `DELETE FROM SavedItems WHERE tmdb_id = ? AND library_title = ? AND poster_set_id = ?;`, tmdbID, libraryTitle, posterSetRowID)
+	res, err := tx.ExecContext(ctx, `DELETE FROM SavedItems WHERE tmdb_id = ? AND library_title = ? AND edition = ? AND poster_set_id = ?;`, tmdbID, libraryTitle, edition, posterSetRowID)
 	if err != nil {
 		return 0, logging.LogErrorInfo{Message: "DB: delete SavedItems link failed", Detail: map[string]any{"error": err.Error()}}
 	}
@@ -693,17 +702,17 @@ WHERE id NOT IN (SELECT DISTINCT poster_set_id FROM SavedItems);
 }
 
 // Change deleteEmptySavedItemLinks to return rows deleted so caller can log it.
-func deleteEmptySavedItemLinks(ctx context.Context, tx *sql.Tx, tmdbID, libraryTitle string) (deleted int64, Err logging.LogErrorInfo) {
+func deleteEmptySavedItemLinks(ctx context.Context, tx *sql.Tx, tmdbID, libraryTitle, edition string) (deleted int64, Err logging.LogErrorInfo) {
 	q := `
 DELETE FROM SavedItems
-WHERE tmdb_id = ? AND library_title = ?
+WHERE tmdb_id = ? AND library_title = ? AND edition = ?
   AND poster_selected = 0
   AND backdrop_selected = 0
   AND season_poster_selected = 0
   AND special_season_poster_selected = 0
   AND titlecard_selected = 0;
 `
-	res, err := tx.ExecContext(ctx, q, tmdbID, libraryTitle)
+	res, err := tx.ExecContext(ctx, q, tmdbID, libraryTitle, edition)
 	if err != nil {
 		return 0, logging.LogErrorInfo{Message: "DB: delete empty SavedItems links failed", Detail: map[string]any{"error": err.Error()}}
 	}
@@ -733,4 +742,12 @@ func lenOr0[T any](s []T) int {
 		return 0
 	}
 	return len(s)
+}
+
+// lastDownloaded is when a set was downloaded, a set saved without a date was saved now
+func lastDownloaded(t time.Time) time.Time {
+	if t.IsZero() {
+		return time.Now()
+	}
+	return t
 }

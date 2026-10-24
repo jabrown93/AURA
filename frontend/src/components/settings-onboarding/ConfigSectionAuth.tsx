@@ -1,63 +1,145 @@
-import React, { useEffect, useMemo, useRef } from "react";
+import { GenerateAPIKey } from "@/services/auth/api-key";
+import { AlertTriangle, Check, Copy, KeyRound, Plus, Trash2 } from "lucide-react";
+import { toast } from "sonner";
+
+import React, { useEffect, useMemo, useRef, useState } from "react";
 
 import Link from "next/link";
 
 import { PopoverHelp } from "@/components/shared/popover-help";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 
 import { cn } from "@/lib/cn";
 
-import type { AppConfigAuth, AppConfigOIDC } from "@/types/config/config";
+import type { AppConfigAuth } from "@/types/config/config";
 
 interface ConfigSectionAuthProps {
   value: AppConfigAuth;
   editing: boolean;
-  dirtyFields?: { enabled?: boolean; password?: boolean; oidc?: boolean };
+  dirtyFields?: { enabled?: boolean; password_enabled?: boolean; password?: boolean };
   onChange: <K extends keyof AppConfigAuth>(field: K, value: AppConfigAuth[K]) => void;
   errorsUpdate?: (errors: Partial<Record<keyof AppConfigAuth, string>>) => void;
+  // Whether a global API key has already been generated. The key itself is never sent to the
+  // frontend - only this boolean, computed server-side.
+  apiKeyConfigured?: boolean;
 }
 
 const hashRegex = /^\$argon2id\$v=\d+\$m=\d+,t=\d+,p=\d+\$[A-Za-z0-9+/=]+\$[A-Za-z0-9+/=]+$/;
 
-/**
- * Mirrors the backend's masking of stored secrets. A masked value means "unchanged", so it
- * must not be validated as if the user had typed it.
- */
-const maskedSecretRegex = /^\*{3}[^*]+$/;
-
-const emptyOIDC: AppConfigOIDC = {
-  enabled: false,
-  issuer_url: "",
-  client_id: "",
-  client_secret: "",
-  redirect_url: "",
-  scopes: [],
-  groups_claim: "",
-  allowed_groups: [],
-  allowed_emails: [],
-  allowed_subjects: [],
-  button_label: "",
-  rp_initiated_logout: false,
-};
-
-/** Splits a comma or newline separated input into a trimmed list. */
-const parseList = (raw: string): string[] =>
-  raw
-    .split(/[\n,]/)
-    .map((entry) => entry.trim())
+const parseCommaList = (v: string): string[] =>
+  v
+    .split(",")
+    .map((s) => s.trim())
     .filter(Boolean);
 
-const isAbsoluteURL = (raw: string): boolean => {
-  try {
-    const parsed = new URL(raw);
-    return !!parsed.protocol && !!parsed.host;
-  } catch {
-    return false;
-  }
+// CommaListInput edits a list as comma separated text
+function CommaListInput({
+  id,
+  value,
+  disabled,
+  placeholder,
+  onChange,
+}: {
+  id: string;
+  value: string[] | undefined;
+  disabled?: boolean;
+  placeholder?: string;
+  onChange: (list: string[]) => void;
+}) {
+  const listText = (value || []).join(", ");
+  const [text, setText] = useState(listText);
+  // Show the saved list again when it changes elsewhere (e.g. after saving)
+  useEffect(() => setText(listText), [listText]);
+  return (
+    <Input
+      id={id}
+      disabled={disabled}
+      placeholder={placeholder}
+      value={text}
+      onChange={(e) => setText(e.target.value)}
+      onBlur={() => {
+        const list = parseCommaList(text);
+        setText(list.join(", "));
+        if (list.join(",") !== (value || []).join(",")) onChange(list);
+      }}
+    />
+  );
+}
+
+const OIDC_CALLBACK_PATH = "/api/auth/oidc/callback";
+
+// withCallbackPath adds the callback path to an aura address, e.g. https://aura.example.com
+const withCallbackPath = (url: string) => {
+  const trimmed = url.trim().replace(/\/+$/, "");
+  if (!trimmed || trimmed.endsWith(OIDC_CALLBACK_PATH)) return trimmed;
+  // Finish a callback path that was only partly typed
+  const partial = ["/api/auth/oidc", "/api/auth", "/api"].find((part) => trimmed.endsWith(part));
+  return (partial ? trimmed.slice(0, -partial.length) : trimmed) + OIDC_CALLBACK_PATH;
 };
+
+// RedirectURLsInput edits the Redirect URLs, one per row
+function RedirectURLsInput({
+  value,
+  disabled,
+  onChange,
+}: {
+  value: string[] | undefined;
+  disabled?: boolean;
+  onChange: (list: string[]) => void;
+}) {
+  // Always show at least one row to type in
+  const urls = value && value.length > 0 ? value : [""];
+  const updateURL = (idx: number, url: string) => onChange(urls.map((u, i) => (i === idx ? url : u)));
+  return (
+    <div className="space-y-2">
+      {urls.map((url, idx) => (
+        <div key={idx} className="flex items-center gap-2">
+          <Input
+            id={idx === 0 ? "oidc-redirect" : undefined}
+            disabled={disabled}
+            placeholder={idx === 0 ? "https://aura.example.com" : "http://192.168.1.10:3000"}
+            value={url}
+            onChange={(e) => updateURL(idx, e.target.value)}
+            onBlur={() => {
+              const withPath = withCallbackPath(url);
+              if (withPath !== url) updateURL(idx, withPath);
+            }}
+          />
+          {!disabled && urls.length > 1 && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              aria-label="Remove Redirect URL"
+              onClick={() => onChange(urls.filter((_, i) => i !== idx))}
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          )}
+        </div>
+      ))}
+      {!disabled && (
+        <Button type="button" variant="outline" size="sm" onClick={() => onChange([...urls, ""])}>
+          <Plus className="h-4 w-4 mr-1" />
+          Add Redirect URL
+        </Button>
+      )}
+    </div>
+  );
+}
+
+const SESSION_COOKIE_SECURE_OPTIONS = [
+  { value: "auto", label: "Auto", description: "Secure when aura is opened over HTTPS" },
+  { value: "always", label: "Always", description: "Always secure (aura is only used over HTTPS)" },
+  { value: "never", label: "Never", description: "Never secure (e.g. aura is only used over HTTP)" },
+];
 
 export const ConfigSectionAuth: React.FC<ConfigSectionAuthProps> = ({
   value,
@@ -65,49 +147,63 @@ export const ConfigSectionAuth: React.FC<ConfigSectionAuthProps> = ({
   dirtyFields = {},
   onChange,
   errorsUpdate,
+  apiKeyConfigured = false,
 }) => {
   const prevErrorRef = useRef<string>("");
-  const oidc = value.oidc ?? emptyOIDC;
 
-  const updateOIDC = <K extends keyof AppConfigOIDC>(field: K, fieldValue: AppConfigOIDC[K]) => {
-    onChange("oidc", { ...oidc, [field]: fieldValue });
+  // API key generation is out-of-band from the editable config diff/save flow - it's its own
+  // dedicated endpoint, not a field that gets typed and saved with everything else.
+  const [keyConfigured, setKeyConfigured] = useState(apiKeyConfigured);
+  const [generatedKey, setGeneratedKey] = useState<string | null>(null);
+  const [generating, setGenerating] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    setKeyConfigured(apiKeyConfigured);
+  }, [apiKeyConfigured]);
+
+  const handleGenerateKey = async () => {
+    setGenerating(true);
+    setCopied(false);
+    try {
+      const resp = await GenerateAPIKey();
+      if (resp.status === "error" || !resp.data?.api_key) {
+        toast.error(resp.error?.message || "Failed to generate API key");
+        return;
+      }
+      setGeneratedKey(resp.data.api_key);
+      setKeyConfigured(true);
+      toast.success(keyConfigured ? "API key regenerated - the previous key is now invalid" : "API key generated");
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const handleCopyKey = async () => {
+    if (!generatedKey) return;
+    await navigator.clipboard.writeText(generatedKey);
+    setCopied(true);
   };
 
   // Validation
   const errors = useMemo<Partial<Record<keyof AppConfigAuth, string>>>(() => {
     const errs: Partial<Record<keyof AppConfigAuth, string>> = {};
-    if (!value.enabled) return errs;
-
-    // Password Errors. A password is optional once OIDC can sign users in, but leaving
-    // both off would make the app unreachable.
-    const password = value.password.trim();
-    if (password.length === 0) {
-      if (!oidc.enabled) {
-        errs.password = "Set a password hash or enable OpenID Connect when authentication is enabled.";
-      }
-    } else if (!maskedSecretRegex.test(password) && !hashRegex.test(password)) {
-      errs.password = "Invalid Argon2id hash format.";
+    // Login Method Errors
+    if (value.enabled && !value.password_enabled && !value.oidc?.enabled) {
+      errs.password_enabled = "Turn on the password or Single Sign-On, so there is a way to log in.";
     }
-
-    // OIDC Errors
-    if (oidc.enabled) {
-      if (!oidc.issuer_url.trim()) {
-        errs.oidc = "Issuer URL is required.";
-      } else if (!isAbsoluteURL(oidc.issuer_url.trim())) {
-        errs.oidc = "Issuer URL must be a full URL, e.g. https://auth.example.com/application/o/aura/";
-      } else if (!oidc.client_id.trim()) {
-        errs.oidc = "Client ID is required.";
-      } else if (!oidc.client_secret.trim()) {
-        errs.oidc = "Client secret is required.";
-      } else if (!oidc.redirect_url.trim()) {
-        errs.oidc = "Redirect URL is required.";
-      } else if (!isAbsoluteURL(oidc.redirect_url.trim())) {
-        errs.oidc = "Redirect URL must be the full callback URL, e.g. https://aura.example.com/api/auth/oidc/callback";
+    // Password Errors
+    if (value.enabled && value.password_enabled) {
+      const password = value.password.trim();
+      if (password.length === 0) {
+        errs.password = "Password hash is required when password login is enabled.";
+      } else if (!password.startsWith("***") && !hashRegex.test(password)) {
+        // A masked value is the saved hash, which aura keeps
+        errs.password = "Invalid Argon2id hash format.";
       }
     }
-
     return errs;
-  }, [value.enabled, value.password, oidc]);
+  }, [value.enabled, value.password_enabled, value.password, value.oidc?.enabled]);
 
   // Emit errors upward
   useEffect(() => {
@@ -118,8 +214,21 @@ export const ConfigSectionAuth: React.FC<ConfigSectionAuthProps> = ({
     errorsUpdate(errors);
   }, [errors, errorsUpdate]);
 
+  const oidc = value.oidc;
+  const oidcAllowlistEmpty =
+    (oidc?.allowed_emails?.length ?? 0) === 0 &&
+    (oidc?.allowed_domains?.length ?? 0) === 0 &&
+    (oidc?.allowed_groups?.length ?? 0) === 0; // Fork: groups also restrict sign-in
+
+  const updateOidc = <K extends keyof NonNullable<AppConfigAuth["oidc"]>>(
+    field: K,
+    fieldValue: NonNullable<AppConfigAuth["oidc"]>[K]
+  ) => {
+    onChange("oidc", { ...oidc, [field]: fieldValue });
+  };
+
   return (
-    <Card className={`p-5 ${Object.values(errors).some(Boolean) ? "border-red-500" : "border-muted"}`}>
+    <Card className={`gap-4 p-4 sm:p-5 ${Object.values(errors).some(Boolean) ? "border-red-500" : "border-muted"}`}>
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-semibold text-blue-500">Authentication</h2>
       </div>
@@ -136,26 +245,48 @@ export const ConfigSectionAuth: React.FC<ConfigSectionAuthProps> = ({
           <Switch disabled={!editing} checked={value.enabled} onCheckedChange={(c) => onChange("enabled", c)} />
           {editing && (
             <PopoverHelp ariaLabel="help-auth-enabled">
-              <p>Turn on to enforce authentication. A valid Argon2id password hash must be provided below.</p>
+              <p>Turn on to enforce authentication. Log in with a password, Single Sign-On, or both.</p>
             </PopoverHelp>
           )}
         </div>
       </div>
 
-      <div className="flex">
-        <div className={cn("relative flex-1 border rounded-md p-3 space-y-2 transition")}>
-          <div>
+      {/* Password */}
+      <div
+        className={cn(
+          "border rounded-md p-3 space-y-3 transition",
+          "border-muted",
+          dirtyFields.password_enabled && "border-amber-500"
+        )}
+      >
+        <div className="flex items-center justify-between">
+          <Label className="mr-2">Password Enabled</Label>
+          <div className="flex items-center gap-2">
+            <Switch
+              disabled={!editing}
+              checked={value.password_enabled}
+              onCheckedChange={(c) => onChange("password_enabled", c)}
+            />
+            {editing && (
+              <PopoverHelp ariaLabel="help-auth-password-enabled">
+                <p>
+                  Allow logging in with a password. Turn it off to only log in with Single Sign-On. The password field
+                  is then removed from the login page.
+                </p>
+              </PopoverHelp>
+            )}
+          </div>
+        </div>
+        {errors.password_enabled && <p className="text-xs text-red-500">{errors.password_enabled}</p>}
+
+        {value.password_enabled && (
+          <div className="space-y-2">
             <div className="flex items-center justify-between">
               <Label htmlFor="auth-hash">Argon2id Password Hash</Label>
               {editing && (
                 <PopoverHelp ariaLabel="help-auth-password-hash">
                   <p className="mb-2">
-                    Provide an Argon2id hash. If authentication is enabled this hash must match the user&apos;s
-                    password.
-                  </p>
-                  <p className="mb-2">
-                    A stored hash is shown masked. Leave it as-is to keep it, paste a new hash to replace it, or clear
-                    the field to remove password sign-in once OIDC is enabled.
+                    Provide an Argon2id hash. If authentication is enabled this hash must match the user's password.
                   </p>
                   <p>
                     You can use a site like{" "}
@@ -181,219 +312,266 @@ export const ConfigSectionAuth: React.FC<ConfigSectionAuthProps> = ({
               onChange={(e) => onChange("password", e.target.value)}
               className={cn("w-full mt-1", dirtyFields.password && "ring-2 ring-amber-500")}
             />
+            {errors.password && <p className="text-xs text-red-500">{errors.password}</p>}
           </div>
-          {errors.password && <p className="text-xs text-red-500">{errors.password}</p>}
-        </div>
+        )}
       </div>
 
-      <div className={cn("border rounded-md p-3 space-y-3 transition", dirtyFields.oidc && "border-amber-500")}>
+      {/* API Key */}
+      <div className="border rounded-md p-3 space-y-3 border-muted">
         <div className="flex items-center justify-between">
-          <Label className="mr-2 text-base font-semibold">Single Sign-On (OpenID Connect)</Label>
+          <div className="flex items-center gap-2">
+            <KeyRound className="h-4 w-4" />
+            <Label>API Key</Label>
+            <PopoverHelp ariaLabel="help-auth-api-key">
+              <p>
+                Used for programmatic access to the API. This key is only shown once when generated, copy it
+                immediately. If you lose it, you can regenerate a new key which will invalidate the old one.
+              </p>
+              <p className="mt-2">
+                aura comes with built-in{" "}
+                <a
+                  href="/swagger/index.html"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-primary hover:underline"
+                >
+                  API docs
+                </a>
+                , which you can use to test the API with your key.
+              </p>
+            </PopoverHelp>
+          </div>
+          <Button type="button" size="sm" variant="outline" disabled={generating} onClick={handleGenerateKey}>
+            {keyConfigured ? "Regenerate" : "Generate"} Key
+          </Button>
+        </div>
+
+        {!keyConfigured && !generatedKey && (
+          <p className="text-xs text-muted-foreground">No API key has been generated yet.</p>
+        )}
+
+        {generatedKey && (
+          <Alert>
+            <AlertTitle>Copy this key now - it won't be shown again</AlertTitle>
+            <AlertDescription>
+              <div className="flex items-center gap-2 mt-2">
+                <code className="flex-1 break-all rounded bg-muted px-2 py-1 text-xs">{generatedKey}</code>
+                <Button type="button" size="sm" variant="outline" onClick={handleCopyKey}>
+                  {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                </Button>
+              </div>
+            </AlertDescription>
+          </Alert>
+        )}
+      </div>
+
+      {/* OIDC / SSO */}
+      <div className="border rounded-md p-3 space-y-3 border-muted">
+        <div className="flex items-center justify-between">
+          <Label className="mr-2">Single Sign-On (OIDC)</Label>
           <div className="flex items-center gap-2">
             <Switch
               disabled={!editing}
-              checked={oidc.enabled}
-              onCheckedChange={(checked) => updateOIDC("enabled", checked)}
+              checked={oidc?.enabled ?? false}
+              onCheckedChange={(c) => updateOidc("enabled", c)}
             />
             {editing && (
               <PopoverHelp ariaLabel="help-auth-oidc-enabled">
-                <p className="mb-2">
-                  Sign in through an identity provider such as Authentik, Keycloak, Auth0 or Google. Register aura as a
-                  confidential client with the authorization code flow.
-                </p>
-                <p>Leave the password hash set as well if you want a way in when the provider is unavailable.</p>
+                <p>Allow signing in via an external OIDC identity provider (e.g. Authelia, Pocket ID, Authentik).</p>
               </PopoverHelp>
             )}
           </div>
         </div>
 
-        {oidc.enabled && (
-          <>
+        {oidc?.enabled && (
+          <div className="space-y-3">
             <div>
-              <Label htmlFor="oidc-issuer">Issuer URL</Label>
+              <Label htmlFor="oidc-issuer" className="mb-1 block">
+                Issuer URL
+              </Label>
               <Input
                 id="oidc-issuer"
                 disabled={!editing}
-                placeholder="https://auth.example.com/application/o/aura/"
-                value={oidc.issuer_url}
-                onChange={(e) => updateOIDC("issuer_url", e.target.value)}
-                className="w-full mt-1"
+                placeholder="https://idp.example.com"
+                value={oidc.issuer_url || ""}
+                onChange={(e) => updateOidc("issuer_url", e.target.value)}
               />
             </div>
-
             <div>
-              <Label htmlFor="oidc-client-id">Client ID</Label>
+              <Label htmlFor="oidc-client-id" className="mb-1 block">
+                Client ID
+              </Label>
               <Input
                 id="oidc-client-id"
                 disabled={!editing}
-                value={oidc.client_id}
-                onChange={(e) => updateOIDC("client_id", e.target.value)}
-                className="w-full mt-1"
+                value={oidc.client_id || ""}
+                onChange={(e) => updateOidc("client_id", e.target.value)}
               />
             </div>
-
             <div>
-              <div className="flex items-center justify-between">
-                <Label htmlFor="oidc-client-secret">Client Secret</Label>
-                {editing && (
-                  <PopoverHelp ariaLabel="help-auth-oidc-secret">
-                    <p>
-                      The stored secret is shown masked. Leave it as-is to keep it, or paste a new one to replace it.
-                    </p>
-                  </PopoverHelp>
-                )}
-              </div>
+              <Label htmlFor="oidc-client-secret" className="mb-1 block">
+                Client Secret
+              </Label>
               <Input
                 id="oidc-client-secret"
                 disabled={!editing}
-                type="text"
-                value={oidc.client_secret}
-                onChange={(e) => updateOIDC("client_secret", e.target.value)}
-                className="w-full mt-1"
+                type="password"
+                value={oidc.client_secret || ""}
+                onChange={(e) => updateOidc("client_secret", e.target.value)}
               />
             </div>
-
             <div>
-              <div className="flex items-center justify-between">
-                <Label htmlFor="oidc-redirect">Redirect URL</Label>
-                {editing && (
-                  <PopoverHelp ariaLabel="help-auth-oidc-redirect">
-                    <p>
-                      The callback registered with your provider. It must be the full external URL of this app followed
-                      by <code>/api/auth/oidc/callback</code>.
-                    </p>
-                  </PopoverHelp>
-                )}
-              </div>
-              <Input
-                id="oidc-redirect"
+              <Label htmlFor="oidc-redirect" className="mb-1 block">
+                Redirect URLs
+              </Label>
+              <RedirectURLsInput
                 disabled={!editing}
-                placeholder="https://aura.example.com/api/auth/oidc/callback"
-                value={oidc.redirect_url}
-                onChange={(e) => updateOIDC("redirect_url", e.target.value)}
-                className="w-full mt-1"
+                value={oidc.redirect_urls}
+                onChange={(list) => updateOidc("redirect_urls", list)}
               />
+              <p className="text-xs text-muted-foreground mt-1">
+                One for each address you open aura at, like a domain and an IP address. aura adds{" "}
+                <code>{OIDC_CALLBACK_PATH}</code> to the end. Register each full URL as an allowed redirect URI with
+                your identity provider.
+              </p>
             </div>
-
             <div>
-              <div className="flex items-center justify-between">
-                <Label htmlFor="oidc-scopes">Scopes</Label>
-                {editing && (
-                  <PopoverHelp ariaLabel="help-auth-oidc-scopes">
-                    <p>Comma separated. Defaults to openid, profile, email. openid is always requested.</p>
-                  </PopoverHelp>
-                )}
-              </div>
-              <Input
-                id="oidc-scopes"
-                disabled={!editing}
-                placeholder="openid, profile, email, groups"
-                value={(oidc.scopes ?? []).join(", ")}
-                onChange={(e) => updateOIDC("scopes", parseList(e.target.value))}
-                className="w-full mt-1"
-              />
-            </div>
-
-            <div>
-              <div className="flex items-center justify-between">
-                <Label htmlFor="oidc-groups-claim">Groups Claim</Label>
-                {editing && (
-                  <PopoverHelp ariaLabel="help-auth-oidc-groups-claim">
-                    <p>Which ID token claim holds group membership. Defaults to groups.</p>
-                  </PopoverHelp>
-                )}
-              </div>
-              <Input
-                id="oidc-groups-claim"
-                disabled={!editing}
-                placeholder="groups"
-                value={oidc.groups_claim ?? ""}
-                onChange={(e) => updateOIDC("groups_claim", e.target.value)}
-                className="w-full mt-1"
-              />
-            </div>
-
-            <div>
-              <div className="flex items-center justify-between">
-                <Label htmlFor="oidc-allowed-groups">Allowed Groups</Label>
-                {editing && (
-                  <PopoverHelp ariaLabel="help-auth-oidc-allowlist">
-                    <p className="mb-2">
-                      Comma separated. Leave every allowlist empty to let anyone your provider authenticates in, which
-                      is the right choice when the provider already restricts who can open this application.
-                    </p>
-                    <p>If any list is filled in, a user must match at least one entry across the three lists.</p>
-                  </PopoverHelp>
-                )}
-              </div>
-              <Input
-                id="oidc-allowed-groups"
-                disabled={!editing}
-                placeholder="media-users, admins"
-                value={(oidc.allowed_groups ?? []).join(", ")}
-                onChange={(e) => updateOIDC("allowed_groups", parseList(e.target.value))}
-                className="w-full mt-1"
-              />
-            </div>
-
-            <div>
-              <Label htmlFor="oidc-allowed-emails">Allowed Emails</Label>
-              <Input
+              <Label htmlFor="oidc-allowed-emails" className="mb-1 block">
+                Allowed Emails
+              </Label>
+              <CommaListInput
                 id="oidc-allowed-emails"
                 disabled={!editing}
-                placeholder="you@example.com"
-                value={(oidc.allowed_emails ?? []).join(", ")}
-                onChange={(e) => updateOIDC("allowed_emails", parseList(e.target.value))}
-                className="w-full mt-1"
+                placeholder="you@example.com, other@example.com"
+                value={oidc.allowed_emails}
+                onChange={(list) => updateOidc("allowed_emails", list)}
               />
             </div>
-
             <div>
-              <Label htmlFor="oidc-allowed-subjects">Allowed Subjects</Label>
-              <Input
-                id="oidc-allowed-subjects"
+              <Label htmlFor="oidc-allowed-domains" className="mb-1 block">
+                Allowed Domains
+              </Label>
+              <CommaListInput
+                id="oidc-allowed-domains"
                 disabled={!editing}
-                value={(oidc.allowed_subjects ?? []).join(", ")}
-                onChange={(e) => updateOIDC("allowed_subjects", parseList(e.target.value))}
-                className="w-full mt-1"
+                placeholder="example.com"
+                value={oidc.allowed_domains}
+                onChange={(list) => updateOidc("allowed_domains", list)}
               />
             </div>
-
+            {/* Fork: group-based authorization */}
             <div>
-              <Label htmlFor="oidc-button-label">Sign-In Button Label</Label>
-              <Input
-                id="oidc-button-label"
+              <Label htmlFor="oidc-allowed-groups" className="mb-1 block">
+                Allowed Groups
+              </Label>
+              <CommaListInput
+                id="oidc-allowed-groups"
                 disabled={!editing}
-                placeholder="Sign in with SSO"
-                value={oidc.button_label ?? ""}
-                onChange={(e) => updateOIDC("button_label", e.target.value)}
-                className="w-full mt-1"
+                placeholder="aura-users"
+                value={oidc.allowed_groups}
+                onChange={(list) => updateOidc("allowed_groups", list)}
               />
+              <p className="text-xs text-muted-foreground mt-1">
+                When set, the user must also be in one of these groups (from the &quot;groups&quot; claim).
+              </p>
             </div>
 
-            <div className="flex items-center justify-between">
-              <Label className="mr-2">End Provider Session on Logout</Label>
-              <div className="flex items-center gap-2">
-                <Switch
-                  disabled={!editing}
-                  checked={oidc.rp_initiated_logout}
-                  onCheckedChange={(checked) => updateOIDC("rp_initiated_logout", checked)}
-                />
+            {oidcAllowlistEmpty && (
+              <Alert variant="destructive">
+                <AlertTriangle className="h-4 w-4" />
+                <AlertTitle>No email/domain restriction configured</AlertTitle>
+                <AlertDescription>
+                  Any user who can successfully authenticate with this identity provider will be granted full access to
+                  this app.
+                </AlertDescription>
+              </Alert>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Advanced */}
+      <Accordion type="single" collapsible className="rounded-md border px-3">
+        <AccordionItem value="advanced" className="border-b-0">
+          <AccordionTrigger className="cursor-pointer py-3 text-sm font-medium hover:no-underline">
+            Advanced
+          </AccordionTrigger>
+          <AccordionContent className="space-y-4 pb-3">
+            <div>
+              <div className="mb-1 flex items-center justify-between">
+                <Label htmlFor="session-cookie-secure">Session Cookie Secure</Label>
                 {editing && (
-                  <PopoverHelp ariaLabel="help-auth-oidc-logout">
-                    <p>
-                      Sends you to the provider&apos;s logout endpoint after signing out here. The provider must accept
-                      the login page URL as a post-logout redirect.
+                  <PopoverHelp ariaLabel="help-session-cookie-secure">
+                    <p className="mb-2">
+                      Whether the login session cookie is marked Secure, so the browser only sends it over HTTPS.
+                    </p>
+                    <p className="text-muted-foreground">
+                      Keep Auto unless logging in doesn't stick (e.g. behind a reverse proxy that handles HTTPS).
                     </p>
                   </PopoverHelp>
                 )}
               </div>
+              <Select
+                disabled={!editing}
+                value={value.session_cookie_secure || "auto"}
+                onValueChange={(v) => onChange("session_cookie_secure", v)}
+              >
+                <SelectTrigger id="session-cookie-secure" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {SESSION_COOKIE_SECURE_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value} className="cursor-pointer">
+                      {option.label} <span className="text-muted-foreground">- {option.description}</span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
-            {errors.oidc && <p className="text-xs text-red-500">{errors.oidc}</p>}
-          </>
-        )}
-      </div>
+            {/* Only used with Auto */}
+            {(value.session_cookie_secure || "auto") === "auto" && (
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <Label htmlFor="trust-proxy-cookie-secure">Trust Reverse Proxy for HTTPS</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Treat requests as HTTPS when the reverse proxy says so (X-Forwarded-Proto). Only turn this on if
+                    aura is behind a reverse proxy that sets this header.
+                  </p>
+                </div>
+                <Switch
+                  id="trust-proxy-cookie-secure"
+                  disabled={!editing}
+                  checked={!!value.trust_proxy_for_cookie_secure}
+                  onCheckedChange={(v) => onChange("trust_proxy_for_cookie_secure", v)}
+                />
+              </div>
+            )}
+
+            <div>
+              <div className="mb-1 flex items-center justify-between">
+                <Label htmlFor="allowed-origins">Allowed Origins</Label>
+                {editing && (
+                  <PopoverHelp ariaLabel="help-allowed-origins">
+                    <p className="mb-2">
+                      Other websites allowed to call the aura API with your login (e.g. a dashboard on another domain).
+                    </p>
+                    <p className="text-muted-foreground">Not needed when using aura normally.</p>
+                  </PopoverHelp>
+                )}
+              </div>
+              <CommaListInput
+                id="allowed-origins"
+                disabled={!editing}
+                placeholder="https://dashboard.example.com"
+                value={value.allowed_origins}
+                onChange={(list) => onChange("allowed_origins", list)}
+              />
+            </div>
+          </AccordionContent>
+        </AccordionItem>
+      </Accordion>
     </Card>
   );
 };

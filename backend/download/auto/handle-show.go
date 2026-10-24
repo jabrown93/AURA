@@ -183,7 +183,7 @@ func handleShow(ctx context.Context, mediaItem models.MediaItem, dbItem models.D
 		}
 
 		// Get the latest set details from MediUX
-		mediuxSet, _, Err := mediux.GetShowSetByID(ctx, dbSet.ID, mediaItem.LibraryTitle)
+		mediuxSet, _, Err := mediux.GetShowSetByID(ctx, dbSet.ID, mediaItem.LibraryTitle, mediaItem.Edition)
 		if Err.Message != "" {
 			setResult.Result = "error"
 			setResult.Reason = "Failed to get latest set details from MediUX"
@@ -468,6 +468,7 @@ func handleShow(ctx context.Context, mediaItem models.MediaItem, dbItem models.D
 				// Send a notification to all configured notification services
 				// We do this asynchronously and don't wait for the result
 				go func(image ImageFileWithReason) {
+					defer logging.RecoverPanic("Auto Download Notification")
 					sendFileDownloadNotification(mediaItem, dbSet, image)
 				}(image)
 			}

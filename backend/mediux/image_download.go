@@ -23,6 +23,13 @@ func GetImage(ctx context.Context, assetID string, formatDate string, imageQuali
 	imageType = ""
 	Err = logging.LogErrorInfo{}
 
+	// Fork: the asset ID comes from a public query parameter and is used in a cache file path,
+	// so anything but MediUX's ID characters is refused before it can leave the cache folder.
+	if !validAssetID(assetID) {
+		logAction.SetError("Invalid asset ID", "The asset ID may only contain letters, digits, '-' and '_'", map[string]any{"asset_id": assetID})
+		return imageData, imageType, *logAction.Error
+	}
+
 	// Determine the folder path based on qualityParam
 	var folderPath string
 	switch imageQuality {
@@ -32,93 +39,17 @@ func GetImage(ctx context.Context, assetID string, formatDate string, imageQuali
 		folderPath = ThumbsTempImageFolder
 	}
 
-	// File Name and Path
-	fileName := fmt.Sprintf("%s_%s.jpg", assetID, formatDate)
-	filePath := path.Join(folderPath, fileName)
-	isNewDownload := false
+	// File Name Base (extension is determined by the actual image content type,
+	// since MediUX images may be JPEG, PNG, WEBP, or GIF)
+	fileNameBase := fmt.Sprintf("%s_%s", assetID, formatDate)
 
-	// Run this after the function completes
-	// Handle Cache Images Setting
-	defer func() {
-		// If there is an error or no image data, do not attempt to cache
-		if Err.Message != "" || len(imageData) == 0 {
-			return
-		}
-
-		if !isNewDownload {
-			// If the image was not newly downloaded, no need to cache
-			return
-		}
-
-		// Check if caching is enabled
-		if config.Current.Images.CacheImages.Enabled {
-			// Create a new logging data for this goroutine
-			ctx, ld := logging.CreateLoggingContext(context.Background(), "Caching - MediUX Image")
-			logAction := ld.AddAction("Caching MediUX Image", logging.LevelDebug)
-			ctx = logging.WithCurrentAction(ctx, logAction)
-			// Check if the folder exists
-			Err = utils.CreateFolderIfNotExists(ctx, folderPath)
-			if Err.Message != "" {
-				return
-			}
-
-			writeToFileAction := logAction.AddSubAction("Write Image to Temp Folder", logging.LevelTrace)
-			err := os.WriteFile(filePath, imageData, 0644)
-			if err != nil {
-				logAction.SetError("Failed to write image to MediUX thumbs temp image folder",
-					"Ensure the application has write permissions to the temp image folder.",
-					map[string]any{
-						"filePath": filePath,
-						"error":    err.Error(),
-					})
-
-				return
-			}
-			logAction.AppendResult("filePath", filePath)
-			writeToFileAction.Complete()
-			logAction.Complete()
-			ld.Log()
-		}
-	}()
-
-	// Now we check to see if config.Images.CacheImages.Enabled is true
-	// If it is, we check the temporary or full image folder for the image based on qualityParam
-	// If the image exists there, we serve it from disk
-	// If not, we fetch it from MediUX and save it to the temp/full folder based on qualityParam
-	// If config.Images.CacheImages.Enabled is false, we always fetch from MediUX
-
+	// Serve the image from the cache folder when it is there
 	if config.Current.Images.CacheImages.Enabled {
-		// Check if the folder exists, if not create it
-		Err := utils.CreateFolderIfNotExists(ctx, folderPath)
-		if Err.Message != "" {
-			// If the folder creation fails, we log the error but continue to fetch the image from MediUX
-			logging.LOGGER.Warn().Timestamp().Str("folder_path", folderPath).Str("error", Err.Message).Msg("Failed to create MediUX image folder, will attempt to fetch image from MediUX")
-		} else {
-			// Check if the file exists
-			fileExists := utils.CheckFileExists(filePath)
-			if fileExists {
-				// Read the image data from disk
-				imageData, err := os.ReadFile(filePath)
-				if err != nil {
-					logging.LOGGER.Warn().Timestamp().Str("file_path", filePath).Str("error", err.Error()).Msg("Failed to read cached MediUX image, will attempt to fetch image from MediUX")
-				} else {
-					// Successfully read the image from disk
-					imageType = "image/jpeg" // Assuming JPEG by default
-					switch path.Ext(filePath) {
-					case ".png":
-						imageType = "image/png"
-					case ".gif":
-						imageType = "image/gif"
-					case ".webp":
-						imageType = "image/webp"
-					}
-					logAction.AppendResult("filePath", filePath)
-					logAction.AppendResult("size", len(imageData))
-					logAction.AppendResult("imageType", imageType)
-					logAction.AppendResult("source", "cache")
-					return imageData, imageType, Err
-				}
-			}
+		if cached, cachedType, found := readCachedImage(folderPath, fileNameBase); found {
+			logAction.AppendResult("size", len(cached))
+			logAction.AppendResult("imageType", cachedType)
+			logAction.AppendResult("source", "cache")
+			return cached, cachedType, Err
 		}
 	}
 
@@ -162,12 +93,61 @@ func GetImage(ctx context.Context, assetID string, formatDate string, imageQuali
 	imageType = respContentType
 	imageData = respBody
 
-	isNewDownload = true
 	logAction.AppendResult("size", len(imageData))
 	logAction.AppendResult("imageType", respContentType)
 	logAction.AppendResult("source", "MediUX")
 
+	// Save it to the cache folder in the background
+	if config.Current.Images.CacheImages.Enabled {
+		fileName := fileNameBase + utils.GetExtensionFromContentType(imageType)
+		logging.Go("Cache Image", func() { cacheImage(folderPath, fileName, imageData) })
+	}
+
 	return imageData, imageType, Err
+}
+
+// cachedImageTypes are the extensions the cache folder can have, with their content types
+var cachedImageTypes = []struct{ extension, contentType string }{
+	{".jpg", "image/jpeg"},
+	{".png", "image/png"},
+	{".webp", "image/webp"},
+	{".gif", "image/gif"},
+}
+
+// readCachedImage reads an image from the cache folder, whichever type it was saved as
+func readCachedImage(folderPath, fileNameBase string) (imageData []byte, imageType string, found bool) {
+	for _, t := range cachedImageTypes {
+		imageData, err := os.ReadFile(path.Join(folderPath, fileNameBase+t.extension))
+		if err == nil {
+			return imageData, t.contentType, true
+		}
+	}
+	return nil, "", false
+}
+
+// cacheImage saves an image to the cache folder
+func cacheImage(folderPath, fileName string, imageData []byte) {
+	ctx, ld := logging.CreateLoggingContext(context.Background(), "Caching - MediUX Image")
+	logAction := ld.AddAction("Caching MediUX Image", logging.LevelDebug)
+	ctx = logging.WithCurrentAction(ctx, logAction)
+	defer ld.Log()
+
+	if Err := utils.CreateFolderIfNotExists(ctx, folderPath); Err.Message != "" {
+		return
+	}
+	// Write to a temporary file first, so it's never read half written
+	filePath := path.Join(folderPath, fileName)
+	if err := writeFileAtomic(filePath, imageData); err != nil {
+		logAction.SetError("Failed to write image to MediUX thumbs temp image folder",
+			"Ensure the application has write permissions to the temp image folder.",
+			map[string]any{
+				"filePath": filePath,
+				"error":    err.Error(),
+			})
+		return
+	}
+	logAction.AppendResult("filePath", filePath)
+	logAction.Complete()
 }
 
 func GetAvatarImage(ctx context.Context, avatarID string) (imageData []byte, imageType string, Err logging.LogErrorInfo) {
@@ -222,4 +202,24 @@ func GetAvatarImage(ctx context.Context, avatarID string) (imageData []byte, ima
 	logAction.AppendResult("imageType", respContentType)
 
 	return imageData, imageType, Err
+}
+
+// writeFileAtomic writes a file in full, then moves it into place
+func writeFileAtomic(filePath string, data []byte) error {
+	tmp, err := os.CreateTemp(path.Dir(filePath), ".caching-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Chmod(tmp.Name(), 0644); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), filePath)
 }

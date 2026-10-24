@@ -1,6 +1,15 @@
 "use client";
 
-import { ArrowDownAZ, ArrowDownZA, ClockArrowDown, ClockArrowUp, Filter, SortDescIcon } from "lucide-react";
+import {
+  ArrowDownAZ,
+  ArrowDownZA,
+  Check,
+  ClockArrowDown,
+  ClockArrowUp,
+  Filter,
+  RotateCcw,
+  SortDescIcon,
+} from "lucide-react";
 
 import { useMemo, useState } from "react";
 
@@ -12,6 +21,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -22,6 +32,7 @@ import { ToggleGroup } from "@/components/ui/toggle-group";
 
 import { cn } from "@/lib/cn";
 import { useSearchQueryStore } from "@/lib/stores/global-store-search-query";
+import { useHomePageStore } from "@/lib/stores/page-store-home";
 
 import { extractInfoFromSearchQuery } from "@/hooks/search-query";
 
@@ -415,6 +426,7 @@ export function FilterHome({
 }: HomeFilterProps) {
   // State - Open/Close Modal
   const [modalOpen, setModalOpen] = useState(false);
+  const [resetDefaultsFeedback, setResetDefaultsFeedback] = useState(false);
 
   // Calculate number of active filters
   const numberOfActiveFilters = useMemo(() => {
@@ -425,6 +437,15 @@ export function FilterHome({
     if (hasSetsAvailableFilter !== "") count++;
     return count;
   }, [filteredLibraries.length, filterInDB, filterIgnored, hasSetsAvailableFilter]);
+
+  // Back to the default sort and filter options, saved for every device like any other change
+  const handleResetToDefaults = () => {
+    useHomePageStore.getState().resetToDefaults();
+    setResetDefaultsFeedback(true);
+    setTimeout(() => {
+      setResetDefaultsFeedback(false);
+    }, 2000);
+  };
 
   return (
     <Dialog open={modalOpen} onOpenChange={setModalOpen}>
@@ -463,6 +484,28 @@ export function FilterHome({
           itemsPerPage={itemsPerPage}
           setItemsPerPage={setItemsPerPage}
         />
+        <Separator className="my-1 w-full" />
+        <DialogFooter className="flex flex-row items-center justify-end gap-2 px-4 pt-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={handleResetToDefaults}
+            className="text-muted-foreground hover:text-foreground cursor-pointer"
+          >
+            {resetDefaultsFeedback ? (
+              <>
+                <Check className="h-4 w-4 mr-1.5 text-green-400" />
+                Reset
+              </>
+            ) : (
+              <>
+                <RotateCcw className="h-4 w-4 mr-1.5" />
+                Reset to Defaults
+              </>
+            )}
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

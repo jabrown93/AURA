@@ -25,7 +25,8 @@ type getLibrarySectionOptionsResponse struct {
 // @Accept       json
 // @Produce      json
 // @Param        request body getLibrarySectionOptionsRequest true "Media Server Configuration"
-// @Security 	 BearerAuth
+// @Security     SessionCookie
+// @Security     ApiKeyAuth
 // @Failure      401  {object}  httpx.UnauthorizedResponse "Unauthorized (only when Auth.Enabled=true)"
 // @Success      200  {object}  httpx.JSONResponse{data=getLibrarySectionOptionsResponse}
 // @Failure      500  {object}  httpx.JSONResponse "Internal Server Error"
@@ -46,15 +47,15 @@ func GetLibrarySectionOptions(w http.ResponseWriter, r *http.Request) {
 
 	msConfig := req.MediaServer
 
+	// If the Media Server Token is masked, retrieve the actual token from the config
 	if strings.HasPrefix(msConfig.ApiToken, "***") {
-		// A masked token can only be restored for the URL it was issued for. Otherwise the
-		// real, live token would be sent to a caller-supplied URL by GetLibrarySections below.
-		if msConfig.URL != config.Current.MediaServer.URL {
+		// Fork: only restore the token for the URL it was saved with.
+		msConfig.ApiToken = config.SavedMediaServerTokenForURL(msConfig.ID, msConfig.URL)
+		if msConfig.ApiToken == "" {
 			logAction.SetError("Unable to unmask media server credentials", "A new API token must be provided when changing the media server URL", nil)
 			httpx.SendResponse(w, ld, response)
 			return
 		}
-		msConfig.ApiToken = config.Current.MediaServer.ApiToken
 	}
 
 	// Get all available library sections from the Media Server

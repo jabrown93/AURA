@@ -1,9 +1,15 @@
 "use client";
 
+import type { CollectionItem } from "@/app/collections/page";
+import {
+  compareSeasonImages,
+  formatDownloadProgressShortText,
+  formatDownloadProgressText,
+} from "@/helper/format-download-progress";
 import { formatDownloadSize } from "@/helper/format-download-size";
-import { makePlural } from "@/helper/make_plural";
 import { upsertSavedSets } from "@/helper/media-item-update-saved-sets";
 import { AddNewItemToDB } from "@/services/database/add";
+import { DownloadImageFileForCollectionItem } from "@/services/downloads/download-collection-image";
 import { downloadImageFileForMediaItem } from "@/services/downloads/download-image";
 import { AddItemToDownloadQueue } from "@/services/downloads/queue-add";
 import { GetMediaItemDetails } from "@/services/mediaserver/get-media-item-details";
@@ -32,6 +38,7 @@ import { useRouter } from "next/navigation";
 
 import { AssetImage } from "@/components/shared/asset-image";
 import DownloadModalPopover from "@/components/shared/download-modal-popover";
+import { DownloadProgressBar } from "@/components/shared/download-progress-bar";
 import { PopoverHelp } from "@/components/shared/popover-help";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -51,7 +58,6 @@ import {
 } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel } from "@/components/ui/form";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Progress } from "@/components/ui/progress";
 import { Lead } from "@/components/ui/typography";
 
 import { cn } from "@/lib/cn";
@@ -61,9 +67,14 @@ import { useSearchQueryStore } from "@/lib/stores/global-store-search-query";
 import { useUserPreferencesStore } from "@/lib/stores/global-user-preferences";
 
 import type { DBPosterSetDetail, DBSavedItem, PosterSet } from "@/types/database/db-poster-set";
-import type { MediaItem } from "@/types/media-and-posters/media-item-and-library";
-import type { BaseSetInfo, ImageFile } from "@/types/media-and-posters/sets";
-import { DOWNLOAD_IMAGE_TYPE_OPTIONS, TYPE_DOWNLOAD_IMAGE_TYPE_OPTIONS } from "@/types/ui-options";
+import type { MediaItem, SelectedTypes } from "@/types/media-and-posters/media-item-and-library";
+import type { BaseSetInfo, CollectionItemImageFile, ImageFile } from "@/types/media-and-posters/sets";
+import {
+  DOWNLOAD_COLLECTION_IMAGE_TYPE_OPTIONS,
+  DOWNLOAD_IMAGE_TYPE_OPTIONS,
+  TYPE_DOWNLOAD_COLLECTION_IMAGE_TYPE_OPTIONS,
+  TYPE_DOWNLOAD_IMAGE_TYPE_OPTIONS,
+} from "@/types/ui-options";
 
 export interface FormItemDisplay {
   MediaItem: MediaItem;
@@ -75,6 +86,7 @@ type SourceType = "show" | "movie" | "collection";
 interface AssetTypeFormValues {
   types: TYPE_DOWNLOAD_IMAGE_TYPE_OPTIONS[];
   autodownload?: boolean;
+  autoupgrade?: boolean;
   addToDBOnly?: boolean;
   forcePreloadMissing?: boolean;
   source?: SourceType;
@@ -107,6 +119,15 @@ type AddToQueueTaskPayload = {
   dbItem: DBSavedItem;
 };
 
+// Applies a collection's own poster or backdrop to the media server collection
+type CollectionImageTaskPayload = {
+  kind: "collectionImage";
+  itemKey: string;
+  itemTitle: string;
+  collectionItem: CollectionItem;
+  imageFile: CollectionItemImageFile;
+};
+
 // Non-Retryable “record only” task (e.g. fetch latest media item failed)
 type NoteTaskPayload = {
   kind: "note";
@@ -114,7 +135,8 @@ type NoteTaskPayload = {
   itemTitle: string;
 };
 
-type TaskPayload = DownloadTaskPayload | AddToDBTaskPayload | AddToQueueTaskPayload | NoteTaskPayload;
+type TaskPayload =
+  DownloadTaskPayload | AddToDBTaskPayload | AddToQueueTaskPayload | CollectionImageTaskPayload | NoteTaskPayload;
 
 type Task = {
   id: string;
@@ -133,6 +155,7 @@ type ItemProgress = {
 
 type DownloadProgress = {
   currentText: string;
+  currentShortText?: string; // currentText for narrow screens
   totalPlanned: number;
   items: Record<string, ItemProgress>;
 };
@@ -184,6 +207,12 @@ const getErrorsByItem = (state: DownloadProgress) =>
 
 const DOWNLOAD_BATCH_SIZE = 5;
 
+// Unique key for a media item in the form
+// Some media servers (e.g. Silo) use the same rating key for an item in every library it is in,
+// so the library title is part of the key, like it is for the media items in the database
+const getItemFormKey = (mediaItem: MediaItem) =>
+  `${mediaItem.rating_key}_${(mediaItem.library_title || "").replace(/[^a-zA-Z0-9]/g, "_")}`;
+
 const formSchema = z
   .object({
     selectedOptionsByItem: z.record(
@@ -191,15 +220,18 @@ const formSchema = z
       z.object({
         types: z.array(z.enum(DOWNLOAD_IMAGE_TYPE_OPTIONS.map((opt) => opt.value as TYPE_DOWNLOAD_IMAGE_TYPE_OPTIONS))),
         autodownload: z.boolean().optional(),
+        autoupgrade: z.boolean().optional(),
         source: z.enum(["movie", "collection"]).optional(),
         addToDBOnly: z.boolean().optional(),
         forcePreloadMissing: z.boolean().optional(),
       })
     ),
+    collectionTypes: z.array(z.enum(["collection_poster", "collection_backdrop"])).optional(),
   })
   .refine(
     (data) =>
-      Object.values(data.selectedOptionsByItem).some((item) => Array.isArray(item.types) && item.types.length > 0),
+      Object.values(data.selectedOptionsByItem).some((item) => Array.isArray(item.types) && item.types.length > 0) ||
+      (data.collectionTypes?.length ?? 0) > 0,
     {
       message: "Please select at least one image type to download.",
       path: ["selectedOptionsByItem.message"],
@@ -211,7 +243,15 @@ export interface DownloadModalProps {
   formItems: FormItemDisplay[];
   autoDownloadDefault?: boolean;
   onDownloadComplete?: (item: MediaItem) => void;
+  // Libraries that share the same media server item (e.g. Silo), so the images apply to all of them
+  sharedLibraryTitles?: string[];
+  // A collection set's own poster and backdrop, and the media server collection they apply to
+  collectionImages?: { collection: CollectionItem; images: CollectionItemImageFile[] };
 }
+
+// The key of the collection images in the download progress
+const COLLECTION_PROGRESS_KEY = "collection";
+
 interface DuplicateMap {
   [mediaItemKey: string]: {
     options: Array<{
@@ -225,8 +265,8 @@ interface DuplicateMap {
 
 const findDuplicateMediaItems = (items: FormItemDisplay[]): DuplicateMap => {
   return items.reduce((acc: DuplicateMap, item) => {
-    if (!acc[item.MediaItem.rating_key]) {
-      acc[item.MediaItem.rating_key] = {
+    if (!acc[getItemFormKey(item.MediaItem)]) {
+      acc[getItemFormKey(item.MediaItem)] = {
         options: [
           {
             id: item.Set.id,
@@ -238,7 +278,7 @@ const findDuplicateMediaItems = (items: FormItemDisplay[]): DuplicateMap => {
         ],
       };
     } else {
-      acc[item.MediaItem.rating_key].options.push({
+      acc[getItemFormKey(item.MediaItem)].options.push({
         id: item.Set.id,
         type: item.Set.type as "movie" | "collection",
         image:
@@ -255,9 +295,15 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
   formItems,
   autoDownloadDefault = true, // Default to true if not provided
   onDownloadComplete,
+  sharedLibraryTitles = [],
+  collectionImages,
 }) => {
   const router = useRouter();
   const [isMounted, setIsMounted] = useState(false);
+
+  // True when formItems spans more than one library (e.g. the same title also downloading
+  // to another library), so each item's card can be labeled with which library it belongs to.
+  const showLibraryNames = new Set(formItems.map((item) => item.MediaItem.library_title)).size > 1;
 
   // Download Progress
   const [progress, setProgress] = useState<DownloadProgress>({
@@ -286,15 +332,24 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
   // State - Duplicate Media Items
   const [duplicates, setDuplicates] = useState<DuplicateMap>({});
 
-  // State - Add to Queue Only. Defaults to true so the download popups queue by
-  // default instead of downloading synchronously.
-  const [addToQueueOnly, setAddToQueueOnly] = useState(true);
+  // State - Add to Queue Only (defaults to the user preference)
+  const defaultAddToQueue = useUserPreferencesStore((state) => state.defaultAddToQueue);
+  const [addToQueueOnly, setAddToQueueOnly] = useState(defaultAddToQueue);
+  const defaultAddToDBOnly = useUserPreferencesStore((state) => state.defaultAddToDBOnly);
+  const autoUpgradeSets = useUserPreferencesStore((state) => state.autoUpgradeSets);
 
   // State - Add New Collection Items
-  const [autoAddNewCollectionItems, setAutoAddNewCollectionItems] = useState(false);
+  const defaultAutoAddNewCollectionItems = useUserPreferencesStore((state) => state.defaultAutoAddNewCollectionItems);
+  const [autoAddNewCollectionItems, setAutoAddNewCollectionItems] = useState(defaultAutoAddNewCollectionItems);
 
   // User Preferences
   const { downloadDefaults } = useUserPreferencesStore();
+
+  // The collection image types this set has, checked to start when they're in the Download Defaults
+  const collectionImageTypes = DOWNLOAD_COLLECTION_IMAGE_TYPE_OPTIONS.map((opt) => opt.value).filter((type) =>
+    collectionImages?.images.some((img) => img.type === type)
+  );
+  const defaultCollectionTypes = collectionImageTypes.filter((type) => downloadDefaults.includes(type));
 
   // Media Store
   const { setMediaItem } = useMediaStore();
@@ -342,9 +397,11 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
     const setHasPoster = item.Set.images.some((img) => img.type === "poster");
     const setHasBackdrop = item.Set.images.some((img) => img.type === "backdrop");
     const setHasSeasonPosters = item.Set.images.some((img) => img.type === "season_poster" && img.season_number !== 0);
-    const setHasSpecialSeasonPosters = item.Set.images.some(
-      (img) => img.type === "season_poster" && img.season_number === 0
-    );
+    const mediaItemHasSpecialSeason =
+      item.MediaItem.series?.seasons?.some((season) => season.season_number === 0) ?? false;
+    const setHasSpecialSeasonPosters =
+      mediaItemHasSpecialSeason &&
+      item.Set.images.some((img) => img.type === "season_poster" && img.season_number === 0);
     const setHasTitleCards = item.Set.images.some((img) => img.type === "titlecard");
     const types: (TYPE_DOWNLOAD_IMAGE_TYPE_OPTIONS | null)[] = [
       setHasPoster ? "poster" : null,
@@ -374,17 +431,19 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
     defaultValues: {
       selectedOptionsByItem: formItems.reduce(
         (acc, item) => {
-          acc[item.MediaItem.rating_key] = {
+          acc[getItemFormKey(item.MediaItem)] = {
             types: computeAssetTypes(item).filter((type) => downloadDefaults.includes(type)),
             autodownload: autoDownloadDefault,
-            addToDBOnly: false,
-            forcePreloadMissing: false,
+            autoupgrade: true,
+            addToDBOnly: defaultAddToDBOnly,
+            forcePreloadMissing: false, // Fork
             source: item.Set.type === "movie" || item.Set.type === "collection" ? item.Set.type : undefined,
           };
           return acc;
         },
         {} as z.infer<typeof formSchema>["selectedOptionsByItem"]
       ),
+      collectionTypes: defaultCollectionTypes,
     },
   });
 
@@ -392,25 +451,33 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
     control: form.control,
     name: "selectedOptionsByItem",
   });
+  const watchCollectionTypes = useWatch({
+    control: form.control,
+    name: "collectionTypes",
+  });
 
   // Reset form on mount
   useEffect(() => {
     form.reset({
       selectedOptionsByItem: formItems.reduce(
         (acc, item) => {
-          acc[item.MediaItem.rating_key] = {
+          acc[getItemFormKey(item.MediaItem)] = {
             types: computeAssetTypes(item).filter((type) => downloadDefaults.includes(type)),
             autodownload: autoDownloadDefault,
-            addToDBOnly: false,
-            forcePreloadMissing: false,
+            autoupgrade: true,
+            addToDBOnly: defaultAddToDBOnly,
+            forcePreloadMissing: false, // Fork
             source: item.Set.type === "movie" || item.Set.type === "collection" ? item.Set.type : undefined,
           };
           return acc;
         },
         {} as z.infer<typeof formSchema>["selectedOptionsByItem"]
       ),
+      collectionTypes: defaultCollectionTypes,
     });
-  }, [formItems, form, autoDownloadDefault, downloadDefaults]);
+    // defaultCollectionTypes comes from collectionImages and downloadDefaults
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formItems, form, autoDownloadDefault, downloadDefaults, defaultAddToDBOnly, collectionImages]);
 
   useEffect(() => {
     // If all the form items are set to "Add to Database Only", change button text
@@ -479,9 +546,9 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
       let numOfTitleCards = 0;
 
       // Iterate through each selected item
-      Object.entries(watchSelectedOptions).forEach(([ratingKey, selection]) => {
+      Object.entries(watchSelectedOptions).forEach(([itemKey, selection]) => {
         // Find the corresponding form item to access PosterFile sizes
-        const formItem = formItems.find((item) => item.MediaItem.rating_key === ratingKey);
+        const formItem = formItems.find((item) => getItemFormKey(item.MediaItem) === itemKey);
 
         if (!formItem || !selection.types || selection.addToDBOnly) return;
 
@@ -602,10 +669,11 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
   };
 
   // --- Progress/Task Helpers ---
-  const setCurrentText = (text: string) => {
+  const setCurrentText = (text: string, shortText?: string) => {
     setProgress((prev) => ({
       ...prev,
       currentText: text,
+      currentShortText: shortText,
     }));
   };
 
@@ -682,6 +750,11 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
     return "skipped"; // all skipped
   };
 
+  // Mark the item as saved on the page
+  const markItemSaved = (latestMediaItem: MediaItem, item: FormItemDisplay, selectedTypes: SelectedTypes) => {
+    onDownloadComplete?.(upsertSavedSets(latestMediaItem, item.Set.id, item.Set.user_created, selectedTypes));
+  };
+
   const runDownloadTask = async (taskId: string, payload: DownloadTaskPayload): Promise<boolean> => {
     updateTask(taskId, (t) => ({
       ...t,
@@ -714,7 +787,7 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
       attempts: (t.attempts ?? 0) + 1,
       error: undefined,
     }));
-    setCurrentText(`Adding "${payload.itemTitle}" to DB`);
+    setCurrentText(`Adding "${payload.itemTitle}" to DB`, "Adding to DB");
 
     try {
       const resp = await AddNewItemToDB(
@@ -745,7 +818,7 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
       attempts: (t.attempts ?? 0) + 1,
       error: undefined,
     }));
-    setCurrentText(`Adding "${payload.itemTitle}" to queue`);
+    setCurrentText(`Adding "${payload.itemTitle}" to queue`, "Adding to queue");
 
     try {
       const resp = await AddItemToDownloadQueue(payload.dbItem);
@@ -764,6 +837,39 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
     }
   };
 
+  const runCollectionImageTask = async (taskId: string, payload: CollectionImageTaskPayload): Promise<boolean> => {
+    updateTask(taskId, (t) => ({
+      ...t,
+      status: "in-progress",
+      attempts: (t.attempts ?? 0) + 1,
+      error: undefined,
+    }));
+    const label =
+      DOWNLOAD_COLLECTION_IMAGE_TYPE_OPTIONS.find((opt) => opt.value === payload.imageFile.type)?.label ??
+      payload.imageFile.type;
+    setCurrentText(`Applying ${label} to "${payload.itemTitle}"`, `Applying ${label}`);
+
+    try {
+      const resp = await DownloadImageFileForCollectionItem(
+        payload.imageFile.type,
+        payload.collectionItem,
+        payload.imageFile
+      );
+      if (resp.status === "error") {
+        throw new Error(resp.error?.message || "Unknown error");
+      }
+      updateTask(taskId, (t) => ({ ...t, status: "completed" }));
+      return true;
+    } catch (error) {
+      updateTask(taskId, (t) => ({
+        ...t,
+        status: "failed",
+        error: `"${payload.itemTitle}" - ${label} - ${error instanceof Error ? error.message : "Unknown error"}`,
+      }));
+      return false;
+    }
+  };
+
   const retryTask = async (taskId: string) => {
     const t = findTask(progress, taskId);
     if (!t) return;
@@ -777,6 +883,8 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
       await runAddToDBTask(taskId, t.payload);
     } else if (t.payload.kind === "addToQueue") {
       await runAddToQueueTask(taskId, t.payload);
+    } else if (t.payload.kind === "collectionImage") {
+      await runCollectionImageTask(taskId, t.payload);
     }
 
     setButtonTexts((prev) => ({ ...prev, download: "Download Again" }));
@@ -812,7 +920,7 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
     item: FormItemDisplay
   ) => {
     const types = field.value?.types || [];
-    const isDuplicate = duplicates[item.MediaItem.rating_key];
+    const isDuplicate = duplicates[getItemFormKey(item.MediaItem)];
 
     // Calculate checked state
     const isChecked = types.includes(assetType) && (!isDuplicate || isDuplicate.selectedType === item.Set.type);
@@ -821,7 +929,7 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
     const isDisabled = Boolean(isDuplicate && isDuplicate.selectedType && isDuplicate.selectedType !== item.Set.type);
 
     // Check download status from task state
-    const status = getAssetStatus(item.MediaItem.rating_key, assetType);
+    const status = getAssetStatus(getItemFormKey(item.MediaItem), assetType);
     const isDownloaded = status === "completed";
     const isFailed = status === "failed";
     const isLoading = status === "in-progress";
@@ -867,16 +975,16 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
               if (checked && isDuplicate) {
                 setDuplicates((prev) => ({
                   ...prev,
-                  [item.MediaItem.rating_key]: {
-                    ...prev[item.MediaItem.rating_key],
+                  [getItemFormKey(item.MediaItem)]: {
+                    ...prev[getItemFormKey(item.MediaItem)],
                     selectedType: item.Set.type as "movie" | "collection",
                   },
                 }));
               } else if (!checked && isDuplicate) {
                 setDuplicates((prev) => ({
                   ...prev,
-                  [item.MediaItem.rating_key]: {
-                    ...prev[item.MediaItem.rating_key],
+                  [getItemFormKey(item.MediaItem)]: {
+                    ...prev[getItemFormKey(item.MediaItem)],
                     selectedType: "",
                   },
                 }));
@@ -930,8 +1038,74 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
     );
   };
 
+  // The collection's own poster and backdrop, applied to the media server collection and not saved
+  const renderCollectionImages = (collection: CollectionItem) => {
+    const tasks = progress.items[COLLECTION_PROGRESS_KEY]?.tasks ?? [];
+    const statusOf = (type: TYPE_DOWNLOAD_COLLECTION_IMAGE_TYPE_OPTIONS) =>
+      tasks.find((t) => t.payload.kind === "collectionImage" && t.payload.imageFile.type === type)?.status;
+
+    return (
+      <FormField
+        key={COLLECTION_PROGRESS_KEY}
+        control={form.control}
+        name="collectionTypes"
+        render={({ field }) => (
+          <div
+            className={cn("rounded-md border p-4 rounded-lg mb-4", {
+              "border-green-500": tasks.length > 0 && tasks.every((t) => t.status === "completed"),
+              "border-destructive": tasks.some((t) => t.status === "failed"),
+            })}
+          >
+            <FormLabel className="text-md font-normal mb-4">Collection: {collection.title}</FormLabel>
+            <div className="flex flex-wrap gap-4">
+              {collectionImageTypes.map((type) => {
+                const status = statusOf(type);
+                return (
+                  <FormItem key={type} className="flex flex-row items-start space-x-2">
+                    <FormControl className="mt-1">
+                      <Checkbox
+                        checked={field.value?.includes(type) ?? false}
+                        onCheckedChange={(checked) =>
+                          field.onChange(
+                            checked ? [...(field.value ?? []), type] : (field.value ?? []).filter((t) => t !== type)
+                          )
+                        }
+                        className="h-5 w-5 sm:h-4 sm:w-4 cursor-pointer"
+                      />
+                    </FormControl>
+                    <FormLabel
+                      className={cn(
+                        "text-md font-normal cursor-pointer",
+                        status === "in-progress" ? "animate-pulse text-primary" : ""
+                      )}
+                    >
+                      {DOWNLOAD_COLLECTION_IMAGE_TYPE_OPTIONS.find((opt) => opt.value === type)?.label}
+                    </FormLabel>
+                    {status === "completed" ? (
+                      <Check className="h-4 w-4 text-green-500 mt-1" strokeWidth={3} />
+                    ) : status === "failed" ? (
+                      <X className="h-4 w-4 text-destructive mt-1" strokeWidth={3} />
+                    ) : status === "in-progress" ? (
+                      <Loader className="h-4 w-4 mt-1 animate-spin" />
+                    ) : null}
+                  </FormItem>
+                );
+              })}
+            </div>
+            <p className="text-xs text-muted-foreground mt-2">
+              {addToQueueOnly
+                ? "Applied to the collection on your media server when the Download Queue gets to them."
+                : "Applied to the collection on your media server."}{" "}
+              Collection images aren't saved, so Auto Download doesn't update them.
+            </p>
+          </div>
+        )}
+      />
+    );
+  };
+
   const renderFormItem = (item: FormItemDisplay) => {
-    const isDuplicate = duplicates[item.MediaItem.rating_key];
+    const isDuplicate = duplicates[getItemFormKey(item.MediaItem)];
     const existingAssetTypes = computeAssetTypes(item);
     const possibleFutureAssetTypes = getPossibleFutureAssetTypes(item);
     // Calculate disabled state
@@ -948,7 +1122,7 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
       item.MediaItem.db_saved_sets.some((set) => set.id === item.Set.id);
 
     // Calculate whether the item has any error tasks
-    const itemProgress = progress.items[item.MediaItem.rating_key];
+    const itemProgress = progress.items[getItemFormKey(item.MediaItem)];
     const hasErrorTasks = itemProgress ? itemProgress.tasks.some((t) => t.status === "failed") : false;
     const allSuccessful = itemProgress
       ? itemProgress.tasks.length > 0 &&
@@ -957,9 +1131,9 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
 
     return (
       <FormField
-        key={`${item.MediaItem.rating_key}-${item.Set.type}`}
+        key={`${getItemFormKey(item.MediaItem)}-${item.Set.type}`}
         control={form.control}
-        name={`selectedOptionsByItem.${item.MediaItem.rating_key}`}
+        name={`selectedOptionsByItem.${getItemFormKey(item.MediaItem)}`}
         render={({ field }) => (
           <div
             className={cn("rounded-md border p-4 rounded-lg mb-4", {
@@ -1055,6 +1229,10 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
               </span>
             </FormLabel>
 
+            {showLibraryNames && (
+              <p className="text-xs text-muted-foreground -mt-3 mb-3">{item.MediaItem.library_title}</p>
+            )}
+
             <div className="space-y-2">
               {existingAssetTypes.map((assetType) => (
                 <div key={assetType}>
@@ -1136,6 +1314,29 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
                 <FormLabel className="text-md font-normal cursor-pointer">Auto Download</FormLabel>
                 <DownloadModalPopover type="autodownload" />
               </FormItem>
+              {/* Only does something while Automatically Upgrade Sets is on */}
+              {autoUpgradeSets && (
+                <FormItem className="flex items-center space-x-2">
+                  <FormControl>
+                    <Checkbox
+                      checked={
+                        isDisabled || field.value?.types?.length === 0 ? false : field.value?.autoupgrade !== false
+                      }
+                      disabled={isDisabled || field.value?.types?.length === 0}
+                      onCheckedChange={(checked) => {
+                        field.onChange({
+                          ...(field.value ?? {}),
+                          autoupgrade: checked === true,
+                        });
+                      }}
+                      className="h-5 w-5 sm:h-4 sm:w-4 cursor-pointer"
+                    />
+                  </FormControl>
+                  <FormLabel className="text-md font-normal cursor-pointer">Auto Upgrade</FormLabel>
+                  <DownloadModalPopover type="autoupgrade" />
+                </FormItem>
+              )}
+              {/* Fork: Kometa preload of missing seasons/episodes, only in the queued flow */}
               {item.MediaItem.type === "show" && (
                 <FormItem className="flex items-center space-x-2">
                   <FormControl>
@@ -1199,6 +1400,8 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
             },
             auto_download: options.autodownload || false,
             auto_add_new_collection_items: autoAddNewCollectionItems,
+            no_auto_upgrade: options.autoupgrade === false,
+            // Fork: only meaningful in the queued flow; never persisted from a synchronous download.
             // Only meaningful in the queued flow; never persist it from a synchronous download.
             force_preload_missing: (addToQueueOnly && options.forcePreloadMissing) || false,
             last_downloaded: "",
@@ -1214,14 +1417,14 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
     let total = 0;
 
     for (const item of formItems) {
-      const selected = data.selectedOptionsByItem[item.MediaItem.rating_key];
+      const selected = data.selectedOptionsByItem[getItemFormKey(item.MediaItem)];
       if (!selected) continue;
 
       // Skip duplicates that aren't selected
       if (
         (item.Set.type === "movie" || item.Set.type === "collection") &&
-        duplicates[item.MediaItem.rating_key]?.selectedType &&
-        duplicates[item.MediaItem.rating_key].selectedType !== item.Set.type
+        duplicates[getItemFormKey(item.MediaItem)]?.selectedType &&
+        duplicates[getItemFormKey(item.MediaItem)].selectedType !== item.Set.type
       ) {
         continue;
       }
@@ -1269,6 +1472,11 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
       if ((selected.types?.length ?? 0) > 0) total += 1;
     }
 
+    // One task for each collection image type, or one queue entry for them with Add to Queue
+    if (collectionImages && (data.collectionTypes?.length ?? 0) > 0) {
+      total += addToQueueOnly ? 1 : (data.collectionTypes?.length ?? 0);
+    }
+
     return total;
   };
 
@@ -1293,12 +1501,22 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
         items: {},
       });
 
-      // Your download logic here
       log("INFO", "Download Modal", "Debug Info", "Form submitted with data:", data);
       log("INFO", "Download Modal", "Debug Info", "Progress:", progress);
       log("INFO", "Download Modal", "Debug Info", "Selected Types:", { watchSelectedOptions });
       log("INFO", "Download Modal", "Debug Info", "Add to Queue Only:", addToQueueOnly);
       log("INFO", "Download Modal", "Debug Info", "Auto Add New Collection Items:", autoAddNewCollectionItems);
+
+      // With Add to Queue, the collection images get their own queue entry
+      const selectedCollectionImages = collectionImages
+        ? (data.collectionTypes ?? [])
+            .map((type) => collectionImages.images.find((img) => img.type === type))
+            .filter((img): img is CollectionItemImageFile => img !== undefined)
+        : [];
+      const queuedCollectionImages =
+        addToQueueOnly && collectionImages && selectedCollectionImages.length > 0
+          ? { collection: collectionImages.collection, images: selectedCollectionImages }
+          : undefined;
 
       // Sort formItems by MediaItemTitle for consistent order
       const sortedFormItems = formItems;
@@ -1310,7 +1528,7 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
         const item = sortedFormItems[idx];
         log("INFO", "Download Modal", "Debug Info", "Processing Item:", item);
 
-        const selectedOptions = data.selectedOptionsByItem[item.MediaItem.rating_key];
+        const selectedOptions = data.selectedOptionsByItem[getItemFormKey(item.MediaItem)];
         log("INFO", "Download Modal", "Debug Info", "Selected Types for Item:", selectedOptions);
 
         // If no types are selected and not set to "Add to DB Only", skip this item
@@ -1319,21 +1537,21 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
           continue;
         }
 
-        upsertItem(item.MediaItem.rating_key, item.MediaItem.title);
+        upsertItem(getItemFormKey(item.MediaItem), item.MediaItem.title);
 
         // If the item set is a movie or collection, check for duplicates
         // If this duplicate type is not selected, skip it
         if (
           (item.Set.type === "movie" || item.Set.type === "collection") &&
-          duplicates[item.MediaItem.rating_key] &&
-          duplicates[item.MediaItem.rating_key].selectedType &&
-          duplicates[item.MediaItem.rating_key].selectedType !== item.Set.type
+          duplicates[getItemFormKey(item.MediaItem)] &&
+          duplicates[getItemFormKey(item.MediaItem)].selectedType &&
+          duplicates[getItemFormKey(item.MediaItem)].selectedType !== item.Set.type
         ) {
           log(
             "INFO",
             "Download Modal",
             "Debug Info",
-            `Skipping ${item.MediaItem.title} in ${item.Set.id} - Duplicate type selected: ${duplicates[item.MediaItem.rating_key].selectedType}`
+            `Skipping ${item.MediaItem.title} in ${item.Set.id} - Duplicate type selected: ${duplicates[getItemFormKey(item.MediaItem)].selectedType}`
           );
           continue;
         }
@@ -1355,13 +1573,13 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
                 "Unknown error"
               : "No media item found.";
 
-          addTask(item.MediaItem.rating_key, item.MediaItem.title, {
+          addTask(getItemFormKey(item.MediaItem), item.MediaItem.title, {
             id: noteId,
             status: "failed",
             label: "Fetch latest media item",
             attempts: 1,
             error: `Error fetching latest media item for ${item.MediaItem.title}: ${msg}`,
-            payload: { kind: "note", itemKey: item.MediaItem.rating_key, itemTitle: item.MediaItem.title },
+            payload: { kind: "note", itemKey: getItemFormKey(item.MediaItem), itemTitle: item.MediaItem.title },
           });
           continue;
         }
@@ -1372,14 +1590,14 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
         // Add to DB only
         if (selectedOptions.addToDBOnly) {
           const taskId = newId();
-          addTask(item.MediaItem.rating_key, item.MediaItem.title, {
+          addTask(getItemFormKey(item.MediaItem), item.MediaItem.title, {
             id: taskId,
             status: "pending",
             label: `Add "${item.MediaItem.title}" to DB`,
             attempts: 0,
             payload: {
               kind: "addToDB",
-              itemKey: item.MediaItem.rating_key,
+              itemKey: getItemFormKey(item.MediaItem),
               itemTitle: item.MediaItem.title,
               mediaItem: createdSavedItem.dbItem.media_item,
               posterSet: createdSavedItem.dbItem.poster_sets[0],
@@ -1389,23 +1607,21 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
 
           const ok = await runAddToDBTask(taskId, {
             kind: "addToDB",
-            itemKey: item.MediaItem.rating_key,
+            itemKey: getItemFormKey(item.MediaItem),
             itemTitle: item.MediaItem.title,
             mediaItem: createdSavedItem.dbItem.media_item,
             posterSet: createdSavedItem.dbItem.poster_sets[0],
             addToDBOnly: selectedOptions.addToDBOnly,
           });
 
-          if (ok && onDownloadComplete) {
-            onDownloadComplete(
-              upsertSavedSets(latestMediaItem, item.Set.id, item.Set.user_created, {
-                poster: selectedOptions.types?.includes("poster"),
-                backdrop: selectedOptions.types?.includes("backdrop"),
-                season_poster: selectedOptions.types?.includes("season_poster"),
-                special_season_poster: selectedOptions.types?.includes("special_season_poster"),
-                titlecard: selectedOptions.types?.includes("titlecard"),
-              })
-            );
+          if (ok) {
+            markItemSaved(latestMediaItem, item, {
+              poster: selectedOptions.types?.includes("poster"),
+              backdrop: selectedOptions.types?.includes("backdrop"),
+              season_poster: selectedOptions.types?.includes("season_poster"),
+              special_season_poster: selectedOptions.types?.includes("special_season_poster"),
+              titlecard: selectedOptions.types?.includes("titlecard"),
+            });
           }
           continue;
         }
@@ -1426,25 +1642,35 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
         // Add to queue only (for items that actually have types selected)
         if (addToQueueOnly) {
           const taskId = newId();
-          addTask(item.MediaItem.rating_key, item.MediaItem.title, {
+          const queueDBItem: DBSavedItem = createdSavedItem.dbItem;
+          addTask(getItemFormKey(item.MediaItem), item.MediaItem.title, {
             id: taskId,
             status: "pending",
             label: `Add "${item.MediaItem.title}" to queue`,
             attempts: 0,
             payload: {
               kind: "addToQueue",
-              itemKey: item.MediaItem.rating_key,
+              itemKey: getItemFormKey(item.MediaItem),
               itemTitle: item.MediaItem.title,
-              dbItem: createdSavedItem.dbItem,
+              dbItem: queueDBItem,
             },
           });
 
-          await runAddToQueueTask(taskId, {
+          const queued = await runAddToQueueTask(taskId, {
             kind: "addToQueue",
-            itemKey: item.MediaItem.rating_key,
+            itemKey: getItemFormKey(item.MediaItem),
             itemTitle: item.MediaItem.title,
-            dbItem: createdSavedItem.dbItem,
+            dbItem: queueDBItem,
           });
+          if (queued) {
+            markItemSaved(latestMediaItem, item, {
+              poster: selectedTypes.includes("poster"),
+              backdrop: selectedTypes.includes("backdrop"),
+              season_poster: selectedTypes.includes("season_poster"),
+              special_season_poster: selectedTypes.includes("special_season_poster"),
+              titlecard: selectedTypes.includes("titlecard"),
+            });
+          }
           continue;
         }
 
@@ -1465,14 +1691,14 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
               const taskId = newId();
               const payload: DownloadTaskPayload = {
                 kind: "download",
-                itemKey: item.MediaItem.rating_key,
+                itemKey: getItemFormKey(item.MediaItem),
                 itemTitle: item.MediaItem.title,
                 imageFile: posterImg,
                 fileName: "Poster",
                 mediaItem: latestMediaItem,
               };
 
-              addTask(item.MediaItem.rating_key, item.MediaItem.title, {
+              addTask(getItemFormKey(item.MediaItem), item.MediaItem.title, {
                 id: taskId,
                 status: "pending",
                 label: payload.fileName,
@@ -1490,14 +1716,14 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
               const taskId = newId();
               const payload: DownloadTaskPayload = {
                 kind: "download",
-                itemKey: item.MediaItem.rating_key,
+                itemKey: getItemFormKey(item.MediaItem),
                 itemTitle: item.MediaItem.title,
                 imageFile: backdropImg,
                 fileName: "Backdrop",
                 mediaItem: latestMediaItem,
               };
 
-              addTask(item.MediaItem.rating_key, item.MediaItem.title, {
+              addTask(getItemFormKey(item.MediaItem), item.MediaItem.title, {
                 id: taskId,
                 status: "pending",
                 label: payload.fileName,
@@ -1523,14 +1749,14 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
                 const taskId = newId();
                 const payload: DownloadTaskPayload = {
                   kind: "download",
-                  itemKey: item.MediaItem.rating_key,
+                  itemKey: getItemFormKey(item.MediaItem),
                   itemTitle: item.MediaItem.title,
                   imageFile: sp,
                   fileName: `Season ${seasonNumber} Poster`,
                   mediaItem: latestMediaItem,
                 };
 
-                addTask(item.MediaItem.rating_key, item.MediaItem.title, {
+                addTask(getItemFormKey(item.MediaItem), item.MediaItem.title, {
                   id: taskId,
                   status: "pending",
                   label: payload.fileName,
@@ -1559,14 +1785,14 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
                 const taskId = newId();
                 const payload: DownloadTaskPayload = {
                   kind: "download",
-                  itemKey: item.MediaItem.rating_key,
+                  itemKey: getItemFormKey(item.MediaItem),
                   itemTitle: item.MediaItem.title,
                   imageFile: sp,
                   fileName: "Specials Season Poster",
                   mediaItem: latestMediaItem,
                 };
 
-                addTask(item.MediaItem.rating_key, item.MediaItem.title, {
+                addTask(getItemFormKey(item.MediaItem), item.MediaItem.title, {
                   id: taskId,
                   status: "pending",
                   label: payload.fileName,
@@ -1606,14 +1832,14 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
                 const taskId = newId();
                 const payload: DownloadTaskPayload = {
                   kind: "download",
-                  itemKey: item.MediaItem.rating_key,
+                  itemKey: getItemFormKey(item.MediaItem),
                   itemTitle: item.MediaItem.title,
                   imageFile: tc,
                   fileName: `S${seasonNumber}E${episodeNumber} Titlecard`,
                   mediaItem: latestMediaItem,
                 };
 
-                addTask(item.MediaItem.rating_key, item.MediaItem.title, {
+                addTask(getItemFormKey(item.MediaItem), item.MediaItem.title, {
                   id: taskId,
                   status: "pending",
                   label: payload.fileName,
@@ -1639,14 +1865,14 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
         // Still persist selected types to the DB so they can be auto-downloaded later.
         if (totalForItem === 0) {
           const addId = newId();
-          addTask(item.MediaItem.rating_key, item.MediaItem.title, {
+          addTask(getItemFormKey(item.MediaItem), item.MediaItem.title, {
             id: addId,
             status: "pending",
             label: `Add "${item.MediaItem.title}" to DB`,
             attempts: 0,
             payload: {
               kind: "addToDB",
-              itemKey: item.MediaItem.rating_key,
+              itemKey: getItemFormKey(item.MediaItem),
               itemTitle: item.MediaItem.title,
               mediaItem: createdSavedItem.dbItem.media_item,
               posterSet: createdSavedItem.dbItem.poster_sets[0],
@@ -1656,85 +1882,54 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
 
           const ok = await runAddToDBTask(addId, {
             kind: "addToDB",
-            itemKey: item.MediaItem.rating_key,
+            itemKey: getItemFormKey(item.MediaItem),
             itemTitle: item.MediaItem.title,
             mediaItem: createdSavedItem.dbItem.media_item,
             posterSet: createdSavedItem.dbItem.poster_sets[0],
             addToDBOnly: selectedOptions.addToDBOnly || false,
           });
 
-          if (ok && onDownloadComplete) {
-            onDownloadComplete(
-              upsertSavedSets(latestMediaItem, item.Set.id, item.Set.user_created, {
-                poster: selectedOptions.types.includes("poster"),
-                backdrop: selectedOptions.types.includes("backdrop"),
-                season_poster: selectedOptions.types.includes("season_poster"),
-                special_season_poster: selectedOptions.types.includes("special_season_poster"),
-                titlecard: selectedOptions.types.includes("titlecard"),
-              })
-            );
+          if (ok) {
+            markItemSaved(latestMediaItem, item, {
+              poster: selectedOptions.types.includes("poster"),
+              backdrop: selectedOptions.types.includes("backdrop"),
+              season_poster: selectedOptions.types.includes("season_poster"),
+              special_season_poster: selectedOptions.types.includes("special_season_poster"),
+              titlecard: selectedOptions.types.includes("titlecard"),
+            });
           }
           continue;
         }
 
-        if (totalForItem > 0) {
-          setCurrentText(`Downloading images for "${item.MediaItem.title}" (0/${totalForItem})`);
-        }
-
-        // Split poster and backdrop into separate batches, then process the rest
+        // Posters, then backdrops, then each season's poster and its titlecards, like the Download Queue
         const posterJobs = downloadJobs.filter((j) => j.payload.imageFile.type === "poster");
         const backdropJobs = downloadJobs.filter((j) => j.payload.imageFile.type === "backdrop");
-        const otherJobs = downloadJobs.filter(
-          (j) => j.payload.imageFile.type !== "poster" && j.payload.imageFile.type !== "backdrop"
-        );
+        const otherJobs = downloadJobs
+          .filter((j) => j.payload.imageFile.type !== "poster" && j.payload.imageFile.type !== "backdrop")
+          .sort((a, b) => compareSeasonImages(a.payload.imageFile, b.payload.imageFile));
+
+        // One count for all the images of the item, the same text as the Download Queue
+        let started = 0;
+        const downloadJob = async (job: (typeof downloadJobs)[number]) => {
+          if (cancelRef.current) return false;
+          started += 1;
+          const image = job.payload.imageFile;
+          const imageLabel = {
+            image_type: image.type,
+            season_number: image.season_number,
+            episode_number: image.episode_number,
+          };
+          setCurrentText(
+            formatDownloadProgressText(imageLabel, item.MediaItem.title, started, totalForItem),
+            formatDownloadProgressShortText(imageLabel)
+          );
+          return runDownloadTask(job.taskId, job.payload);
+        };
 
         let downloadResults: boolean[] = [];
-        let posterDone = 0;
-        let backdropDone = 0;
-        let otherDone = 0;
-
-        if (posterJobs.length > 0) {
-          setCurrentText(
-            `Downloading ${makePlural(posterJobs, "poster")} for "${item.MediaItem.title}" (0/${posterJobs.length})`
-          );
-          const posterResults = await runInBatches(posterJobs, DOWNLOAD_BATCH_SIZE, async (job) => {
-            if (cancelRef.current) return false;
-            const ok = await runDownloadTask(job.taskId, job.payload);
-            posterDone += 1;
-            setCurrentText(
-              `Downloading ${makePlural(posterJobs, "poster")} for "${item.MediaItem.title}" (${posterDone}/${posterJobs.length})`
-            );
-            return ok;
-          });
-          downloadResults = downloadResults.concat(posterResults);
-        }
-
-        if (backdropJobs.length > 0) {
-          setCurrentText(
-            `Downloading ${makePlural(backdropJobs, "backdrop")} for "${item.MediaItem.title}" (0/${backdropJobs.length})`
-          );
-          const backdropResults = await runInBatches(backdropJobs, DOWNLOAD_BATCH_SIZE, async (job) => {
-            if (cancelRef.current) return false;
-            const ok = await runDownloadTask(job.taskId, job.payload);
-            backdropDone += 1;
-            setCurrentText(
-              `Downloading ${makePlural(backdropJobs, "backdrop")} for "${item.MediaItem.title}" (${backdropDone}/${backdropJobs.length})`
-            );
-            return ok;
-          });
-          downloadResults = downloadResults.concat(backdropResults);
-        }
-
-        if (otherJobs.length > 0) {
-          setCurrentText(`Downloading images for "${item.MediaItem.title}" (0/${otherJobs.length})`);
-          const otherResults = await runInBatches(otherJobs, DOWNLOAD_BATCH_SIZE, async (job) => {
-            if (cancelRef.current) return false;
-            const ok = await runDownloadTask(job.taskId, job.payload);
-            otherDone += 1;
-            setCurrentText(`Downloading images for "${item.MediaItem.title}" (${otherDone}/${otherJobs.length})`);
-            return ok;
-          });
-          downloadResults = downloadResults.concat(otherResults);
+        for (const jobs of [posterJobs, backdropJobs, otherJobs]) {
+          if (jobs.length === 0) continue;
+          downloadResults = downloadResults.concat(await runInBatches(jobs, DOWNLOAD_BATCH_SIZE, downloadJob));
         }
 
         const downloadedAtLeastOneForItem = downloadResults.some(Boolean);
@@ -1742,14 +1937,14 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
         // Only add to DB if at least one download succeeded
         if (!downloadedAtLeastOneForItem) {
           const taskId = newId();
-          addTask(item.MediaItem.rating_key, item.MediaItem.title, {
+          addTask(getItemFormKey(item.MediaItem), item.MediaItem.title, {
             id: taskId,
             status: "skipped",
             label: `Add "${item.MediaItem.title}" to DB (skipped: no successful downloads)`,
             attempts: 0,
             payload: {
               kind: "addToDB",
-              itemKey: item.MediaItem.rating_key,
+              itemKey: getItemFormKey(item.MediaItem),
               itemTitle: item.MediaItem.title,
               mediaItem: createdSavedItem.dbItem.media_item,
               posterSet: createdSavedItem.dbItem.poster_sets[0],
@@ -1760,14 +1955,14 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
         }
 
         const addId = newId();
-        addTask(item.MediaItem.rating_key, item.MediaItem.title, {
+        addTask(getItemFormKey(item.MediaItem), item.MediaItem.title, {
           id: addId,
           status: "pending",
           label: `Add "${item.MediaItem.title}" to DB`,
           attempts: 0,
           payload: {
             kind: "addToDB",
-            itemKey: item.MediaItem.rating_key,
+            itemKey: getItemFormKey(item.MediaItem),
             itemTitle: item.MediaItem.title,
             mediaItem: createdSavedItem.dbItem.media_item,
             posterSet: createdSavedItem.dbItem.poster_sets[0],
@@ -1777,23 +1972,70 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
 
         const ok = await runAddToDBTask(addId, {
           kind: "addToDB",
-          itemKey: item.MediaItem.rating_key,
+          itemKey: getItemFormKey(item.MediaItem),
           itemTitle: item.MediaItem.title,
           mediaItem: createdSavedItem.dbItem.media_item,
           posterSet: createdSavedItem.dbItem.poster_sets[0],
           addToDBOnly: selectedOptions.addToDBOnly || false,
         });
 
-        if (ok && onDownloadComplete) {
-          onDownloadComplete(
-            upsertSavedSets(latestMediaItem, item.Set.id, item.Set.user_created, {
-              poster: selectedOptions.types.includes("poster"),
-              backdrop: selectedOptions.types.includes("backdrop"),
-              season_poster: selectedOptions.types.includes("season_poster"),
-              special_season_poster: selectedOptions.types.includes("special_season_poster"),
-              titlecard: selectedOptions.types.includes("titlecard"),
-            })
-          );
+        if (ok) {
+          markItemSaved(latestMediaItem, item, {
+            poster: selectedOptions.types.includes("poster"),
+            backdrop: selectedOptions.types.includes("backdrop"),
+            season_poster: selectedOptions.types.includes("season_poster"),
+            special_season_poster: selectedOptions.types.includes("special_season_poster"),
+            titlecard: selectedOptions.types.includes("titlecard"),
+          });
+        }
+      }
+
+      // With Add to Queue, the collection images get their own queue entry, listed by the collection
+      if (queuedCollectionImages && formItems.length > 0 && !cancelRef.current) {
+        const item = formItems[0];
+        const dbItem: DBSavedItem = {
+          media_item: item.MediaItem,
+          poster_sets: [],
+          collection_images: queuedCollectionImages,
+        };
+        const taskId = newId();
+        const payload: AddToQueueTaskPayload = {
+          kind: "addToQueue",
+          itemKey: COLLECTION_PROGRESS_KEY,
+          itemTitle: queuedCollectionImages.collection.title,
+          dbItem,
+        };
+        addTask(COLLECTION_PROGRESS_KEY, queuedCollectionImages.collection.title, {
+          id: taskId,
+          status: "pending",
+          label: `Add "${queuedCollectionImages.collection.title}" collection images to queue`,
+          attempts: 0,
+          payload,
+        });
+        await runAddToQueueTask(taskId, payload);
+      }
+
+      // The collection's own poster and backdrop, applied to the media server collection
+      if (collectionImages && !queuedCollectionImages && !cancelRef.current) {
+        for (const type of data.collectionTypes ?? []) {
+          const imageFile = collectionImages.images.find((img) => img.type === type);
+          if (!imageFile || cancelRef.current) continue;
+          const taskId = newId();
+          const payload: CollectionImageTaskPayload = {
+            kind: "collectionImage",
+            itemKey: COLLECTION_PROGRESS_KEY,
+            itemTitle: collectionImages.collection.title,
+            collectionItem: collectionImages.collection,
+            imageFile,
+          };
+          addTask(COLLECTION_PROGRESS_KEY, collectionImages.collection.title, {
+            id: taskId,
+            status: "pending",
+            label: DOWNLOAD_COLLECTION_IMAGE_TYPE_OPTIONS.find((opt) => opt.value === type)?.label ?? type,
+            attempts: 0,
+            payload,
+          });
+          await runCollectionImageTask(taskId, payload);
         }
       }
 
@@ -1828,7 +2070,10 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
   return (
     <Dialog
       onOpenChange={(open) => {
-        if (!open) {
+        if (open) {
+          setAddToQueueOnly(defaultAddToQueue);
+          setAutoAddNewCollectionItems(defaultAutoAddNewCollectionItems);
+        } else {
           handleClose();
         }
       }}
@@ -1840,7 +2085,7 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
       <DialogPortal>
         <DialogOverlay />
         <DialogContent
-          className={cn("z-50", "max-h-[80vh] overflow-y-auto", "sm:max-w-[700px]", "border border-primary")}
+          className={cn("z-50", "max-h-[85vh] overflow-y-auto", "sm:max-w-[700px]", "border border-primary")}
         >
           <DialogHeader>
             <DialogTitle onClick={LOG_VALUES}>{baseSetInfo.title}</DialogTitle>
@@ -1873,19 +2118,25 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
           {formItems.length > 0 ? (
             <Form {...form}>
               <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-2">
+                {/* The collection's own poster and backdrop */}
+                {collectionImages &&
+                  collectionImageTypes.length > 0 &&
+                  renderCollectionImages(collectionImages.collection)}
+
                 {/* Form Items */}
                 {formItems.map(renderFormItem)}
 
                 {/* If the all items have no types selected, show a message */}
                 {formItems.every(
                   (item) =>
-                    !watchSelectedOptions?.[item.MediaItem.rating_key]?.types?.length &&
-                    !watchSelectedOptions?.[item.MediaItem.rating_key]?.addToDBOnly
-                ) && (
-                  <div className="text-sm text-destructive">
-                    No image types selected for download. Please select at least one image type to download.
-                  </div>
-                )}
+                    !watchSelectedOptions?.[getItemFormKey(item.MediaItem)]?.types?.length &&
+                    !watchSelectedOptions?.[getItemFormKey(item.MediaItem)]?.addToDBOnly
+                ) &&
+                  !watchCollectionTypes?.length && (
+                    <div className="text-sm text-destructive">
+                      No image types selected for download. Please select at least one image type to download.
+                    </div>
+                  )}
 
                 {/* Auto Add New Collection Items 
 									Only show this button if the set is a collection and all of the items are movies that have Autodownload enabled and not set to Add to DB Only
@@ -1894,8 +2145,8 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
                   formItems.every(
                     (item) =>
                       item.MediaItem.type === "movie" &&
-                      watchSelectedOptions?.[item.MediaItem.rating_key]?.autodownload &&
-                      !watchSelectedOptions?.[item.MediaItem.rating_key]?.addToDBOnly
+                      watchSelectedOptions?.[getItemFormKey(item.MediaItem)]?.autodownload &&
+                      !watchSelectedOptions?.[getItemFormKey(item.MediaItem)]?.addToDBOnly
                   ) && (
                     <FormItem className="flex items-center space-x-2 mb-4">
                       <FormControl>
@@ -1916,8 +2167,8 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
 								*/}
                 {formItems.some(
                   (item) =>
-                    watchSelectedOptions?.[item.MediaItem.rating_key]?.types?.length > 0 &&
-                    !watchSelectedOptions?.[item.MediaItem.rating_key]?.addToDBOnly
+                    watchSelectedOptions?.[getItemFormKey(item.MediaItem)]?.types?.length > 0 &&
+                    !watchSelectedOptions?.[getItemFormKey(item.MediaItem)]?.addToDBOnly
                 ) && (
                   <FormItem className="flex items-center space-x-2 mb-4">
                     <FormControl>
@@ -1933,7 +2184,7 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
                 <div>
                   {/* Number of Images and Total Download Size (only if there are images to download) */}
                   {selectedSizes.fileCount > 0 &&
-                    formItems.some((item) => !watchSelectedOptions?.[item.MediaItem.rating_key]?.addToDBOnly) && (
+                    formItems.some((item) => !watchSelectedOptions?.[getItemFormKey(item.MediaItem)]?.addToDBOnly) && (
                       <>
                         <div className="text-sm text-muted-foreground">Number of Images: {selectedSizes.fileCount}</div>
                         <div className="text-sm text-muted-foreground">
@@ -1942,14 +2193,25 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
                       </>
                     )}
 
+                  {/* Silo uses one item for every library it is in, so the images apply to all of them */}
+                  {sharedLibraryTitles.length > 1 && (
+                    <div className="text-sm text-muted-foreground mt-1">
+                      * This will apply to all versions of this item in all libraries ({sharedLibraryTitles.join(", ")})
+                    </div>
+                  )}
+
                   {/* Always show the database-only message if any item is set to Add to DB Only or has types selected */}
-                  {formItems.some((item) => watchSelectedOptions?.[item.MediaItem.rating_key]?.addToDBOnly) && (
+                  {formItems.some((item) => watchSelectedOptions?.[getItemFormKey(item.MediaItem)]?.addToDBOnly) && (
                     <div className="text-sm text-muted-foreground mt-1">
                       * Will add{" "}
                       {(() => {
                         const titles = formItems
-                          .filter((item) => watchSelectedOptions?.[item.MediaItem.rating_key]?.addToDBOnly)
-                          .map((item) => item.MediaItem.title);
+                          .filter((item) => watchSelectedOptions?.[getItemFormKey(item.MediaItem)]?.addToDBOnly)
+                          .map((item) =>
+                            showLibraryNames
+                              ? `${item.MediaItem.title} (${item.MediaItem.library_title})`
+                              : item.MediaItem.title
+                          );
 
                         if (titles.length === 0) return "";
                         if (titles.length === 1)
@@ -1989,36 +2251,12 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
                     const hasErrors = errors.length > 0;
 
                     return (
-                      <div className="w-full">
-                        <div className="flex items-center justify-between w-full">
-                          <div className="relative w-full min-w-0">
-                            <Progress
-                              value={overall}
-                              className={cn(
-                                "w-full rounded-md overflow-hidden h-3",
-                                overall < 100 && "animate-pulse h-5",
-                                overall === 100 && !hasErrors && "[&>div]:bg-green-500",
-                                overall === 100 && hasErrors && "[&>div]:bg-destructive"
-                              )}
-                            />
-
-                            {overall < 100 && (
-                              <span
-                                className={cn(
-                                  "absolute inset-0 flex items-center justify-center",
-                                  "text-xs text-white pointer-events-none mt-0.5",
-                                  "px-2 min-w-0"
-                                )}
-                                title={progress.currentText}
-                              >
-                                <span className="w-full min-w-0 truncate text-center">{progress.currentText}</span>
-                              </span>
-                            )}
-                          </div>
-
-                          <span className="ml-1 text-sm text-muted-foreground min-w-[30px] text-right">{overall}%</span>
-                        </div>
-                      </div>
+                      <DownloadProgressBar
+                        value={overall}
+                        label={progress.currentText}
+                        shortLabel={progress.currentShortText}
+                        hasErrors={hasErrors}
+                      />
                     );
                   })()}
 
@@ -2089,8 +2327,8 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
                       // Only show if at least one item has types selected or is set to "Add to DB Only"
                       formItems.some(
                         (item) =>
-                          watchSelectedOptions?.[item.MediaItem.rating_key]?.types?.length > 0 ||
-                          watchSelectedOptions?.[item.MediaItem.rating_key]?.addToDBOnly
+                          watchSelectedOptions?.[getItemFormKey(item.MediaItem)]?.types?.length > 0 ||
+                          watchSelectedOptions?.[getItemFormKey(item.MediaItem)]?.addToDBOnly
                       ) && (
                         <Button
                           variant={"outline"}
@@ -2100,8 +2338,8 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
                             (selectedSizes.fileCount === 0 &&
                               formItems.every(
                                 (item) =>
-                                  !watchSelectedOptions[item.MediaItem.rating_key].types.length &&
-                                  !watchSelectedOptions[item.MediaItem.rating_key].addToDBOnly
+                                  !watchSelectedOptions[getItemFormKey(item.MediaItem)].types.length &&
+                                  !watchSelectedOptions[getItemFormKey(item.MediaItem)].addToDBOnly
                               )) ||
                             isMounted
                           }
@@ -2149,8 +2387,8 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
                     {/* Reset Form button: If the all items have no types selected and nothing is set to "Add to DB Only" */}
                     {formItems.every(
                       (item) =>
-                        !watchSelectedOptions?.[item.MediaItem.rating_key]?.types?.length &&
-                        !watchSelectedOptions?.[item.MediaItem.rating_key]?.addToDBOnly
+                        !watchSelectedOptions?.[getItemFormKey(item.MediaItem)]?.types?.length &&
+                        !watchSelectedOptions?.[getItemFormKey(item.MediaItem)]?.addToDBOnly
                     ) && (
                       <Button
                         className="cursor-pointer hover:text-primary hover:brightness-120 transition-colors"

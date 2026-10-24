@@ -32,7 +32,7 @@ type BaseMediuxMovieSet struct {
 	MovieBackdrop []ImageAsset `json:"movie_backdrop"`
 }
 
-func GetMovieItemSets(ctx context.Context, tmdbID string, itemLibraryTitle string, setItems *map[string]models.IncludedItem) (sets []models.SetRef, Err logging.LogErrorInfo) {
+func GetMovieItemSets(ctx context.Context, tmdbID string, itemLibraryTitle string, edition string, setItems *map[string]models.IncludedItem) (sets []models.SetRef, Err logging.LogErrorInfo) {
 	ctx, logAction := logging.AddSubActionToContext(ctx, "Get Movie Item Sets", logging.LevelInfo)
 	defer logAction.Complete()
 
@@ -96,7 +96,7 @@ func GetMovieItemSets(ctx context.Context, tmdbID string, itemLibraryTitle strin
 	(*setItems)[mediuxMovie.ID] = includedItem
 
 	// Find the Media Item info from the cache
-	mediaItem, found := cache.LibraryStore.GetMediaItemFromSectionByTMDBID(itemLibraryTitle, tmdbID)
+	mediaItem, found := cache.LibraryStore.GetMediaItemFromSectionByTMDBIDAndEdition(itemLibraryTitle, tmdbID, edition)
 	if found {
 		includedItem := (*setItems)[mediuxMovie.ID]
 		includedItem.MediaItem = *mediaItem

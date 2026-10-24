@@ -88,7 +88,7 @@ func HandleSearch(w http.ResponseWriter, r *http.Request) {
 
 	var Err logging.LogErrorInfo
 
-	response.MediaItemsLastFullUpdate = cache.LibraryStore.GetLastFullUpdate()
+	response.MediaItemsLastFullUpdate = cache.LibraryStore.LastFullUpdate
 	response.MediuxUsernamesLastFullUpdate = cache.MediuxUsers.LastFullUpdate
 	response.CollectionItemsLastFullUpdate = cache.CollectionsStore.LastFullUpdate
 

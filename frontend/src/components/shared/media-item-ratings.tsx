@@ -42,6 +42,12 @@ const providerLogoMap: {
   },
 };
 
+// The user rating comes from the media server, so show that media server's logo
+const userRatingLogoMap: { [mediaServerType: string]: string } = {
+  Plex: "/plex-icon.png",
+  Silo: "/silo-icon.png",
+};
+
 type MediaItemRatingsProps = {
   guids: Guid[];
   mediaItemType: string;
@@ -90,7 +96,10 @@ export function MediaItemRatings({ guids, mediaItemType, title }: MediaItemRatin
         guidMap[guid.provider] = {
           id: guid.id || "",
           rating: guids.find((g) => g.provider === guid.provider)?.rating || "",
-          logoUrl: providerInfo.logoUrl,
+          logoUrl:
+            guid.provider === "user"
+              ? userRatingLogoMap[status?.current_setup?.media_server?.type ?? ""] || providerInfo.logoUrl
+              : providerInfo.logoUrl,
           linkUrl:
             guid.provider === "tvdb"
               ? `https://www.thetvdb.com/dereferrer/${mediaItemType === "show" ? "series" : "movie"}/${guid.id}`

@@ -8,3 +8,8 @@ import { createIdbStorage } from "@/lib/stores/idb-storage";
 export const PageStore = createIdbStorage("aura-page-store", "PageStores", "PageStores");
 
 export const GlobalStore = createIdbStorage("aura-global-store", "GlobalStores", "GlobalStores");
+
+// Remove the old library copy from the browser
+if (typeof window !== "undefined") {
+  void Promise.resolve(GlobalStore.removeItem("LibrarySections")).catch(() => {});
+}

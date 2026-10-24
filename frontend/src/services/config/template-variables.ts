@@ -4,10 +4,12 @@ import { ReturnErrorMessage } from "@/services/api-error-return";
 import { log } from "@/lib/logger";
 
 import type { APIResponse } from "@/types/api/api-response";
-import type { NotificationTemplateVariablesCatalog } from "@/types/config/config";
+import type { AppConfigImageNameTemplates, NotificationTemplateVariablesCatalog } from "@/types/config/config";
 
 export interface NotificationTemplateVariablesResponse {
   variables: NotificationTemplateVariablesCatalog;
+  image_name_variables: string[]; // Variables the saved image file names can use
+  image_name_defaults: AppConfigImageNameTemplates; // The standard file names
 }
 
 export const GetNotificationTemplateVariables = async (): Promise<

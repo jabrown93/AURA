@@ -3,45 +3,42 @@ package config
 import (
 	"aura/logging"
 	"context"
-	"os"
-	"path"
-
-	"go.yaml.in/yaml/v3"
+	"sync"
 )
 
+// UpdateLock makes sure only one config update runs at a time, so updates can't overwrite each other
+var UpdateLock sync.Mutex
+
 func (config *Config) Save(ctx context.Context) (Err logging.LogErrorInfo) {
-	ctx, logAction := logging.AddSubActionToContext(ctx, "Saving Config to File", logging.LevelDebug)
+	ctx, logAction := logging.AddSubActionToContext(ctx, "Saving Config to Database", logging.LevelDebug)
 	defer logAction.Complete()
 
-	// Clear the User ID before saving
-	// This is done so that it is loaded on startup
-	config.MediaServer.UserID = ""
+	if store == nil {
+		logAction.SetError("Config store not initialized", "The database must be initialized before saving the config", nil)
+		return *logAction.Error
+	}
 
-	// Sub-action: Marshal config to YAML
-	subActionMarshal := logAction.AddSubAction("Marshal Config to YAML", logging.LevelTrace)
-	data, marshalErr := yaml.Marshal(config)
-	if marshalErr != nil {
-		subActionMarshal.SetError("Failed to marshal config to YAML", marshalErr.Error(), nil)
-		logAction.Status = logging.StatusError
-		return *subActionMarshal.Error
-	}
-	subActionMarshal.Complete()
+	// Copy the main media server into MediaServers
+	config.SyncMediaServers()
 
-	// Sub-action: Write config to file
-	subActionWrite := logAction.AddSubAction("Write Config to File", logging.LevelTrace)
-	configFile := path.Join(ConfigPath, "config.yaml")
-	if writeErr := os.WriteFile(configFile, data, 0o600); writeErr != nil {
-		subActionWrite.SetError("Failed to write config to file", writeErr.Error(), nil)
-		logAction.Status = logging.StatusError
-		return *subActionWrite.Error
+	// Sub-action: Convert config to values
+	// The User ID is not saved, as it is retrieved from the media server on startup
+	subActionConvert := logAction.AddSubAction("Convert Config to Values", logging.LevelTrace)
+	values, err := config.ToValues()
+	if err != nil {
+		subActionConvert.SetError("Failed to convert config to values", err.Error(), nil)
+		return *subActionConvert.Error
 	}
-	// WriteFile only applies its mode when creating the file, so an existing config keeps
-	// whatever mode it already had. Not fatal: /config is often a network share where
-	// chmod is unsupported.
-	if chmodErr := os.Chmod(configFile, 0o600); chmodErr != nil {
-		logging.LOGGER.Warn().Timestamp().Str("error", chmodErr.Error()).Msg("Could not restrict config.yaml permissions")
+	subActionConvert.Complete()
+
+	// Sub-action: Save values to the database
+	subActionSave := logAction.AddSubAction("Save Config Values to Database", logging.LevelTrace)
+	Err = store.SaveConfigValues(ctx, values, false)
+	if Err.Message != "" {
+		subActionSave.SetError("Failed to save config to database", Err.Message, Err.Detail)
+		return *subActionSave.Error
 	}
-	subActionWrite.Complete()
+	subActionSave.Complete()
 
 	return logging.LogErrorInfo{}
 }

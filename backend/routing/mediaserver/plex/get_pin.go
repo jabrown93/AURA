@@ -18,7 +18,8 @@ type GetPlexPinAndID_Response struct {
 // @Tags         Plex
 // @Accept       json
 // @Produce      json
-// @Security 	 BearerAuth
+// @Security     SessionCookie
+// @Security     ApiKeyAuth
 // @Failure      401  {object}  httpx.UnauthorizedResponse "Unauthorized (only when Auth.Enabled=true)"
 // @Success      200  {object}  httpx.JSONResponse{data=GetPlexPinAndID_Response}
 // @Failure      500  {object}  httpx.JSONResponse "Internal Server Error"

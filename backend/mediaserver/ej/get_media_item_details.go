@@ -17,7 +17,7 @@ import (
 
 func (e *EJ) GetMediaItemDetails(ctx context.Context, item *models.MediaItem) (found bool, Err logging.LogErrorInfo) {
 	ctx, logAction := logging.AddSubActionToContext(ctx, fmt.Sprintf(
-		"%s: Fetching Full Info for %s", config.Current.MediaServer.Type,
+		"%s: Fetching Full Info for %s", e.Config.Type,
 		utils.MediaItemInfo(*item),
 	), logging.LevelDebug)
 	defer logAction.Complete()
@@ -26,12 +26,12 @@ func (e *EJ) GetMediaItemDetails(ctx context.Context, item *models.MediaItem) (f
 	Err = logging.LogErrorInfo{}
 
 	// Construct the URL for the EJ server API request
-	u, err := url.Parse(config.Current.MediaServer.URL)
+	u, err := url.Parse(e.Config.URL)
 	if err != nil {
 		logAction.SetError(logging.Error_BaseUrlParsing(err))
 		return found, *logAction.Error
 	}
-	u.Path = path.Join(u.Path, "Users", config.Current.MediaServer.UserID, "Items", item.RatingKey)
+	u.Path = path.Join(u.Path, "Users", e.Config.UserID, "Items", item.RatingKey)
 	query := u.Query()
 	query.Set("fields", "ShareLevel")
 	query.Set("ExcludeFields", "VideoChapters,VideoMediaSources,MediaStreams")
@@ -40,7 +40,7 @@ func (e *EJ) GetMediaItemDetails(ctx context.Context, item *models.MediaItem) (f
 	URL := u.String()
 
 	// Make the HTTP Request to EJ
-	resp, respBody, Err := makeRequest(ctx, config.Current.MediaServer, URL, "GET", nil)
+	resp, respBody, Err := makeRequest(ctx, e.Config, URL, "GET", nil)
 	if Err.Message != "" {
 		logAction.SetErrorFromInfo(Err)
 		return found, *logAction.Error
@@ -49,9 +49,9 @@ func (e *EJ) GetMediaItemDetails(ctx context.Context, item *models.MediaItem) (f
 
 	// Decode the Response
 	var ejResp EmbyJellyItemContentResponse
-	Err = httpx.DecodeResponseToJSON(ctx, respBody, &ejResp, fmt.Sprintf("%s Media Item Details Response", config.Current.MediaServer.Type))
+	Err = httpx.DecodeResponseToJSON(ctx, respBody, &ejResp, fmt.Sprintf("%s Media Item Details Response", e.Config.Type))
 	if Err.Message != "" {
-		return found, *logAction.Error
+		return found, Err
 	}
 
 	// If item doesn't have a TMDB ID, skip it
@@ -71,8 +71,8 @@ func (e *EJ) GetMediaItemDetails(ctx context.Context, item *models.MediaItem) (f
 	item.Title = ejResp.Name
 	item.Year = ejResp.ProductionYear
 	item.ContentRating = ejResp.OfficialRating
-	item.UpdatedAt = ejResp.DateCreated.UnixMicro()
-	item.ReleasedAt = ejResp.PremiereDate.UnixMilli()
+	item.AddedAt = unixSeconds(ejResp.DateCreated)
+	item.ReleasedAt = unixSeconds(ejResp.PremiereDate)
 	item.Summary = ejResp.Overview
 	if ejResp.ProviderIds.Imdb != "" {
 		item.Guids = append(item.Guids, models.MediaItemGuid{Provider: "imdb", ID: ejResp.ProviderIds.Imdb})
@@ -103,7 +103,7 @@ func (e *EJ) GetMediaItemDetails(ctx context.Context, item *models.MediaItem) (f
 		}
 	}
 	if item.TMDB_ID == "" {
-		logAction.SetError("No TMDB ID found for the media item", fmt.Sprintf("Ensure the media item has a valid TMDB GUID in %s", config.Current.MediaServer.Type),
+		logAction.SetError("No TMDB ID found for the media item", fmt.Sprintf("Ensure the media item has a valid TMDB GUID in %s", e.Config.Type),
 			map[string]any{
 				"rating_key":     item.RatingKey,
 				"library_title":  item.LibraryTitle,
@@ -125,7 +125,7 @@ func (e *EJ) GetMediaItemDetails(ctx context.Context, item *models.MediaItem) (f
 	}
 	if ejResp.Type == "Series" {
 		item.Type = "show"
-		Err := fetchSeasonsForShow(ctx, item)
+		Err := fetchSeasonsForShow(ctx, e.Config, item)
 		if Err.Message != "" {
 			return found, Err
 		}
@@ -143,7 +143,7 @@ func (e *EJ) GetMediaItemDetails(ctx context.Context, item *models.MediaItem) (f
 	}
 
 	// Check if Media Item exists in DB
-	ignored, ignoredMode, sets, logErr := database.CheckIfMediaItemExists(ctx, item.TMDB_ID, item.LibraryTitle)
+	ignored, ignoredMode, sets, logErr := database.CheckIfMediaItemExists(ctx, item.TMDB_ID, item.LibraryTitle, item.Edition)
 	if logErr.Message != "" {
 		logAction.AppendWarning("message", "Failed to check if media item exists in database")
 		logAction.AppendWarning("error", Err)
@@ -151,6 +151,7 @@ func (e *EJ) GetMediaItemDetails(ctx context.Context, item *models.MediaItem) (f
 	if !ignored {
 		item.DBSavedSets = sets
 	} else {
+		item.DBSavedSets = []models.DBSavedSet{}
 		item.IgnoredInDB = true
 		item.IgnoredMode = ignoredMode
 	}
@@ -160,20 +161,20 @@ func (e *EJ) GetMediaItemDetails(ctx context.Context, item *models.MediaItem) (f
 		item.HasMediuxSets = true
 	}
 
-	// Update the Media Item on Server in the DB
-	updateErr := database.UpdateMediaItemOnServer(ctx, item.TMDB_ID, item.LibraryTitle, true)
-	if updateErr.Message != "" {
-		logAction.AppendWarning("update_on_server_error", updateErr.Message)
+	// Only the main media server's items go in the main library cache and the DB
+	if e.Config.IsMain() {
+		cache.LibraryStore.UpdateMediaItem(item.LibraryTitle, item)
+		updateErr := database.UpdateMediaItemOnServer(ctx, item.TMDB_ID, item.LibraryTitle, item.Edition, true)
+		if updateErr.Message != "" {
+			logAction.AppendWarning("update_on_server_error", updateErr.Message)
+		}
 	}
-
-	// Update item in cache
-	cache.LibraryStore.UpdateMediaItem(item.LibraryTitle, item)
 	return found, logging.LogErrorInfo{}
 }
 
-func fetchSeasonsForShow(ctx context.Context, itemInfo *models.MediaItem) (Err logging.LogErrorInfo) {
+func fetchSeasonsForShow(ctx context.Context, msConfig config.Config_MediaServer, itemInfo *models.MediaItem) (Err logging.LogErrorInfo) {
 	ctx, logAction := logging.AddSubActionToContext(ctx, fmt.Sprintf(
-		"%s: Fetching Seasons for Show %s", config.Current.MediaServer.Type,
+		"%s: Fetching Seasons for Show %s", msConfig.Type,
 		utils.MediaItemInfo(*itemInfo),
 	), logging.LevelDebug)
 	defer logAction.Complete()
@@ -181,19 +182,19 @@ func fetchSeasonsForShow(ctx context.Context, itemInfo *models.MediaItem) (Err l
 	Err = logging.LogErrorInfo{}
 
 	// Construct the URL for the EJ server API request
-	u, err := url.Parse(config.Current.MediaServer.URL)
+	u, err := url.Parse(msConfig.URL)
 	if err != nil {
 		logAction.SetError(logging.Error_BaseUrlParsing(err))
 		return *logAction.Error
 	}
-	u.Path = path.Join("Shows", itemInfo.RatingKey, "Seasons")
+	u.Path = path.Join(u.Path, "Shows", itemInfo.RatingKey, "Seasons")
 	query := u.Query()
 	query.Set("Fields", "BasicSyncInfo,CanDelete,CanDownload,PrimaryImageAspectRatio,Overview")
 	u.RawQuery = query.Encode()
 	URL := u.String()
 
 	// Make the HTTP Request to EJ
-	resp, respBody, Err := makeRequest(ctx, config.Current.MediaServer, URL, "GET", nil)
+	resp, respBody, Err := makeRequest(ctx, msConfig, URL, "GET", nil)
 	if Err.Message != "" {
 		logAction.SetErrorFromInfo(Err)
 		return Err
@@ -202,7 +203,7 @@ func fetchSeasonsForShow(ctx context.Context, itemInfo *models.MediaItem) (Err l
 
 	// Decode the Response
 	var ejResp EmbyJellyItemContentChildResponse
-	Err = httpx.DecodeResponseToJSON(ctx, respBody, &ejResp, fmt.Sprintf("%s Show Seasons Response", config.Current.MediaServer.Type))
+	Err = httpx.DecodeResponseToJSON(ctx, respBody, &ejResp, fmt.Sprintf("%s Show Seasons Response", msConfig.Type))
 	if Err.Message != "" {
 		return Err
 	}
@@ -216,9 +217,9 @@ func fetchSeasonsForShow(ctx context.Context, itemInfo *models.MediaItem) (Err l
 			Title:        season.Name,
 			Episodes:     []models.MediaItemEpisode{},
 		}
-		season, Err := fetchEpisodesForSeason(ctx, itemInfo.RatingKey, season)
+		season, Err := fetchEpisodesForSeason(ctx, msConfig, itemInfo.RatingKey, season)
 		if Err.Message != "" {
-			return *logAction.Error
+			return Err
 		}
 		if len(season.Episodes) == 0 {
 			continue
@@ -237,9 +238,9 @@ func fetchSeasonsForShow(ctx context.Context, itemInfo *models.MediaItem) (Err l
 	return logging.LogErrorInfo{}
 }
 
-func fetchEpisodesForSeason(ctx context.Context, showRatingKey string, season models.MediaItemSeason) (models.MediaItemSeason, logging.LogErrorInfo) {
+func fetchEpisodesForSeason(ctx context.Context, msConfig config.Config_MediaServer, showRatingKey string, season models.MediaItemSeason) (models.MediaItemSeason, logging.LogErrorInfo) {
 	ctx, logAction := logging.AddSubActionToContext(ctx, fmt.Sprintf(
-		"%s: Fetching Episodes for Season %d of Show RatingKey %s", config.Current.MediaServer.Type,
+		"%s: Fetching Episodes for Season %d of Show RatingKey %s", msConfig.Type,
 		season.SeasonNumber, showRatingKey,
 	), logging.LevelDebug)
 	defer logAction.Complete()
@@ -247,7 +248,7 @@ func fetchEpisodesForSeason(ctx context.Context, showRatingKey string, season mo
 	Err := logging.LogErrorInfo{}
 
 	// Construct the URL for the EJ server API request
-	u, err := url.Parse(config.Current.MediaServer.URL)
+	u, err := url.Parse(msConfig.URL)
 	if err != nil {
 		logAction.SetError(logging.Error_BaseUrlParsing(err))
 		return season, *logAction.Error
@@ -260,7 +261,7 @@ func fetchEpisodesForSeason(ctx context.Context, showRatingKey string, season mo
 	URL := u.String()
 
 	// Make the HTTP Request to EJ
-	resp, respBody, Err := makeRequest(ctx, config.Current.MediaServer, URL, "GET", nil)
+	resp, respBody, Err := makeRequest(ctx, msConfig, URL, "GET", nil)
 	if Err.Message != "" {
 		logAction.SetErrorFromInfo(Err)
 		return season, *logAction.Error
@@ -269,27 +270,34 @@ func fetchEpisodesForSeason(ctx context.Context, showRatingKey string, season mo
 
 	// Decode the Response
 	var ejResp EmbyJellyItemContentChildResponse
-	Err = httpx.DecodeResponseToJSON(ctx, respBody, &ejResp, fmt.Sprintf("%s Season Episodes Response", config.Current.MediaServer.Type))
+	Err = httpx.DecodeResponseToJSON(ctx, respBody, &ejResp, fmt.Sprintf("%s Season Episodes Response", msConfig.Type))
 	if Err.Message != "" {
-		return season, *logAction.Error
+		return season, Err
 	}
 
-	for _, episode := range ejResp.Items {
+	for _, ejEpisode := range ejResp.Items {
+		// Skip specials listed in this season by "Display specials within seasons"
+		if ejEpisode.ParentIndexNumber != season.SeasonNumber {
+			continue
+		}
+
 		episode := models.MediaItemEpisode{
-			RatingKey:     episode.ID,
-			Title:         episode.Name,
-			SeasonNumber:  episode.ParentIndexNumber,
-			EpisodeNumber: episode.IndexNumber,
-			AddedAt:       episode.DateCreated.Unix(),
+			RatingKey:     ejEpisode.ID,
+			Title:         ejEpisode.Name,
+			SeasonNumber:  ejEpisode.ParentIndexNumber,
+			EpisodeNumber: ejEpisode.IndexNumber,
+			AddedAt:       unixSeconds(ejEpisode.DateCreated),
 			File: models.MediaItemFile{
-				Path:     episode.Path,
-				Size:     episode.MediaSources[0].Size,
-				Duration: episode.RunTimeTicks / 10000,
+				Path:     ejEpisode.Path,
+				Duration: ejEpisode.RunTimeTicks / 10000,
 			},
 		}
 
 		if episode.File.Path == "" {
 			continue
+		}
+		if len(ejEpisode.MediaSources) > 0 {
+			episode.File.Size = ejEpisode.MediaSources[0].Size
 		}
 
 		// For Emby/Jellyfin, the file path is not directly available in the response.

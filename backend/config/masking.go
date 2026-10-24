@@ -53,16 +53,3 @@ func IsMaskedField(s string) bool {
 	var reMaskedField = regexp.MustCompile(`\*{3}[^*]{1,}$`)
 	return reMaskedField.MatchString(strings.TrimSpace(s))
 }
-
-func MaskIPFromLogContents(logContents string) string {
-	patterns := map[string]string{
-		`\b\d{1,3}(\.\d{1,3}){3}\b`: "***REDACTED_IP***", // IP addresses
-	}
-
-	for pattern, replacement := range patterns {
-		re := regexp.MustCompile(pattern)
-		logContents = re.ReplaceAllString(logContents, replacement)
-	}
-	return logContents
-
-}

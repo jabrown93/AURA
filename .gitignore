@@ -66,6 +66,7 @@ docker-compose-local.yml
 docker-compose.beta.yml
 legacy-frontend
 docker_local_build.sh.old
+.devdbrc
 
 .buildx-cache*/**
 

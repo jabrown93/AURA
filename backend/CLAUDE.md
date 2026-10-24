@@ -9,7 +9,7 @@
 
 ### Staged startup with hot router swap (`main.go` + `startup.go`)
 API serves *immediately* with onboarding-only routes; background goroutine runs init pipeline. Active router held in `atomic.Value` (`activeHandler`), swapped atomically once app ready. Pipeline three stages:
-1. **Bootstrap** — load `config.yaml`, validate.
+1. **Bootstrap** — open the DB, load config from it (first start imports `config.yaml`; `AURA_IMPORT_CONFIG=true` re-imports every start), validate.
 2. **PreFlight** — test media-server connection, validate MediUX token (sets `config.MediaServerValid` / `config.MediuxValid`).
 3. **Warmup** — preload in-memory caches, init DB + run migrations, VACUUM, register cron jobs, start Plex WebSocket listener.
 
@@ -32,13 +32,13 @@ Talks to MediUX over **GraphQL**. Queries stored as `.graphql` files (`gen_*.gra
 In-memory stores populated during warmup, refreshed by cron: `LibraryStore` (sections + items), `CollectionsStore`, plus MediUX items/users. Handlers read from these, not media server per request.
 
 ### Background jobs (`jobs/`)
-`robfig/cron/v3`. Always-on jobs (download queue, refresh media items/collections, refresh MediUX users, check MediUX site link, check media-item changes, handle temp-ignored items) plus configurable auto-download job (cron from config). `cron.go` owns scheduler + job-ID bookkeeping.
+`robfig/cron/v3`. Every job is a `jobDefinition` in `cron.go` (fork jobs in `fork_jobs.go`) with its schedule under `Config.Jobs`; `fork_overlap.go` stops a job overlapping itself. The download queue is a DB-backed worker (`StartDownloadQueueWorker`), not a cron job.
 
 ### Database (`database/`)
 SQLite. Files prefixed `sqlite_*` by concern. Schema evolution via **hand-written numbered migrations** in `database/migration/` (`sqlite_migration_vN_vN+1.go`), run during warmup for existing DBs. DB tracks saved image sets, ignored items, auto-download selections, schema version row.
 
 ### Config (`config/`)
-Single `Config` struct (`config.go`) serialized to `/config/config.yaml`. Split across `load.go`, `save.go`, `validate.go`, `defaults.go`, and `sanitize.go`/`masking.go` (latter redact secrets before logging/returning config). Global `config.Current` holds live config plus status flags (`Loaded`, `Valid`, `MediaServerValid`, `MediuxValid`, `AppFullyLoaded`).
+Single `Config` struct (`config.go`), stored one row per field in the SQLite DB (`values.go`); `config.yaml` is only an import format. Split across `load.go`, `save.go`, `validate.go`, `defaults.go`, and `sanitize.go`/`masking.go` (latter redact secrets before logging/returning config). Global `config.Current` holds live config plus status flags (`Loaded`, `Valid`, `MediaServerValid`, `MediuxValid`, `AppFullyLoaded`).
 
 > Adding notification template touches **7 files** — see checklist comment on `Config_NotificationTemplate` in `config/config.go` (defaults, template_variables, validate, routing/config/update, routing/validation/notification, utils/variable_filler, frontend settings component).
 

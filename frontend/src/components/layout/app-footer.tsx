@@ -7,6 +7,8 @@ import Link from "next/link";
 
 import { ReleaseNotesDialog } from "@/components/layout/app-release-notes";
 
+import { BUILD_COMMIT_SHORT, BUILD_INFO } from "@/lib/build-info";
+
 import { useAppVersion } from "@/hooks/app-version";
 
 type AppFooterProps = {
@@ -64,9 +66,14 @@ export function AppFooter({ version = "dev" }: AppFooterProps) {
           <Link
             href={`/change-log?currentVersion=${encodeURIComponent(version)}`}
             className="text-sm py-1 px-2 bg-muted rounded-md hover:text-primary transition-colors"
-            title="View change log"
+            title={
+              BUILD_COMMIT_SHORT
+                ? `View change log and build details (commit ${BUILD_COMMIT_SHORT})`
+                : "View change log"
+            }
           >
             App Version: {version}
+            {BUILD_INFO.buildNumber && ` · Build ${BUILD_INFO.buildNumber}`}
           </Link>
           {latestVersion && isNewerVersion(latestVersion, version) && (
             <Link

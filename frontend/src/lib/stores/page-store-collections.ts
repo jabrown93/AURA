@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
+import { syncPageView } from "@/lib/stores/page-view-sync";
 import { PageStore } from "@/lib/stores/stores";
 
 import type { CollectionItem } from "@/types/media-and-posters/collection-item";
@@ -100,11 +101,7 @@ export const useCollectionsPageStore = create<CollectionsHome_PageStore>()(
         sortOrder: state.sortOrder,
         currentPage: state.currentPage,
         itemsPerPage: state.itemsPerPage,
-        filteredAndSortedCollectionItems: state.filteredAndSortedCollectionItems,
         filteredLibraries: state.filteredLibraries,
-        previousCollectionItem: state.previousCollectionItem,
-        nextCollectionItem: state.nextCollectionItem,
-        hasHydrated: state.hasHydrated,
       }),
       onRehydrateStorage: () => (state) => {
         state?.hydrate();
@@ -112,3 +109,6 @@ export const useCollectionsPageStore = create<CollectionsHome_PageStore>()(
     }
   )
 );
+
+// The sort and filter options are the same on every device
+syncPageView("collections", useCollectionsPageStore, ["sortOption", "sortOrder", "itemsPerPage", "filteredLibraries"]);
