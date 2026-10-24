@@ -122,7 +122,10 @@ func processQueueJob(ctx context.Context, job database.DownloadQueueJob) {
 			return
 		}
 		fileErrors = append(fileErrors, mediaErr.Message)
-		recordDownloadHistoryFailure(ctx, queueItem.MediaItem, models.DBPosterSetDetail{}, mediaErr.Message)
+		// Fork: one failure per set, so a media-server outage can be retried instead of dropping the sets.
+		for _, set := range retryableFailureSets(queueItem) {
+			recordDownloadHistoryFailure(ctx, queueItem.MediaItem, set, mediaErr.Message)
+		}
 		finalize()
 		return
 	}
@@ -259,7 +262,13 @@ func processQueueJob(ctx context.Context, job database.DownloadQueueJob) {
 	}
 
 	// The sets this replaces are removed now the new sets are saved
-	for _, setID := range queueItem.ReplaceSetIDs {
+	// Fork: only once the replacement downloaded cleanly, so a failed upgrade keeps the old sets.
+	replaceSetIDs := queueItem.ReplaceSetIDs
+	if len(fileErrors) > 0 && len(replaceSetIDs) > 0 {
+		fileWarnings = append(fileWarnings, "Kept the replaced sets because the new set didn't download cleanly")
+		replaceSetIDs = nil
+	}
+	for _, setID := range replaceSetIDs {
 		if slices.ContainsFunc(queueItem.PosterSets, func(set models.DBPosterSetDetail) bool { return set.ID == setID }) {
 			continue
 		}

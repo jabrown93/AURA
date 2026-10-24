@@ -78,3 +78,12 @@ func saveViaArrFallback(ctx context.Context, queueItem models.DBSavedItem, media
 	}
 	return handled, warning
 }
+
+// retryableFailureSets returns the sets to record a whole-job failure against. Fork: upstream records
+// one set-less failure, which neither the automatic nor the manual retry can act on.
+func retryableFailureSets(queueItem models.DBSavedItem) []models.DBPosterSetDetail {
+	if len(queueItem.PosterSets) == 0 {
+		return []models.DBPosterSetDetail{{}}
+	}
+	return queueItem.PosterSets
+}
