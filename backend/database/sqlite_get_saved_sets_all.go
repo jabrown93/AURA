@@ -73,6 +73,7 @@ WITH base AS (
     mi.id,
     mi.tmdb_id,
     mi.library_title,
+    mi.edition,
     mi.rating_key,
     mi.type,
     mi.title,
@@ -80,7 +81,7 @@ WITH base AS (
 	mi.on_server,
     (SELECT COUNT(*)
      FROM SavedItems si
-     WHERE si.tmdb_id = mi.tmdb_id AND si.library_title = mi.library_title
+     WHERE si.tmdb_id = mi.tmdb_id AND si.library_title = mi.library_title AND si.edition = mi.edition
     ) AS set_count
   FROM MediaItems mi
 )
@@ -101,6 +102,7 @@ WITH base AS (
     mi.id,
     mi.tmdb_id,
     mi.library_title,
+    mi.edition,
     mi.rating_key,
     mi.type,
     mi.title,
@@ -118,12 +120,13 @@ WITH base AS (
 
     (SELECT COUNT(*)
      FROM SavedItems si
-     WHERE si.tmdb_id = mi.tmdb_id AND si.library_title = mi.library_title
+     WHERE si.tmdb_id = mi.tmdb_id AND si.library_title = mi.library_title AND si.edition = mi.edition
     ) AS set_count,
 
-    (SELECT MAX(si.last_downloaded)
+    -- julianday compares the moment, the dates are saved with different time zones
+    (SELECT MAX(julianday(si.last_downloaded))
      FROM SavedItems si
-     WHERE si.tmdb_id = mi.tmdb_id AND si.library_title = mi.library_title
+     WHERE si.tmdb_id = mi.tmdb_id AND si.library_title = mi.library_title AND si.edition = mi.edition
     ) AS max_last_downloaded
 
   FROM MediaItems mi
@@ -137,6 +140,7 @@ SELECT
   json_object(
     'tmdb_id', mi.tmdb_id,
     'library_title', mi.library_title,
+    'edition', mi.edition,
     'rating_key', mi.rating_key,
     'type', mi.type,
     'title', mi.title,
@@ -217,6 +221,7 @@ SELECT
           'auto_download', CASE WHEN si.autodownload = 1 THEN json('true') ELSE json('false') END,
 		  'auto_add_new_collection_items', CASE WHEN si.auto_add_new_collection_items = 1 THEN json('true') ELSE json('false') END,
 		  'force_preload_missing', CASE WHEN si.force_preload_missing = 1 THEN json('true') ELSE json('false') END,
+		  'no_auto_upgrade', CASE WHEN si.no_auto_upgrade = 1 THEN json('true') ELSE json('false') END,
 
           'images', COALESCE(
             (
@@ -241,13 +246,14 @@ SELECT
       JOIN PosterSets ps ON ps.id = si.poster_set_id
       WHERE si.tmdb_id = mi.tmdb_id
         AND si.library_title = mi.library_title
+        AND si.edition = mi.edition
     ),
     json('[]')
   ) AS poster_sets
 
 FROM base mi
 %s
-ORDER BY %s %s, mi.tmdb_id ASC, mi.library_title ASC
+ORDER BY %s %s, mi.tmdb_id ASC, mi.library_title ASC, mi.edition ASC
 LIMIT ? OFFSET ?;
 `, whereSQL, sortCol, sortDir)
 
@@ -320,6 +326,9 @@ func buildSavedItemsWhere(filter models.DBFilter) (whereSQL string, args []any) 
 		args = append(args, a...)
 	}
 
+	// Only items with saved sets
+	add("mi.set_count > 0")
+
 	if strings.TrimSpace(filter.ItemTMDB_ID) != "" {
 		add("mi.tmdb_id = ?", strings.TrimSpace(filter.ItemTMDB_ID))
 	}
@@ -385,6 +394,7 @@ EXISTS (
   JOIN PosterSets ps ON ps.id = si.poster_set_id
   WHERE si.tmdb_id = mi.tmdb_id
     AND si.library_title = mi.library_title
+    AND si.edition = mi.edition
     AND %s
 )`, strings.Join(posterSetExists, " AND ")), posterArgs...)
 	}

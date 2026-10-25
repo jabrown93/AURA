@@ -19,7 +19,8 @@ type DeleteTempImages_Response struct {
 // @Description  Clear all temporary images from the server's temp-images directory. This endpoint is useful for maintenance and cleanup of temporary files that are no longer needed.
 // @Tags         Images
 // @Produce      json
-// @Security 	 BearerAuth
+// @Security     SessionCookie
+// @Security     ApiKeyAuth
 // @Failure      401  {object}  httpx.UnauthorizedResponse "Unauthorized (only when Auth.Enabled=true)"
 // @Success      200  {object}  httpx.JSONResponse{data=DeleteTempImages_Response}
 // @Failure      500           {object}  httpx.JSONResponse "Internal Server Error"

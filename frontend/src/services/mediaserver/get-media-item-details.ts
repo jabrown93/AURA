@@ -32,6 +32,7 @@ export const GetMediaItemDetails = async (
     const params = {
       rating_key: ratingKey,
       return_type: returnType,
+      library_title: libraryTitle,
     };
 
     const response = await apiClient.get<APIResponse<GetMediaItemDetails_Response>>(`/mediaserver/item`, {

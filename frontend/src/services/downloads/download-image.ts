@@ -1,6 +1,5 @@
 import apiClient from "@/services/api-client";
 import { ReturnErrorMessage } from "@/services/api-error-return";
-import { updateArtworkVersion } from "@/services/downloads/artwork-version";
 
 import { log } from "@/lib/logger";
 
@@ -14,15 +13,13 @@ export interface DownloadImageFileForMediaItem_Request {
 }
 
 export interface DownloadImageFileForMediaItem_Response {
-  result: string;
-  artwork_version?: number;
+  message: string;
 }
 
 export const downloadImageFileForMediaItem = async (
   imageFile: ImageFile,
   mediaItem: MediaItem,
-  fileName: string,
-  onArtworkApplied?: (item: MediaItem) => void
+  fileName: string
 ): Promise<APIResponse<DownloadImageFileForMediaItem_Response>> => {
   try {
     const req: DownloadImageFileForMediaItem_Request = {
@@ -38,7 +35,6 @@ export const downloadImageFileForMediaItem = async (
         response.data.error?.message || "Unknown error downloading poster file and updating media server"
       );
     }
-    updateArtworkVersion(mediaItem, response.data.data?.artwork_version, onArtworkApplied);
     return response.data;
   } catch (error) {
     log(

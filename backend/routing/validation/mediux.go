@@ -24,7 +24,8 @@ type ValidateMediuxInfo_Response struct {
 // @Accept       json
 // @Produce      json
 // @Param        mediux_info body ValidateMediuxInfo_Request true "Mediux Information to Validate"
-// @Security 	 BearerAuth
+// @Security     SessionCookie
+// @Security     ApiKeyAuth
 // @Failure      401  {object}  httpx.UnauthorizedResponse "Unauthorized (only when Auth.Enabled=true)"
 // @Success      200  {object}  httpx.JSONResponse{data=ValidateMediuxInfo_Response}
 // @Failure      500  {object}  httpx.JSONResponse "Internal Server Error"

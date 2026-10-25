@@ -1,5 +1,6 @@
 "use client";
 
+import type { CollectionItem } from "@/app/collections/page";
 import { formatExactDateTime } from "@/helper/format-date-last-updates";
 import { formatDownloadSize } from "@/helper/format-download-size";
 import { downloadImageFileForMediaItem } from "@/services/downloads/download-image";
@@ -13,13 +14,13 @@ import Image from "next/image";
 
 import { Skeleton } from "@/components/ui/skeleton";
 
+import { isBlurhashValid } from "@/lib/blurhash";
 import { cn } from "@/lib/cn";
 import { type AspectRatio, getAspectRatioClass, getImageSizes } from "@/lib/image-sizes";
 import { isKometaImageId, kometaImageSrc } from "@/lib/kometa";
 import { log } from "@/lib/logger";
 import { useUserPreferencesStore } from "@/lib/stores/global-user-preferences";
 
-import type { CollectionItem } from "@/types/media-and-posters/collection-item";
 import type { MediaItem } from "@/types/media-and-posters/media-item-and-library";
 import type { CollectionItemImageFile, ImageFile, IncludedItem } from "@/types/media-and-posters/sets";
 
@@ -31,8 +32,7 @@ interface AssetImageProps {
   imageClassName?: string;
   priority?: boolean;
   matchedToItem?: boolean;
-  includedItems?: Record<string, IncludedItem>;
-  onArtworkApplied?: (item: MediaItem) => void;
+  includedItems?: { [key: string]: IncludedItem };
 }
 
 /**
@@ -50,6 +50,13 @@ function decodeBlurhashToDataURL(blurhash: string): string | undefined {
         "decodeBlurhashToDataURL",
         `Large blurhash detected (${blurhash.length} chars). Expected 3x3 components (~15-20 chars).`
       );
+    }
+
+    // Some blurhash strings from MediUX are malformed, so skip the blur placeholder for those
+    const validation = isBlurhashValid(blurhash);
+    if (!validation.result) {
+      log("INFO", "AssetImage", "decodeBlurhashToDataURL", `Skipping invalid blurhash: ${validation.errorReason}`);
+      return undefined;
     }
 
     // Decode blurhash to pixel data (2x2 for absolute minimal size)
@@ -89,7 +96,6 @@ export function AssetImage({
   priority = false,
   matchedToItem = false,
   includedItems,
-  onArtworkApplied,
 }: AssetImageProps) {
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageError, setImageError] = useState(false);
@@ -109,14 +115,15 @@ export function AssetImage({
   if (imageType === "url") {
     imageSrc = image as string;
   } else if (imageType === "mediux") {
+    // Fork: Kometa-imported images are served from the asset directory
     const assetId = (image as ImageFile).id;
     imageSrc = isKometaImageId(assetId)
       ? kometaImageSrc(assetId)
       : `/api/images/mediux/item?asset_id=${assetId}&modified_date=${(image as ImageFile).modified}`;
   } else if (imageType === "item") {
-    imageSrc = `/api/images/media/item?rating_key=${(image as MediaItem).rating_key}&image_type=${aspect}&v=${(image as MediaItem).artwork_version}`;
+    imageSrc = `/api/images/media/item?rating_key=${(image as MediaItem).rating_key}&image_type=${aspect}`;
   } else if (imageType === "collection") {
-    imageSrc = `/api/images/media/collection?rating_key=${(image as CollectionItem).rating_key}&image_type=${aspect}&index=${(image as CollectionItem).index}&v=${(image as CollectionItem).artwork_version}`;
+    imageSrc = `/api/images/media/collection?rating_key=${(image as CollectionItem).rating_key}&image_type=${aspect}&index=${(image as CollectionItem).index}`;
   } else {
     imageSrc = "";
   }
@@ -151,8 +158,7 @@ export function AssetImage({
       const resp = await downloadImageFileForMediaItem(
         image,
         includedItems[image.item_tmdb_id].media_item,
-        downloadName,
-        onArtworkApplied
+        downloadName
       );
       if (resp.status === "error") {
         throw new Error(resp.error?.message || "Unknown error");

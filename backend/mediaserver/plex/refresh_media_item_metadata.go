@@ -13,10 +13,10 @@ import (
 )
 
 func (p *Plex) RefreshMediaItemMetadata(ctx context.Context, item *models.MediaItem, refreshKey string, updateImage bool) (Err logging.LogErrorInfo) {
-	return RefreshItemMetadata(ctx, item, refreshKey, updateImage)
+	return RefreshItemMetadata(ctx, p.Config, item, refreshKey, updateImage)
 }
 
-func RefreshItemMetadata(ctx context.Context, item *models.MediaItem, refreshKey string, updateImage bool) (Err logging.LogErrorInfo) {
+func RefreshItemMetadata(ctx context.Context, msConfig config.Config_MediaServer, item *models.MediaItem, refreshKey string, updateImage bool) (Err logging.LogErrorInfo) {
 	ctx, logAction := logging.AddSubActionToContext(ctx, fmt.Sprintf(
 		"Refreshing Metadata for %s (Refresh Key: %s)",
 		utils.MediaItemInfo(*item),
@@ -25,7 +25,7 @@ func RefreshItemMetadata(ctx context.Context, item *models.MediaItem, refreshKey
 	defer logAction.Complete()
 
 	// Construct the URL for the Plex API request
-	u, err := url.Parse(config.Current.MediaServer.URL)
+	u, err := url.Parse(msConfig.URL)
 	if err != nil {
 		logAction.SetError("Failed to parse base URL", "Ensure the URL is valid", map[string]any{"error": err.Error()})
 		return *logAction.Error
@@ -34,7 +34,7 @@ func RefreshItemMetadata(ctx context.Context, item *models.MediaItem, refreshKey
 	URL := u.String()
 
 	// Make the HTTP Request to Plex
-	resp, _, Err := makeRequest(ctx, config.Current.MediaServer, URL, "PUT", nil)
+	resp, _, Err := makeRequest(ctx, msConfig, URL, "PUT", nil)
 	if Err.Message != "" {
 		logAction.SetErrorFromInfo(Err)
 		return *logAction.Error
@@ -48,9 +48,9 @@ func RefreshItemMetadata(ctx context.Context, item *models.MediaItem, refreshKey
 
 	// When we refresh metadata, we can also update the selected image to be local (if present)
 	// We run this in a separate goroutine to avoid blocking
-	currentImages, Err := getAllImages(ctx, item, refreshKey, "All", "poster")
+	currentImages, Err := getAllImages(ctx, msConfig, item, refreshKey, "All", "poster")
 	if Err.Message != "" {
-		return *logAction.Error
+		return Err
 	}
 
 	if len(currentImages) > 0 {
@@ -66,7 +66,7 @@ func RefreshItemMetadata(ctx context.Context, item *models.MediaItem, refreshKey
 			// If there is no selected image, select a local one if it exists, else select the first one
 			for _, img := range currentImages {
 				if img.Provider == "local" {
-					Err = applyImageToMediaItem(ctx, item, refreshKey, img.RatingKey, "poster")
+					Err = applyImageToMediaItem(ctx, msConfig, item, refreshKey, img.RatingKey, "poster")
 					if Err.Message != "" {
 						return Err
 					}
@@ -75,7 +75,7 @@ func RefreshItemMetadata(ctx context.Context, item *models.MediaItem, refreshKey
 				}
 			}
 			if !hasLocal {
-				Err = applyImageToMediaItem(ctx, item, refreshKey, currentImages[0].RatingKey, "poster")
+				Err = applyImageToMediaItem(ctx, msConfig, item, refreshKey, currentImages[0].RatingKey, "poster")
 				if Err.Message != "" {
 					return Err
 				}

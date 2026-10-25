@@ -126,7 +126,13 @@ export function MediaItemDetails({
   };
 
   const handleAddToIgnoredClick = async (ignoreMode: string) => {
-    const addToDBResp = await IgnoreItemInDB(tmdbID, libraryTitle, ignoreMode, currentSetsAvailable);
+    const addToDBResp = await IgnoreItemInDB(
+      tmdbID,
+      libraryTitle,
+      ignoreMode,
+      currentSetsAvailable,
+      mediaItem?.edition || ""
+    );
     if (addToDBResp.status === "error") {
       toast.error(`Failed to add ${title} to DB: ${addToDBResp.error?.message || "Unknown error"}`);
       return;
@@ -151,7 +157,7 @@ export function MediaItemDetails({
       return;
     }
 
-    const addToDBResp = await StopIgnoringItemInDB(mediaItem.tmdb_id, mediaItem.library_title);
+    const addToDBResp = await StopIgnoringItemInDB(mediaItem.tmdb_id, mediaItem.library_title, mediaItem.edition);
     if (addToDBResp.status === "error") {
       toast.error(`Failed to stop ignoring ${title}`);
       return;
@@ -220,6 +226,9 @@ export function MediaItemDetails({
 
             {/* Content Rating */}
             {contentRating && <Badge className="flex items-center text-sm">{contentRating}</Badge>}
+
+            {/* Edition */}
+            {mediaItem?.edition && <Badge className="flex items-center text-sm">Edition: {mediaItem.edition}</Badge>}
 
             {status ? (
               <Badge
@@ -327,10 +336,13 @@ export function MediaItemDetails({
               <RefreshCcw className="mr-2 h-4 w-4" />
               Refresh Metadata
             </DropdownMenuItem>
-            <DropdownMenuItem className="cursor-pointer" onSelect={() => setIsRatingModalOpen(true)}>
-              <Star className="mr-2 h-4 w-4" />
-              Rate {mediaItemType === "movie" ? "Movie" : "Show"}
-            </DropdownMenuItem>
+            {/* Rating is only supported for Plex and Silo */}
+            {(serverType === "Plex" || serverType === "Silo") && (
+              <DropdownMenuItem className="cursor-pointer" onSelect={() => setIsRatingModalOpen(true)}>
+                <Star className="mr-2 h-4 w-4" />
+                Rate {mediaItemType === "movie" ? "Movie" : "Show"}
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem className="cursor-pointer" onSelect={() => setIsManualImportModalOpen(true)}>
               <FileIcon className="mr-2 h-4 w-4" />
               Manual YAML Import

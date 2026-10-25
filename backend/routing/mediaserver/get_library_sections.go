@@ -19,7 +19,8 @@ type GetLibrarySections_Response struct {
 // @Tags         MediaServer
 // @Accept       json
 // @Produce      json
-// @Security 	 BearerAuth
+// @Security     SessionCookie
+// @Security     ApiKeyAuth
 // @Failure      401  {object}  httpx.UnauthorizedResponse "Unauthorized (only when Auth.Enabled=true)"
 // @Success      200  {object}  httpx.JSONResponse{data=GetLibrarySections_Response}
 // @Failure      500  {object}  httpx.JSONResponse "Internal Server Error"

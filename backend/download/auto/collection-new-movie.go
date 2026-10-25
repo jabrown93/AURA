@@ -14,8 +14,9 @@ import (
 // ID (used only to satisfy the MediUX lookup signature; it does not filter results when
 // fetched with itemOnly=false).
 type collectionCandidateSet struct {
-	dbSet  models.DBPosterSetDetail
-	tmdbID string
+	dbSet   models.DBPosterSetDetail
+	tmdbID  string
+	edition string
 }
 
 // ApplyCollectionSetsForNewMovie is invoked when a movie is (potentially) newly added to
@@ -65,7 +66,7 @@ func ApplyCollectionSetsForNewMovie(ctx context.Context, newMovie *models.MediaI
 	}
 
 	for _, candidate := range candidates {
-		mediuxSet, includedItems, setErr := mediux.GetMovieCollectionSetByID(ctx, candidate.dbSet.ID, candidate.tmdbID, newMovie.LibraryTitle, false)
+		mediuxSet, includedItems, setErr := mediux.GetMovieCollectionSetByID(ctx, candidate.dbSet.ID, candidate.tmdbID, newMovie.LibraryTitle, candidate.edition, false)
 		if setErr.Message != "" {
 			action.AppendWarning("collection_set_fetch_error", map[string]any{
 				"set_id": candidate.dbSet.ID,
@@ -105,8 +106,9 @@ func collectionCandidateSetsForLibrary(ctx context.Context, libraryTitle string)
 			}
 			seen[dbSet.ID] = struct{}{}
 			candidates = append(candidates, collectionCandidateSet{
-				dbSet:  dbSet,
-				tmdbID: savedItem.MediaItem.TMDB_ID,
+				dbSet:   dbSet,
+				tmdbID:  savedItem.MediaItem.TMDB_ID,
+				edition: savedItem.MediaItem.Edition,
 			})
 		}
 	}

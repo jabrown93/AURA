@@ -64,3 +64,16 @@ func TestDecodeHashErrors(t *testing.T) {
 		})
 	}
 }
+
+func TestCreateHashRoundTrip(t *testing.T) {
+	hash, err := CreateHash("s3cret", DefaultParams)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := ComparePasswordAndHash("s3cret", hash); err != nil || !ok {
+		t.Fatalf("match = %v, err = %v", ok, err)
+	}
+	if ok, _ := ComparePasswordAndHash("wrong", hash); ok {
+		t.Fatal("wrong password matched")
+	}
+}

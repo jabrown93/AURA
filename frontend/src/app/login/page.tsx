@@ -1,17 +1,12 @@
 "use client";
 
-import {
-  AttemptLogin,
-  type AuthMethods_Response,
-  GetAuthMethods,
-  GetSession,
-  OIDC_LOGIN_PATH,
-} from "@/services/auth/login";
-import { Eye, EyeOff, KeyRound, Loader2, Lock } from "lucide-react";
+import { GetAuthMethods } from "@/services/auth/auth-methods";
+import { AttemptLogin } from "@/services/auth/login";
+import { Eye, EyeOff, Loader2, Lock, ShieldCheck } from "lucide-react";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -19,63 +14,58 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-// The OIDC callback redirects here with a code rather than provider text, so the wording
-// stays under our control.
-const OIDC_ERRORS: Record<string, string> = {
-  oidc_disabled: "Single sign-on is not enabled.",
-  oidc_provider: "The identity provider could not be reached or refused the sign-in.",
-  oidc_state: "The sign-in attempt expired or did not match. Please try again.",
-  oidc_exchange: "The identity provider rejected the authorization code.",
-  oidc_verify: "The identity token could not be verified.",
-  oidc_forbidden: "Your account is not permitted to access aura.",
-  oidc_internal: "Something went wrong while completing sign-in.",
+import { useOnboardingStore } from "@/lib/stores/global-store-onboarding";
+
+const OIDC_ERROR_MESSAGES: Record<string, string> = {
+  oidc_unavailable: "Single sign-on is not currently available. Try your password instead.",
+  oidc_failed: "Single sign-on login failed. Please try again.",
+  oidc_not_allowed: "Your identity provider account is not permitted to access this app.",
 };
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [methods, setMethods] = useState<AuthMethods_Response | null>(null);
 
-  // Surface a failed OIDC round trip. Read from the URL directly rather than through
-  // useSearchParams, which would force this page behind a Suspense boundary.
+  const [passwordEnabled, setPasswordEnabled] = useState(true);
+  const [oidcEnabled, setOidcEnabled] = useState(false);
+  const [oidcLoginURL, setOidcLoginURL] = useState("/api/auth/oidc/login");
+
+  // Get Onboarding Status
+  const status = useOnboardingStore((state) => state.status);
+  const hasHydrated = useOnboardingStore((state) => state.hasHydrated);
+
+  // If onboarding is complete and auth is disabled or AURA_DISABLE_AUTH is set, there's nothing to log in to.
   useEffect(() => {
-    const code = new URLSearchParams(window.location.search).get("error");
-    if (code) {
-      setErrorMsg(OIDC_ERRORS[code] ?? "Sign-in failed.");
+    if (hasHydrated && status && (status.current_setup.auth.enabled === false || status.auth_disabled_by_env)) {
+      router.replace("/");
     }
+  }, [hasHydrated, router, status]);
+
+  // Which login methods are available (password / OIDC SSO) - public endpoint, safe pre-login.
+  useEffect(() => {
+    // Send the address aura is open at, so the identity provider returns to the same one
+    setOidcLoginURL(`/api/auth/oidc/login?origin=${encodeURIComponent(window.location.origin)}`);
+    void GetAuthMethods().then((resp) => {
+      if (resp.status !== "error" && resp.data) {
+        setPasswordEnabled(resp.data.password_enabled);
+        setOidcEnabled(resp.data.oidc_enabled);
+      }
+    });
   }, []);
 
-  // The session cookie is HttpOnly, so auth state has to come from the backend.
+  // Surface any error redirected back from the OIDC callback.
   useEffect(() => {
-    let cancelled = false;
-
-    const redirectIfSignedIn = async () => {
-      const response = await GetAuthMethods();
-      if (cancelled) return;
-      if (response.data && !response.data.auth_enabled) {
-        router.replace("/");
-        return;
-      }
-      setMethods(response.data ?? null);
-
-      const session = await GetSession();
-      if (!cancelled && session.data?.authenticated) {
-        router.replace("/");
-      }
-    };
-
-    void redirectIfSignedIn();
-    return () => {
-      cancelled = true;
-    };
-  }, [router]);
-
-  // Until the methods load, assume a password form: it is what every existing install has.
-  const passwordEnabled = methods?.password_enabled ?? true;
-  const oidcEnabled = methods?.oidc_enabled ?? false;
+    const oidcError = searchParams.get("error");
+    if (oidcError) {
+      let message = OIDC_ERROR_MESSAGES[oidcError] || "Login failed. Please try again.";
+      if (oidcError === "oidc_unavailable" && !passwordEnabled) message = "Single sign-on is not currently available.";
+      setErrorMsg(message);
+    }
+  }, [searchParams, passwordEnabled]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -87,7 +77,7 @@ export default function LoginPage() {
     try {
       setLoading(true);
       const resp = await AttemptLogin(password);
-      if (resp.status === "error" || !resp.data?.token) {
+      if (resp.status === "error" || !resp.data?.authenticated) {
         throw new Error(resp.error?.message || "Invalid Password");
       }
       router.replace("/");
@@ -105,46 +95,36 @@ export default function LoginPage() {
           <CardTitle className="flex items-center gap-2 text-2xl">
             <Lock className="h-6 w-6" /> Sign In
           </CardTitle>
-          <CardDescription>
-            {passwordEnabled
-              ? "Enter your password to access aura."
-              : "Sign in with your identity provider to access aura."}
-          </CardDescription>
+          <CardDescription>Sign in to access aura.</CardDescription>
         </CardHeader>
-
-        {errorMsg && (
-          <CardContent>
+        <CardContent className="space-y-4">
+          {errorMsg && (
             <Alert variant="destructive">
               <AlertTitle>Error</AlertTitle>
               <AlertDescription>{errorMsg}</AlertDescription>
             </Alert>
-          </CardContent>
-        )}
+          )}
 
-        {oidcEnabled && (
-          <CardContent className="space-y-4">
-            {/* A full navigation, not a fetch: the browser has to follow the redirect
-                chain to the provider and back. */}
-            <Button asChild variant="outline" className="w-full">
-              <a href={OIDC_LOGIN_PATH}>
-                <KeyRound className="mr-2 h-4 w-4" />
-                {methods?.oidc_button_label || "Sign in with SSO"}
-              </a>
-            </Button>
-            {passwordEnabled && (
-              <div className="flex items-center gap-3">
-                <span className="h-px flex-1 bg-border" />
-                <span className="text-xs text-muted-foreground uppercase">or</span>
-                <span className="h-px flex-1 bg-border" />
-              </div>
-            )}
-          </CardContent>
-        )}
+          {oidcEnabled && (
+            <a href={oidcLoginURL} className="block">
+              <Button type="button" variant="outline" className="w-full">
+                <ShieldCheck className="mr-2 h-4 w-4" />
+                Sign in with SSO
+              </Button>
+            </a>
+          )}
 
-        {passwordEnabled && (
-          <form onSubmit={handleSubmit}>
-            <CardContent className="space-y-4">
-              <div className="mb-4">
+          {oidcEnabled && passwordEnabled && (
+            <div className="flex items-center gap-3 text-xs text-muted-foreground">
+              <div className="h-px flex-1 bg-border" />
+              or
+              <div className="h-px flex-1 bg-border" />
+            </div>
+          )}
+
+          {passwordEnabled && (
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div>
                 <Label className="mb-2 font-medium" htmlFor="password">
                   Password
                 </Label>
@@ -165,21 +145,30 @@ export default function LoginPage() {
                     aria-label={showPw ? "Hide password" : "Show password"}
                     className="absolute top-1/2 right-3 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
                     disabled={loading}
+                    type="button"
                   >
                     {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </Button>
                 </div>
               </div>
-            </CardContent>
-            <CardFooter className="flex flex-col gap-3">
-              <Button type="submit" className="w-full" disabled={loading}>
-                {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                {loading ? "Signing In..." : "Sign In"}
-              </Button>
-            </CardFooter>
-          </form>
-        )}
+              <CardFooter className="flex flex-col gap-3 px-0">
+                <Button type="submit" className="w-full" disabled={loading}>
+                  {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  {loading ? "Signing In..." : "Sign In"}
+                </Button>
+              </CardFooter>
+            </form>
+          )}
+        </CardContent>
       </Card>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginForm />
+    </Suspense>
   );
 }

@@ -2,7 +2,6 @@ package plex
 
 import (
 	"aura/cache"
-	"aura/config"
 	"aura/logging"
 	"aura/models"
 	"aura/utils/httpx"
@@ -23,7 +22,7 @@ func (p *Plex) GetMovieCollectionChildrenItems(ctx context.Context, collection *
 
 	// Construct the URL for the Plex API request
 	// Construct the URL for the Plex API request
-	u, err := url.Parse(config.Current.MediaServer.URL)
+	u, err := url.Parse(p.Config.URL)
 	if err != nil {
 		logAction.SetError(logging.Error_BaseUrlParsing(err))
 		return *logAction.Error
@@ -35,7 +34,7 @@ func (p *Plex) GetMovieCollectionChildrenItems(ctx context.Context, collection *
 	URL := u.String()
 
 	// Make the HTTP Request to Plex
-	resp, respBody, Err := makeRequest(ctx, config.Current.MediaServer, URL, "GET", nil)
+	resp, respBody, Err := makeRequest(ctx, p.Config, URL, "GET", nil)
 	if Err.Message != "" {
 		logAction.SetErrorFromInfo(Err)
 		return *logAction.Error
@@ -46,7 +45,7 @@ func (p *Plex) GetMovieCollectionChildrenItems(ctx context.Context, collection *
 	var plexResp PlexLibraryItemsWrapper
 	Err = httpx.DecodeResponseToJSON(ctx, respBody, &plexResp, "Plex Collection Children Response")
 	if Err.Message != "" {
-		return *logAction.Error
+		return Err
 	}
 
 	var items []models.MediaItem
@@ -56,7 +55,7 @@ func (p *Plex) GetMovieCollectionChildrenItems(ctx context.Context, collection *
 		}
 
 		isInSelectedLibraryTitles := false
-		for _, library := range config.Current.MediaServer.Libraries {
+		for _, library := range p.Config.Libraries {
 			if library.Title == item.LibrarySectionTitle {
 				isInSelectedLibraryTitles = true
 				break
@@ -66,7 +65,7 @@ func (p *Plex) GetMovieCollectionChildrenItems(ctx context.Context, collection *
 			continue
 		}
 
-		itemInfo, Err := extractMediaItemFromResponse(ctx, item)
+		itemInfo, Err := extractMediaItemFromResponse(ctx, p.Config, item)
 		if Err.Message != "" {
 			continue
 		}

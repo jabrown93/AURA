@@ -1,0 +1,62 @@
+---
+title: Kometa (this fork)
+description: Write applied images into Kometa's asset directory, and import existing Kometa assets. Plex only.
+sidebar:
+  order: 6
+---
+
+import { Aside } from "@astrojs/starlight/components";
+
+Kometa mode makes aura work alongside [Kometa](https://kometa.wiki/). When it's on, every image aura applies to Plex is also written into Kometa's asset directory using Kometa's names, so Kometa keeps the same artwork when it runs. It's in **Settings > Images > Kometa Mode**.
+
+<Aside>Kometa mode is a feature of the jabrown93/AURA fork and only works with Plex.</Aside>
+
+The folder-per-item layout aura writes and imports:
+
+```
+<AssetDirectory>/<Item Folder Name>/poster.jpg
+<AssetDirectory>/<Item Folder Name>/background.jpg
+<AssetDirectory>/<Item Folder Name>/Season01.jpg      # Season00 for specials
+<AssetDirectory>/<Item Folder Name>/S01E01.jpg        # episode title cards
+<AssetDirectory>/<Collection Name>/poster.jpg
+```
+
+`Item Folder Name` is the name of the folder the movie file is in, or the show's folder. Kometa uses the same name to find assets.
+
+## Settings
+
+- **Asset Directory** (`Images.Kometa.AssetDirectory`): the directory Kometa reads assets from (its `asset_directory`). It must be mounted into the aura container at this exact path and be writable.
+- **Per-Library Subfolders** (`Images.Kometa.LibraryAssetFolders`): optionally write each Plex library into its own subfolder of the asset directory, for example `movies`, `tv` and `anime`. It must match the per-library `asset_directory` set in Kometa. Values must be relative; a leading `/` or `..` is rejected. A library without an entry writes directly under the asset directory.
+- **Sonarr/Radarr Fallback** (`Images.Kometa.SonarrRadarrFallback`): when Plex no longer has an item (a 404) but Sonarr or Radarr still does, save the images into the Kometa folder named after the Sonarr/Radarr path instead of failing.
+
+```yaml
+Images:
+  Kometa:
+    Enabled: true
+    AssetDirectory: /media/assets/kometa
+    LibraryAssetFolders:
+      Movies: movies
+      TV Shows: tv
+      Anime: anime
+    SonarrRadarrFallback: true
+```
+
+## Preload missing seasons and episodes
+
+In the download modal, **Force Preload Missing** (shows only, with **Add to Queue**) also writes season posters and title cards for seasons and episodes that aren't in Plex yet. They go to the Kometa asset directory only, so Kometa applies them once the episodes arrive. The show must be in Plex with at least one episode.
+
+## Importing existing Kometa assets
+
+**Import Existing Kometa Assets** in Settings, or `POST /api/kometa/import`, scans the asset directory, uploads matching assets to Plex and records them as saved sets. To run it on a schedule, enable the **Kometa Asset Import Job** on the Jobs page (`Jobs.KometaImport` in the config).
+
+## Migrating from Save Images Locally
+
+`scripts/kometa_migrate.py` copies images saved next to your media into the Kometa layout:
+
+```bash
+# Preview the plan
+python3 scripts/kometa_migrate.py --source /data/media --dest /assets
+
+# Copy. Add --move to move instead.
+python3 scripts/kometa_migrate.py --source /data/media --dest /assets --apply
+```

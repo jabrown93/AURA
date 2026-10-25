@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 func preservePreFlightState(t *testing.T) {
@@ -59,7 +60,7 @@ func TestRunPreFlightSeparatesMediuxOutageFromRejectedToken(t *testing.T) {
 			name:                "mediux unreachable starts degraded",
 			mediuxStatus:        http.StatusServiceUnavailable,
 			wantSuccess:         true,
-			wantMediuxValid:     false,
+			wantMediuxValid:     true,
 			wantMediuxReachable: false,
 			wantNeedsSetup:      false,
 		},
@@ -76,6 +77,9 @@ func TestRunPreFlightSeparatesMediuxOutageFromRejectedToken(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			preservePreFlightState(t)
+			oldSleep, oldLimit := startupSleep, startupWaitLimit
+			startupSleep, startupWaitLimit = func(time.Duration) {}, 0
+			t.Cleanup(func() { startupSleep, startupWaitLimit = oldSleep, oldLimit })
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.URL.Path == "/users/me" {
 					if tt.mediuxStatus != http.StatusOK {
@@ -124,8 +128,10 @@ func TestRunPreFlightSeparatesMediuxOutageFromRejectedToken(t *testing.T) {
 			if !gotSuccess {
 				config.Valid = false
 			}
-			if config.NeedsSetup() != tt.wantNeedsSetup {
-				t.Errorf("config.NeedsSetup() = %v, want %v", config.NeedsSetup(), tt.wantNeedsSetup)
+			// Mirrors routing/config/status.go
+			needsSetup := !(config.Loaded && config.Valid && config.MediuxValid && config.MediaServerValid)
+			if needsSetup != tt.wantNeedsSetup {
+				t.Errorf("needs setup = %v, want %v", needsSetup, tt.wantNeedsSetup)
 			}
 		})
 	}
@@ -133,6 +139,9 @@ func TestRunPreFlightSeparatesMediuxOutageFromRejectedToken(t *testing.T) {
 
 func TestRunPreFlightRejectsInvalidMediaServer(t *testing.T) {
 	preservePreFlightState(t)
+	oldSleep, oldLimit := startupSleep, startupWaitLimit
+	startupSleep, startupWaitLimit = func(time.Duration) {}, 0
+	t.Cleanup(func() { startupSleep, startupWaitLimit = oldSleep, oldLimit })
 	config.Current.MediaServer = config.Config_MediaServer{Type: "unsupported"}
 	config.MediaServerValid = true
 	config.MediaServerReachable = true

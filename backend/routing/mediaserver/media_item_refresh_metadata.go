@@ -20,7 +20,8 @@ type RefreshMediaItemMetadata_Response struct {
 // @Produce      json
 // @Param        rating_key query string true "Rating Key of the media item to refresh"
 // @Param        refresh_rating_key query string true "Rating Key to specify which metadata entry to refresh"
-// @Security 	 BearerAuth
+// @Security     SessionCookie
+// @Security     ApiKeyAuth
 // @Failure      401  {object}  httpx.UnauthorizedResponse "Unauthorized (only when Auth.Enabled=true)"
 // @Success      200  {object}  httpx.JSONResponse{data=RefreshMediaItemMetadata_Response}
 // @Failure      500  {object}  httpx.JSONResponse "Internal Server Error"

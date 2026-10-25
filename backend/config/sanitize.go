@@ -17,13 +17,18 @@ func (config *Config) SanitizeConfig(ctx context.Context) *Config {
 	c := *config
 
 	// Mask top-level sensitive fields (ensure these are value fields, not shared pointers).
-	// The password hash is logged on startup through print.go and returned by /api/config;
-	// update.go restores the stored value when the mask is sent back unchanged.
 	c.Auth.Password = MaskToken(c.Auth.Password)
-	c.Auth.OIDC.ClientSecret = MaskToken(c.Auth.OIDC.ClientSecret)
 	c.Mediux.ApiToken = MaskToken(c.Mediux.ApiToken)
 	c.TMDB.ApiToken = MaskToken(c.TMDB.ApiToken)
 	c.MediaServer.ApiToken = MaskToken(c.MediaServer.ApiToken)
+	if config.MediaServers != nil {
+		c.MediaServers = make([]Config_MediaServer, len(config.MediaServers))
+		for i, server := range config.MediaServers {
+			c.MediaServers[i] = server.clone()
+			c.MediaServers[i].ApiToken = MaskToken(server.ApiToken)
+		}
+	}
+	c.Auth.OIDC.ClientSecret = MaskToken(c.Auth.OIDC.ClientSecret)
 
 	// Deep copy notifications.providers slice and nested pointer
 	if len(config.Notifications.Providers) > 0 {
@@ -47,19 +52,15 @@ func (config *Config) SanitizeConfig(ctx context.Context) *Config {
 					ApiToken: MaskToken(p.Gotify.ApiToken),
 				}
 			}
-			// Without this branch cp.Webhook stays the original pointer, so the headers -
-			// which carry the Authorization value sent to the webhook - would be returned
-			// by /api/config and logged by print.go in full. URL is left alone to match
-			// Gotify: it is the user's own endpoint, and masking it would need a matching
-			// unmask in update.go before the config could be saved back.
 			if p.Webhook != nil {
-				maskedHeaders := make(map[string]string, len(p.Webhook.Headers))
+				// Header values often hold credentials
+				headers := make(map[string]string, len(p.Webhook.Headers))
 				for key, value := range p.Webhook.Headers {
-					maskedHeaders[key] = MaskToken(value)
+					headers[key] = MaskToken(value)
 				}
 				cp.Webhook = &Config_Notification_Webhook{
 					URL:     p.Webhook.URL,
-					Headers: maskedHeaders,
+					Headers: headers,
 				}
 			}
 			c.Notifications.Providers[i] = cp

@@ -283,7 +283,8 @@ type GetLogContents_Response struct {
 // @Param        actions     query     string  false  "Comma-separated list of route paths or action names to filter by (e.g. GET:/api/db,User Login)"
 // @Param        items_per_page query   int     false  "Number of log entries to return per page (default: 20)"
 // @Param        page_number query     int     false  "Page number to return (default: 1)"
-// @Security 	 BearerAuth
+// @Security     SessionCookie
+// @Security     ApiKeyAuth
 // @Failure      401  {object}  httpx.UnauthorizedResponse "Unauthorized (only when Auth.Enabled=true)"
 // @Success      200  {object}  httpx.JSONResponse{data=GetLogContents_Response}
 // @Failure      500  {object}  httpx.JSONResponse "Internal Server Error"

@@ -1,84 +1,127 @@
 package downloadqueue
 
 import (
+	"aura/database"
 	"aura/logging"
 	"aura/models"
-	"aura/utils"
 	"context"
 	"fmt"
-	"os"
-	"path"
-	"regexp"
-	"strings"
 )
 
-// RetryFromQueue re-queues an errored download entry by stripping the "error_"
-// prefix from its file, turning it back into an in-progress entry that the
-// processor picks up on its next run. The rename is atomic, so there is no
-// window where the entry is lost (unlike a remove-then-add sequence).
-func RetryFromQueue(ctx context.Context, retryItem models.DBSavedItem) (retried int, Err logging.LogErrorInfo) {
-	ctx, logAction := logging.AddSubActionToContext(ctx,
-		fmt.Sprintf("Retry Entry for %s",
-			utils.MediaItemInfo(retryItem.MediaItem)),
-		logging.LevelDebug)
+// Set in tests
+var (
+	getHistoryEntry = database.GetDownloadHistoryEntry
+	getDueRetries   = database.GetDueDownloadRetries
+	markRetried     = database.MarkDownloadHistoryRetried
+	stopRetries     = database.StopDownloadRetries
+	getSavedSets    = database.GetAllSavedSets
+	getQueueJobs    = database.GetAllDownloadQueueJobs
+	addToQueue      = AddToQueue
+)
 
-	Err = logging.LogErrorInfo{}
-	retried = 0
+// RetryFailedDownload adds a failed download's set back to the Download Queue, from the item's saved set
+func RetryFailedDownload(ctx context.Context, historyID int64) (title string, Err logging.LogErrorInfo) {
+	ctx, logAction := logging.AddSubActionToContext(ctx, fmt.Sprintf("Retry Failed Download %d", historyID), logging.LevelInfo)
+	defer logAction.Complete()
 
-	// Read all files in the download queue folder
-	files, readErr := os.ReadDir(FolderPath)
-	if readErr != nil {
-		logAction.SetError("Failed to read download queue folder",
-			"Ensure that the application has permission to read the download queue folder",
-			map[string]any{
-				"error": readErr.Error(),
-				"path":  FolderPath,
-			})
-		logAction.Complete()
-		return retried, Err
+	entry, found, Err := getHistoryEntry(ctx, historyID)
+	if Err.Message != "" {
+		return "", Err
+	}
+	if !found {
+		logAction.SetError("This failed download no longer exists", "Refresh the page", map[string]any{"id": historyID})
+		return "", *logAction.Error
 	}
 
-	// Match only errored files for this item (LibraryTitle + TMDB ID). This uses
-	// the same name construction as RemoveFromQueue so retry and delete target
-	// the same set of files. QuoteMeta escapes regex metacharacters (e.g. a
-	// library named "Movies (4K)") so the pattern matches the literal filename
-	// AddToQueue wrote rather than being interpreted as regex syntax.
-	pattern := fmt.Sprintf(`^error_%s_%s_\d+\.json$`,
-		regexp.QuoteMeta(strings.ReplaceAll(retryItem.MediaItem.LibraryTitle, " ", `_`)),
-		regexp.QuoteMeta(retryItem.MediaItem.TMDB_ID),
-	)
-	re := regexp.MustCompile(pattern)
+	alreadyQueued, Err := retryEntry(ctx, entry)
+	if alreadyQueued {
+		logAction.SetError(fmt.Sprintf("%s is already in the Download Queue", entry.MediaItemTitle), "Wait for it to finish", map[string]any{"id": historyID})
+		return entry.MediaItemTitle, *logAction.Error
+	}
+	return entry.MediaItemTitle, Err
+}
 
-	for _, file := range files {
-		if file.IsDir() {
-			continue
+// retryDueDownloads adds the failed downloads due for an automatic retry back to the Download Queue
+func retryDueDownloads(ctx context.Context) {
+	ctx, ld := logging.CreateLoggingContext(ctx, "Download Queue Worker")
+	logAction := ld.AddAction("Retry Failed Downloads", logging.LevelInfo)
+	ctx = logging.WithCurrentAction(ctx, logAction)
+
+	entries, Err := getDueRetries(ctx)
+	if Err.Message == "" && len(entries) == 0 {
+		return
+	}
+	defer ld.Log()
+	defer logAction.Complete()
+
+	for _, entry := range entries {
+		key := fmt.Sprintf("%s (set %s)", entry.MediaItemTitle, entry.SetID)
+		alreadyQueued, Err := retryEntry(ctx, entry)
+		switch {
+		case alreadyQueued:
+			// Tried again on the next check
+			logAction.AppendResult(key, "already in the Download Queue")
+		case Err.Message != "":
+			// It can't be retried, like a set that isn't saved anymore
+			_ = stopRetries(ctx, entry.ID)
+		default:
+			logAction.AppendResult(key, fmt.Sprintf("retry %d of %d", entry.RetryCount+1, len(database.DownloadRetryDelays)))
 		}
+	}
+}
 
-		if !re.MatchString(file.Name()) {
-			continue
-		}
+// retryEntry queues the failed set again and counts the retry, alreadyQueued is whether the item is waiting in the Download Queue
+func retryEntry(ctx context.Context, entry database.DownloadHistoryEntry) (alreadyQueued bool, Err logging.LogErrorInfo) {
+	ctx, logAction := logging.AddSubActionToContext(ctx, fmt.Sprintf("Retry %s", entry.MediaItemTitle), logging.LevelDebug)
+	defer logAction.Complete()
 
-		// Strip the "error_" prefix so the processor treats it as in-progress again.
-		oldPath := path.Join(FolderPath, file.Name())
-		newPath := path.Join(FolderPath, strings.TrimPrefix(file.Name(), "error_"))
-
-		if renameErr := os.Rename(oldPath, newPath); renameErr != nil {
-			logAction.SetError("Failed to re-queue errored item",
-				"Ensure that the application has permission to modify files in the download queue folder",
-				map[string]any{
-					"error": renameErr.Error(),
-					"from":  oldPath,
-					"to":    newPath,
-				})
-			logAction.Complete()
-			return retried, Err
-		}
-
-		logAction.AppendResult("requeued_file", newPath)
-		retried++
+	// A failure from before a set was downloaded has nothing to retry
+	if entry.SetID == "" {
+		logAction.SetError(fmt.Sprintf("%s has no set to retry", entry.MediaItemTitle), "Download a set from the item's page", map[string]any{"id": entry.ID})
+		return false, *logAction.Error
 	}
 
-	logAction.AppendResult("total_retried", retried)
-	logAction.Complete()
-	return retried, Err
+	jobs, Err := getQueueJobs(ctx)
+	if Err.Message != "" {
+		return false, Err
+	}
+	for _, job := range jobs {
+		if job.TMDB_ID == entry.TMDB_ID && job.LibraryTitle == entry.LibraryTitle && job.Edition == entry.Edition &&
+			(job.Status == "pending" || job.Status == "processing") {
+			return true, logging.LogErrorInfo{}
+		}
+	}
+
+	saved, Err := getSavedSets(ctx, models.DBFilter{
+		ItemTMDB_ID:      entry.TMDB_ID,
+		ItemLibraryTitle: entry.LibraryTitle,
+		SetID:            entry.SetID,
+		ItemsPerPage:     -1,
+	})
+	if Err.Message != "" {
+		return false, Err
+	}
+	for _, item := range saved.Items {
+		if item.MediaItem.Edition != entry.Edition {
+			continue
+		}
+		for _, set := range item.PosterSets {
+			if set.ID != entry.SetID {
+				continue
+			}
+			// Only the failed set, the item's other saved sets downloaded fine
+			Err = addToQueue(ctx, models.DBSavedItem{MediaItem: item.MediaItem, PosterSets: []models.DBPosterSetDetail{set}})
+			if Err.Message != "" {
+				return false, Err
+			}
+			if Err = markRetried(ctx, entry.ID); Err.Message != "" {
+				return false, Err
+			}
+			logAction.AppendResult("queued", fmt.Sprintf("%s set %s", entry.MediaItemTitle, set.ID))
+			return false, logging.LogErrorInfo{}
+		}
+	}
+
+	logAction.SetError(fmt.Sprintf("Set %s isn't saved for %s", entry.SetID, entry.MediaItemTitle), "Download the set again from the item's page", map[string]any{"id": entry.ID})
+	return false, *logAction.Error
 }

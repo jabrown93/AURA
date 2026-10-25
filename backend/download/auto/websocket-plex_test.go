@@ -88,49 +88,6 @@ func TestBuildPlexRefreshMessageFromTyped(t *testing.T) {
 	}
 }
 
-func TestExtractCompletedPlexRefreshes(t *testing.T) {
-	payload := []byte(`{
-		"NotificationContainer": {
-			"type": "timeline",
-			"TimelineEntry": [
-				{
-					"metadataState": "processed",
-					"sectionID": 7,
-					"ratingKey": "111",
-					"grandparentRatingKey": "222",
-					"grandparentTitle": "Some Show",
-					"parentIndex": 1,
-					"index": 2
-				},
-				{
-					"metadataState": "queued",
-					"sectionID": 7,
-					"ratingKey": "333"
-				}
-			]
-		}
-	}`)
-
-	refreshes, err := extractCompletedPlexRefreshes(payload)
-	if err != nil {
-		t.Fatalf("extractCompletedPlexRefreshes() error = %v", err)
-	}
-	if len(refreshes) != 1 {
-		t.Fatalf("len(refreshes) = %d, want 1", len(refreshes))
-	}
-
-	got := refreshes[0]
-	if got.EpisodeRatingKey != "111" {
-		t.Errorf("EpisodeRatingKey = %q, want %q", got.EpisodeRatingKey, "111")
-	}
-	if got.SeriesRatingKey != "222" {
-		t.Errorf("SeriesRatingKey = %q, want %q", got.SeriesRatingKey, "222")
-	}
-	if got.Subtitle != "Some Show S01 E02" {
-		t.Errorf("Subtitle = %q, want %q", got.Subtitle, "Some Show S01 E02")
-	}
-}
-
 func TestExtractShowTitleAndNormalizeTitle(t *testing.T) {
 	tests := []struct {
 		subtitle string

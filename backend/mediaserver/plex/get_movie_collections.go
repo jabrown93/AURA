@@ -2,7 +2,6 @@ package plex
 
 import (
 	"aura/cache"
-	"aura/config"
 	"aura/logging"
 	"aura/models"
 	"aura/utils/httpx"
@@ -25,7 +24,7 @@ func (p *Plex) GetMovieCollections(ctx context.Context, library models.LibrarySe
 	}
 
 	// Construct the URL for the Plex API request
-	u, err := url.Parse(config.Current.MediaServer.URL)
+	u, err := url.Parse(p.Config.URL)
 	if err != nil {
 		logAction.SetError("Failed to parse base URL", "Ensure the URL is valid", map[string]any{"error": err.Error()})
 		return collections, *logAction.Error
@@ -37,7 +36,7 @@ func (p *Plex) GetMovieCollections(ctx context.Context, library models.LibrarySe
 	URL := u.String()
 
 	// Make the HTTP Request to Plex
-	resp, respBody, Err := makeRequest(ctx, config.Current.MediaServer, URL, "GET", nil)
+	resp, respBody, Err := makeRequest(ctx, p.Config, URL, "GET", nil)
 	if Err.Message != "" {
 		logAction.SetErrorFromInfo(Err)
 		return collections, *logAction.Error
@@ -48,7 +47,7 @@ func (p *Plex) GetMovieCollections(ctx context.Context, library models.LibrarySe
 	var plexResp PlexLibraryItemsWrapper
 	Err = httpx.DecodeResponseToJSON(ctx, respBody, &plexResp, "Plex Movie Collections Response")
 	if Err.Message != "" {
-		return collections, *logAction.Error
+		return collections, Err
 	}
 
 	for _, collection := range plexResp.MediaContainer.Metadata {
@@ -63,7 +62,6 @@ func (p *Plex) GetMovieCollections(ctx context.Context, library models.LibrarySe
 		collectionItem.Summary = collection.Summary
 		collectionItem.ChildCount = collection.ChildCount
 		collectionItem.LibraryTitle = library.Title
-		collectionItem.UpdatedAt = artworkVersion(collection.UpdatedAt)
 
 		// Update the collections cache
 		cache.CollectionsStore.UpsertCollection(&collectionItem)

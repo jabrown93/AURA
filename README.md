@@ -4,6 +4,7 @@
 [![Release](https://img.shields.io/github/actions/workflow/status/jabrown93/aura/release.yml?label=Release&logo=githubactions)](https://github.com/jabrown93/aura/actions/workflows/release.yml)
 [![Docker Pulls](https://img.shields.io/docker/pulls/mediux/aura?label=Docker%20Pulls&logo=docker)](https://hub.docker.com/r/mediux/aura/tags)
 ![GHCR](https://img.shields.io/badge/dynamic/json?label=GitHub%20Pulls&logo=Github&url=https%3A%2F%2Fghcr-badge.elias.eu.org%2Fapi%2Fmediux-team%2Faura%2Faura&query=downloadCount)
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-support-FFDD00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/xmoosex)
 
 **aura** (Automated Utility for Retrieval of Assets) is a visual tool for managing MediUX image assets for your media server. It provides a sleek and intuitive interface to browse, preview, and apply image sets to your library content across platforms like Plex, Emby, and Jellyfin.
 
@@ -27,11 +28,11 @@
 
 Movie being processed and the results in Plex
 
-![aura Movie Demo](docs/assets/demo/demo_movie.gif)
+![aura Movie Demo](docs/public/demo/demo_movie.gif)
 
 Series being processed and the results in Plex
 
-![aura Show Demo](docs/assets/demo/demo_show.gif)
+![aura Show Demo](docs/public/demo/demo_show.gif)
 
 ---
 
@@ -48,6 +49,8 @@ To get started with aura:
 
 > Visit the [Docs](https://mediux-team.github.io/AURA/) for detailed steps.
 
+> **Note:** In order to get an API token for testing, please join the Discord below. Once you have joined, make your way to repo-chats > mediux-team/aura. There is a pinned message that contains a shared token you can use for testing. Once the new MediUX site is live, you will be able to have your own token.
+
 Developing AURA? See [CONTRIBUTING.md](CONTRIBUTING.md) for local setup,
 offline build/test commands, and external-service requirements.
 
@@ -58,3 +61,16 @@ offline build/test commands, and external-service requirements.
 - 💬 [Join our Discord](https://discord.gg/YAKzwKPwyw)
 
 ---
+
+## Support aura
+
+If aura is useful to you, you can support its development:
+
+<a href="https://buymeacoffee.com/xmoosex" target="_blank">
+    <img alt="Buy Me a Coffee" src="https://img.shields.io/badge/Buy%20Me%20a%20Coffee-support-ffdd00?style=for-the-badge&amp;logo=buy-me-a-coffee&amp;logoColor=000000">
+</a>
+
+---
+
+AI Disclaimer:
+While most of the code in this repository was written by hand, some of the PR's have been generated with the help of AI tools.

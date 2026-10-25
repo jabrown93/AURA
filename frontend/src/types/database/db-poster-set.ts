@@ -1,5 +1,7 @@
+import type { CollectionItem } from "@/app/collections/page";
+
 import type { MediaItem, SelectedTypes } from "@/types/media-and-posters/media-item-and-library";
-import type { BaseSetInfo, ImageFile } from "@/types/media-and-posters/sets";
+import type { BaseSetInfo, CollectionItemImageFile, ImageFile } from "@/types/media-and-posters/sets";
 import type { TYPE_DB_SET_TYPE_OPTIONS } from "@/types/ui-options";
 
 // What is used to save a record into the database
@@ -9,11 +11,8 @@ export interface DBSavedItem {
   //library_title: string;
   media_item: MediaItem;
   poster_sets: DBPosterSetDetail[];
-  // Queue-only failure metadata, populated by the download-queue processor when an
-  // entry is moved to the error/warning state. Absent on all other DBSavedItem uses.
-  queue_errors?: string[];
-  queue_warnings?: string[];
-  failed_at?: string;
+  // A collection's own poster and backdrop, applied to the media server collection by the Download Queue. They aren't saved.
+  collection_images?: { collection: CollectionItem; images: CollectionItemImageFile[] };
 }
 
 export interface DBPosterSetDetail extends PosterSet {
@@ -21,30 +20,13 @@ export interface DBPosterSetDetail extends PosterSet {
   selected_types: SelectedTypes;
   auto_download: boolean;
   auto_add_new_collection_items: boolean;
-  // Pre-stage season-poster/titlecard images for seasons/episodes missing from the media
-  // server by writing them to the Kometa asset directory. Requires Kometa asset mode.
-  force_preload_missing: boolean;
+  no_auto_upgrade?: boolean; // Keep this set, Automatically Upgrade Sets doesn't replace it
+  // Fork: pre-stage season posters and titlecards for seasons/episodes not on the server yet, as Kometa assets
+  force_preload_missing?: boolean;
   to_delete: boolean; // Flag to indicate if the poster set should be deleted (Not used in DB)
 }
 
 export interface PosterSet extends Omit<BaseSetInfo, "type"> {
   type: TYPE_DB_SET_TYPE_OPTIONS;
   images: ImageFile[];
-}
-
-export interface DBFilter {
-  item_tmdb_id: string;
-  item_library_title: string;
-  item_year: number;
-  item_title: string;
-  set_id: number;
-  library_titles: string[];
-  image_types: string[];
-  autodownload: string;
-  multiset_only: boolean;
-  usernames: string[];
-  page_items: number;
-  page_number: number;
-  sort_option: string;
-  sort_order: string;
 }

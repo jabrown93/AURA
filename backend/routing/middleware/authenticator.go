@@ -4,77 +4,122 @@ import (
 	"aura/config"
 	"aura/logging"
 	routes_auth "aura/routing/auth"
+	"aura/utils/httpx"
 	"encoding/json"
 	"net/http"
 	"regexp"
+	"slices"
 	"strings"
 
+	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/jwtauth/v5"
 )
 
-// Authenticator is a middleware that checks for a valid JWT token, supplied either in the
-// Authorization header or in the session cookie.
-// If the token is valid, it calls the next handler; otherwise, it responds with a 401 Unauthorized error.
-//
-// It skips authentication for the following routes:
-//   - /api/login
-//   - GET /api/images/* (image tags cannot send an Authorization header)
-//   - /api/sonarr/webhook and /api/radarr/webhook (called by Sonarr/Radarr)
-//
-// If authentication is globally disabled in the configuration, it allows all requests to pass through.
+// publicExactPaths lists routes that never require authentication, matched by exact path only
+var publicExactPaths = []string{
+	"/api",
+	"/api/health",
+	"/api/login",
+	"/api/logout",
+	"/api/config/auth-methods",
+}
+
+// publicPathPrefixes lists route *prefixes* that never require authentication
+var publicPathPrefixes = []string{
+	"/api/auth/oidc/",
+	"/api/images/media/",
+	"/api/images/mediux/",
+	"/api/plugin/silo/download/", // Signed by aura, Silo can't send an API key
+}
+
+// Authenticator is a middleware that authenticates requests to protected routes using, in order:
+//  1. Nothing, if Auth is globally disabled or the path is public (see isPublicPath).
+//  2. HTTP Basic Auth (password checked as the API key) for the Sonarr/Radarr webhook route -
+//     Sonarr/Radarr's built-in Webhook connection type only supports URL/Method/Username/Password,
+//     not custom headers, so this is the only auth mechanism they can actually send.
+//  3. An X-Api-Key header, verified against the configured API key hash. If present but invalid,
+//     the request is rejected outright rather than silently falling back to a session cookie.
+//  4. A valid aura_session browser cookie (signed JWT, set by password login or the OIDC callback).
 func Authenticator(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Skip if auth globally disabled
-		if !config.Current.Auth.Enabled {
+		// Skip if auth globally disabled in the config, or with AURA_DISABLE_AUTH
+		if !config.AuthEnabled() {
 			next.ServeHTTP(w, r)
 			return
 		}
 
-		// Public login route. The image exemption is GET-only so it cannot also cover the
-		// destructive DELETE /api/images/temp.
-		if strings.HasPrefix(r.URL.Path, "/api/login") ||
-			(r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/images")) ||
-			strings.HasPrefix(r.URL.Path, "/api/sonarr/webhook") ||
-			strings.HasPrefix(r.URL.Path, "/api/radarr/webhook") {
+		if isPublicPath(r.URL.Path) {
 			next.ServeHTTP(w, r)
 			return
 		}
 
 		ctx, ld := logging.CreateLoggingContext(r.Context(), r.URL.Path)
 		logAction := ld.AddAction("Authenticate Request", logging.LevelInfo)
-		ctx = logging.WithCurrentAction(ctx, logAction)
+		logging.WithCurrentAction(ctx, logAction)
 		defer logAction.Complete()
 
-		// Ensure TokenAuth is initialized
 		if routes_auth.TokenAuth == nil {
 			sendNotAuthenticatedResponse(w, "Auth not initialized")
 			logAction.SetError("Auth not initialized", "The authentication system is not set up", nil)
 			return
 		}
 
-		// jwtauth.Verifier MUST already have run to populate context
-		_, claims, err := jwtauth.FromContext(r.Context())
+		// Fork: the Radarr webhook authenticates the same way as Sonarr's.
+		if strings.HasPrefix(r.URL.Path, "/api/sonarr/webhook") || strings.HasPrefix(r.URL.Path, "/api/radarr/webhook") {
+			_, password, ok := r.BasicAuth()
+			if !ok || !routes_auth.VerifyAPIKey(password) {
+				sendNotAuthenticatedResponse(w, "Valid HTTP Basic Auth required (use the API key as the password)")
+				logAction.SetError("Missing or invalid Basic Auth for webhook", "", nil)
+				return
+			}
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		if apiKey := r.Header.Get("X-Api-Key"); apiKey != "" {
+			if !routes_auth.VerifyAPIKey(apiKey) {
+				sendNotAuthenticatedResponse(w, "Invalid API key")
+				logAction.SetError("Invalid API key", "", nil)
+				return
+			}
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		cookie, err := r.Cookie(routes_auth.SessionCookieName)
 		if err != nil {
-			sendNotAuthenticatedResponse(w, "Invalid or expired token")
-			logAction.SetError("Invalid or expired token", err.Error(), nil)
+			sendNotAuthenticatedResponse(w, "Not authenticated")
+			logAction.SetError("Missing session cookie", err.Error(), nil)
 			return
 		}
 
-		if sub, _ := claims["sub"].(string); sub == "" {
-			sendNotAuthenticatedResponse(w, "Invalid token")
-			logAction.SetError("Invalid token", "Token missing 'sub' claim", nil)
+		token, err := jwtauth.VerifyToken(routes_auth.TokenAuth, cookie.Value)
+		if err != nil {
+			sendNotAuthenticatedResponse(w, "Invalid or expired session")
+			logAction.SetError("Invalid or expired session", err.Error(), nil)
 			return
 		}
 
-		if typ, _ := claims["typ"].(string); !routes_auth.IsSessionTokenType(typ) {
-			sendNotAuthenticatedResponse(w, "Invalid token")
-			logAction.SetError("Invalid token", "Token is not a session token", nil)
+		if sub, ok := token.Subject(); !ok || sub == "" {
+			sendNotAuthenticatedResponse(w, "Invalid session")
+			logAction.SetError("Invalid session", "Token missing 'sub' claim", nil)
 			return
 		}
 
-		// Token is valid, proceed to next handler
 		next.ServeHTTP(w, r)
 	})
+}
+
+func isPublicPath(path string) bool {
+	if slices.Contains(publicExactPaths, path) {
+		return true
+	}
+	for _, prefix := range publicPathPrefixes {
+		if strings.HasPrefix(path, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 type responseWriterWithBytes struct {
@@ -102,7 +147,8 @@ func LoggingMiddleware(next http.Handler) http.Handler {
 		}
 
 		if len(r.URL.Query()) > 0 {
-			ld.Route.Params = r.URL.Query()
+			// Hide sensitive values like an OIDC ?code= in the logs
+			ld.Route.Params = httpx.RedactQuery(r.URL.Query())
 		}
 
 		ctx = logging.WithLogData(r.Context(), ld)
@@ -117,14 +163,12 @@ func LoggingMiddleware(next http.Handler) http.Handler {
 
 func getLogIP(Request *http.Request) string {
 
-	// Get the IP address of the client
-	ip := Request.RemoteAddr
-	if forwarded := Request.Header.Get("X-Forwarded-For"); forwarded != "" {
-		ip = forwarded // If the X-Forwarded-For header is present, use it instead
+	// Get the IP address of the client, as set by the Client IP middleware
+	ip := middleware.GetClientIP(Request.Context())
+	if ip == "" {
+		// Remove the port number from the IP address
+		ip = regexp.MustCompile(`:\d+$`).ReplaceAllString(Request.RemoteAddr, "")
 	}
-
-	// Remove the port number from the IP address
-	ip = regexp.MustCompile(`:\d+$`).ReplaceAllString(ip, "")
 
 	// If the ip is ::1 (change it to localhost)
 	if ip == "[::1]" || ip == "::1" {
@@ -147,4 +191,10 @@ func (w *responseWriterWithBytes) Write(b []byte) (int, error) {
 	n, err := w.ResponseWriter.Write(b)
 	w.bytesWritten += int64(n)
 	return n, err
+}
+
+func (w *responseWriterWithBytes) Flush() {
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
 }

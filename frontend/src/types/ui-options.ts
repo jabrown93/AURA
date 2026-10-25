@@ -1,22 +1,14 @@
 // Sort Order
 export type TYPE_SORT_ORDER_OPTIONS = "asc" | "desc";
-export const SORT_ORDER_OPTIONS: TYPE_SORT_ORDER_OPTIONS[] = ["asc", "desc"];
-
 // Items Per Page
 export const ITEMS_PER_PAGE_OPTIONS: number[] = [10, 20, 30, 50, 100];
 
 // Saved Sets View Types
 export type TYPE_SAVED_SET_VIEW_TYPE_OPTIONS = "card" | "table";
-export const SAVED_SET_VIEW_TYPE_OPTIONS: TYPE_SAVED_SET_VIEW_TYPE_OPTIONS[] = ["card", "table"];
-
 // Set Types
 export type TYPE_SET_TYPE_OPTIONS = "show" | "movie" | "collection" | "boxset";
-export const SET_TYPE_OPTIONS: TYPE_SET_TYPE_OPTIONS[] = ["show", "movie", "collection", "boxset"];
-
 // Database Set Types (for filtering, since "boxset" is not a real type in the database)
 export type TYPE_DB_SET_TYPE_OPTIONS = "show" | "movie" | "collection";
-export const DB_SET_TYPE_OPTIONS: TYPE_DB_SET_TYPE_OPTIONS[] = ["show", "movie", "collection"];
-
 // Saved Set Auto-Download Filter Options
 export type TYPE_FILTER_AUTO_DOWNLOAD_OPTIONS = "" | "on" | "off";
 export const FILTER_AUTO_DOWNLOAD_OPTIONS: {
@@ -48,14 +40,6 @@ export const HOME_PAGE_FILTER_IN_DB_OPTIONS: {
 
 // Has Sets Available Filter Options (Home Page)
 export type TYPE_HOME_PAGE_FILTER_HAS_SETS_AVAILABLE_OPTIONS = "" | "hasSetsAvailable" | "noSetsAvailable";
-export const HOME_PAGE_FILTER_HAS_SETS_AVAILABLE_OPTIONS: {
-  value: TYPE_HOME_PAGE_FILTER_HAS_SETS_AVAILABLE_OPTIONS;
-  label: string;
-}[] = [
-  { value: "hasSetsAvailable", label: "Has Sets Available" },
-  { value: "noSetsAvailable", label: "No Sets Available" },
-];
-
 // In Database Filter Options (User Page) - includes "otherSetInDB" to filter items that are in the database but only in other sets, not the current set
 export type TYPE_USER_PAGE_FILTER_IN_DB_OPTIONS = TYPE_HOME_PAGE_FILTER_IN_DB_OPTIONS | "otherSetInDB";
 export const USER_PAGE_FILTER_IN_DB_OPTIONS: {
@@ -65,12 +49,7 @@ export const USER_PAGE_FILTER_IN_DB_OPTIONS: {
 
 // Ignored Filter Options
 export type TYPE_FILTER_IGNORED_OPTIONS =
-  | ""
-  | "ignored"
-  | "always"
-  | "until-set-available"
-  | "until-new-set-available"
-  | "not_ignored";
+  "" | "ignored" | "always" | "until-set-available" | "until-new-set-available" | "not_ignored";
 export const FILTER_IGNORED_OPTIONS: {
   value: TYPE_FILTER_IGNORED_OPTIONS;
   label: string;
@@ -84,11 +63,7 @@ export const FILTER_IGNORED_OPTIONS: {
 
 // Download Default Type Options
 export type TYPE_DOWNLOAD_IMAGE_TYPE_OPTIONS =
-  | "poster"
-  | "backdrop"
-  | "season_poster"
-  | "special_season_poster"
-  | "titlecard";
+  "poster" | "backdrop" | "season_poster" | "special_season_poster" | "titlecard";
 export const DOWNLOAD_IMAGE_TYPE_OPTIONS: {
   value: TYPE_DOWNLOAD_IMAGE_TYPE_OPTIONS;
   label: string;
@@ -109,5 +84,12 @@ export const DOWNLOAD_COLLECTION_IMAGE_TYPE_OPTIONS: {
   { value: "collection_backdrop", label: "Collection Backdrop" },
 ];
 
-export type TYPE_LIBRARY_TYPE_OPTIONS = "movie" | "show" | "mixed";
+// Download Defaults can include the collection images, offered for collection sets on a movie's page
+export type TYPE_DOWNLOAD_DEFAULT_TYPE_OPTIONS =
+  TYPE_DOWNLOAD_IMAGE_TYPE_OPTIONS | TYPE_DOWNLOAD_COLLECTION_IMAGE_TYPE_OPTIONS;
+export const DOWNLOAD_DEFAULT_TYPE_OPTIONS: {
+  value: TYPE_DOWNLOAD_DEFAULT_TYPE_OPTIONS;
+  label: string;
+}[] = [...DOWNLOAD_IMAGE_TYPE_OPTIONS, ...DOWNLOAD_COLLECTION_IMAGE_TYPE_OPTIONS];
+
 export type TYPE_MEDIA_ITEM_TYPE_OPTIONS = "movie" | "show";

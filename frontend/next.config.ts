@@ -43,6 +43,10 @@ const nextConfig: NextConfig = {
         source: "/api/:path*",
         destination: `http://localhost:8888/api/:path*`,
       },
+      {
+        source: "/swagger/:path*",
+        destination: `http://localhost:8888/swagger/:path*`,
+      },
     ];
   },
 };

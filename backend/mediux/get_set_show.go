@@ -26,7 +26,7 @@ type showSetBySetID_ShowSetsByID struct {
 	Show BaseShowInfo `json:"show_id"`
 }
 
-func GetShowSetByID(ctx context.Context, setID string, itemLibraryTitle string) (set models.SetRef, includedItems map[string]models.IncludedItem, Err logging.LogErrorInfo) {
+func GetShowSetByID(ctx context.Context, setID string, itemLibraryTitle string, edition string) (set models.SetRef, includedItems map[string]models.IncludedItem, Err logging.LogErrorInfo) {
 	ctx, logAction := logging.AddSubActionToContext(ctx, "Get Show Set By ID", logging.LevelInfo)
 	defer logAction.Complete()
 
@@ -70,7 +70,7 @@ func GetShowSetByID(ctx context.Context, setID string, itemLibraryTitle string) 
 	includedItems[mediuxShowSet.Show.ID] = models.IncludedItem{MediuxInfo: baseItem}
 
 	// Find the Media Item info from the cache
-	mediaItem, found := cache.LibraryStore.GetMediaItemFromSectionByTMDBID(itemLibraryTitle, mediuxShowSet.Show.ID)
+	mediaItem, found := cache.LibraryStore.GetMediaItemFromSectionByTMDBIDAndEdition(itemLibraryTitle, mediuxShowSet.Show.ID, edition)
 	if found {
 		includedItem := includedItems[mediuxShowSet.Show.ID]
 		includedItem.MediaItem = *mediaItem

@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-func (s *SQliteDB) CheckIfMediaItemExists(ctx context.Context, TMDB_ID, libraryTitle string) (ignored bool, ignoreMode string, sets []models.DBSavedSet, logErr logging.LogErrorInfo) {
+func (s *SQliteDB) CheckIfMediaItemExists(ctx context.Context, TMDB_ID, libraryTitle, edition string) (ignored bool, ignoreMode string, sets []models.DBSavedSet, logErr logging.LogErrorInfo) {
 	ignored = false
 	ignoreMode = ""
 	sets = []models.DBSavedSet{}
@@ -48,8 +48,9 @@ func (s *SQliteDB) CheckIfMediaItemExists(ctx context.Context, TMDB_ID, libraryT
             FROM IgnoredItems
             WHERE tmdb_id = ?
               AND library_title = ?
+              AND edition = ?
             LIMIT 1;
-        `, TMDB_ID, libraryTitle).Scan(&mode)
+        `, TMDB_ID, libraryTitle, edition).Scan(&mode)
 
 		if err != nil && err != sql.ErrNoRows {
 			_, logAction := logging.AddSubActionToContext(ctx, "Checking ignored status for media item", logging.LevelError)
@@ -86,9 +87,10 @@ func (s *SQliteDB) CheckIfMediaItemExists(ctx context.Context, TMDB_ID, libraryT
         FROM SavedItems si
         JOIN PosterSets ps ON ps.id = si.poster_set_id
         WHERE si.tmdb_id = ?
-          AND si.library_title = ?;
+          AND si.library_title = ?
+          AND si.edition = ?;
     `
-	rows, err := s.conn.QueryContext(ctx, query, TMDB_ID, libraryTitle)
+	rows, err := s.conn.QueryContext(ctx, query, TMDB_ID, libraryTitle, edition)
 	if err != nil {
 		_, logAction := logging.AddSubActionToContext(ctx, "Checking if media item exists in database", logging.LevelError)
 		defer logAction.Complete()

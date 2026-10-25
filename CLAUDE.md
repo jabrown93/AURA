@@ -23,4 +23,5 @@ Hooks live in `.githooks/`, **not** wired up by default. Enable with `git config
 - Version single source: `VERSION.txt` (e.g. `v0.9.100`), mirrored in `version.json`. Baked into both binaries at build time (`-X main.APP_VERSION` for Go; `NEXT_PUBLIC_APP_VERSION` for Next).
 - `.github/workflows/aura.yml` (stable) and `aura-beta.yml` build/push multi-arch Docker images to GHCR + Docker Hub on push to `master` touching `backend/**`, `frontend/**`, or `VERSION.txt`.
 - Version suffixed `dev` enables backend dev-mode logging (`main.go#init`).
-- Docs: Jekyll site under `docs/`, published via `jekyll-gh-pages.yml`.
+- Docs: Starlight (Astro) site under `docs/`, published via `docs.yml`.
+- Upstream sync: `FORK.md` (policy, fork differences), `scripts/sync-upstream.sh`.

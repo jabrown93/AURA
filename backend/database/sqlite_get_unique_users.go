@@ -32,6 +32,10 @@ func (s *SQliteDB) GetAllUniqueUsers(ctx context.Context) (users []string, logEr
 		}
 		users = append(users, user)
 	}
+	if err := rows.Err(); err != nil {
+		logAction.SetError("Failed while iterating over unique user rows", "", map[string]any{"error": err.Error()})
+		return users, *logAction.Error
+	}
 
 	return users, logErr
 }

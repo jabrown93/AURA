@@ -1,12 +1,11 @@
+import type { CollectionItem } from "@/app/collections/page";
 import { collectionItemInfo } from "@/helper/item-info";
 import apiClient from "@/services/api-client";
 import { ReturnErrorMessage } from "@/services/api-error-return";
-import { updateArtworkVersion } from "@/services/downloads/artwork-version";
 
 import { log } from "@/lib/logger";
 
 import type { APIResponse } from "@/types/api/api-response";
-import type { CollectionItem } from "@/types/media-and-posters/collection-item";
 import type { CollectionItemImageFile } from "@/types/media-and-posters/sets";
 import { TYPE_DOWNLOAD_COLLECTION_IMAGE_TYPE_OPTIONS } from "@/types/ui-options";
 
@@ -17,7 +16,6 @@ export interface DownloadCollectionImage_Request {
 
 export interface DownloadCollectionImage_Response {
   result: string;
-  artwork_version?: number;
 }
 
 export const DownloadImageFileForCollectionItem = async (
@@ -45,7 +43,6 @@ export const DownloadImageFileForCollectionItem = async (
         response.data.error?.message || `Unknown error downloading ${imageType} image and updating media server`
       );
     } else {
-      updateArtworkVersion(collectionItem, response.data.data?.artwork_version);
       log(
         "INFO",
         "API - Media Server",

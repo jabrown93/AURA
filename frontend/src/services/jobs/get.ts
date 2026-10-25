@@ -8,9 +8,11 @@ import type { APIResponse } from "@/types/api/api-response";
 export type JobInfo = {
   id: string;
   spec: string;
+  enabled: boolean;
   next_run: string;
   prev_run: string;
   job_name: string;
+  description: string;
 };
 
 export interface GetAllJobs_Response {

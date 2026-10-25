@@ -1,7 +1,9 @@
 package middleware
 
 import (
+	"aura/config"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -17,9 +19,8 @@ Sets up the middleware stack for the given router.
 Middlewares included:
 - Custom Logging Middleware: Logs requests using a custom log formatter.
 - CORS Middleware: Allows CORS for all origins (replace this with specific origins).
-- RealIP Middleware: Gets the client's real public IP address from the request headers.
+- Client IP Middleware: Gets the client's IP address, using the X-Forwarded-For header when behind a reverse proxy.
 - StripSlashes Middleware: Strips slashes to no slash URL versions.
-- Request Body Limit Middleware: Caps how much of a request body will be read.
 - Panic Recovery Middleware: Recovers from panics and returns a 500 error.
 
 Parameters:
@@ -28,35 +29,34 @@ Parameters:
 */
 func Configure(r *chi.Mux) {
 
-	// Wildcard is safe alongside AllowCredentials here: rs/cors emits a literal "*" rather
-	// than reflecting the request Origin, and browsers refuse to attach credentials to a
-	// "*" response. Cross-origin reads therefore arrive without a session and are rejected
-	// by the Authenticator. Static linters flag this pair on sight; it is not exploitable.
-	AllowedOrigins := []string{"*"}
-
-	// CORS Middleware: Allow CORS for all origins (replace this with specific origins)
+	// CORS Middleware: the standard deployment (Next.js server proxying /api/* to this backend,
+	// see frontend/next.config.ts rewrites) is same-origin from the browser's perspective and
+	// never hits this at all - CORS only applies to genuine cross-origin requests. Wildcard +
+	// AllowCredentials is also rejected by browsers per spec, so this must be an explicit list;
+	// Auth.AllowedOrigins lets an admin opt a specific extra origin in if they're calling the API
+	// directly from somewhere else. Read on every request, so changes apply without a restart.
 	cors := cors.New(cors.Options{
-		AllowedOrigins:   AllowedOrigins,
+		AllowOriginFunc: func(origin string) bool {
+			return slices.Contains(config.Current.Auth.AllowedOrigins, origin)
+		},
 		AllowedMethods:   []string{"GET", "POST", "DELETE", "PATCH"},
-		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token", "X-Api-Key"},
 		ExposedHeaders:   []string{"Link"},
 		AllowCredentials: true,
 		MaxAge:           300, // Maximum value not ignored by any of major browsers
 	})
 	r.Use(cors.Handler)
 
-	// RealIP Middleware: Get the client's real public IP address from the request headers
-	r.Use(middleware.RealIP)
+	// Client IP Middleware: Get the client's IP address from the connection,
+	// or from the X-Forwarded-For header when the request comes from a reverse proxy
+	r.Use(middleware.ClientIPFromRemoteAddr)
+	r.Use(clientIPFromProxy)
 
 	// StripSlashes Middleware: Strip slashes to no slash URL versions
 	r.Use(middleware.StripSlashes)
 
 	// Custom middleware to remove extra slashes
 	r.Use(removeExtraSlashes)
-
-	// Cap request bodies. /api/login and the Sonarr/Radarr webhooks take unauthenticated
-	// POSTs, and every handler reads the body fully into memory before decoding it.
-	r.Use(limitRequestBody)
 
 	// Logging Middleware: Custom logging middleware
 	r.Use(LoggingMiddleware)
@@ -72,13 +72,17 @@ func removeExtraSlashes(next http.Handler) http.Handler {
 	})
 }
 
-// maxRequestBody sits far above any legitimate payload. The largest real request is a saved
-// item for a long-running show, which carries nested episode JSON; nothing here uploads files.
-const maxRequestBody = 8 << 20
+// Private network ranges, where reverse proxies in front of aura are expected to be
+var privateIPPrefixes = []string{"127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "::1/128", "fc00::/7"}
 
-func limitRequestBody(next http.Handler) http.Handler {
+func clientIPFromProxy(next http.Handler) http.Handler {
+	fromXFF := middleware.ClientIPFromXFF(privateIPPrefixes...)(next)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		r.Body = http.MaxBytesReader(w, r.Body, maxRequestBody)
+		ip := middleware.GetClientIPAddr(r.Context())
+		if ip.IsPrivate() || ip.IsLoopback() {
+			fromXFF.ServeHTTP(w, r)
+			return
+		}
 		next.ServeHTTP(w, r)
 	})
 }

@@ -2,7 +2,7 @@
 
 import { ValidateURL } from "@/helper/validation/validate-url";
 import { SendTestNotification } from "@/services/validation/notification";
-import { Plus, TestTube, Trash2 } from "lucide-react";
+import { Plus, RotateCcw, TestTube, Trash2 } from "lucide-react";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -12,8 +12,8 @@ import {
   type ConfigConnectionStatus,
 } from "@/components/settings-onboarding/ConfigSectionSonarrRadarr";
 import { PopoverHelp } from "@/components/shared/popover-help";
+import { VariablePicker, insertAtCursor } from "@/components/shared/variable-picker";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -23,8 +23,10 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 
 import { cn } from "@/lib/cn";
+import { log } from "@/lib/logger";
 
 import type {
+  AppConfig,
   AppConfigNotificationDiscord,
   AppConfigNotificationGotify,
   AppConfigNotificationProviders,
@@ -62,6 +64,7 @@ interface ConfigSectionNotificationsProps {
   errorsUpdate?: (errors: Record<string, string>) => void;
   configAlreadyLoaded: boolean;
   templateVariablesCatalog?: NotificationTemplateVariablesCatalog | null;
+  showSiloPlugin?: boolean;
 }
 
 const PROVIDER_TYPES = ["Discord", "Pushover", "Gotify", "Webhook"] as const;
@@ -71,9 +74,11 @@ const TEMPLATE_TITLES: Partial<Record<keyof AppConfigNotificationTemplate, strin
   test_notification: "Test Notification",
   autodownload: "Auto Download",
   download_queue: "Download Queue",
+  new_item_auto_download: "Auto Download New Item",
   new_sets_available_for_ignored_items: "New Sets Available for Ignored Item",
   check_for_media_item_changes_job: "Check For Media Item Changes Job",
   sonarr_notification: "Sonarr Notification",
+  silo_plugin: "Silo Plugin",
 };
 
 const TEMPLATE_SUPPORTS_IMAGE: Partial<Record<keyof AppConfigNotificationTemplate, boolean>> = {
@@ -81,10 +86,17 @@ const TEMPLATE_SUPPORTS_IMAGE: Partial<Record<keyof AppConfigNotificationTemplat
   test_notification: false,
   autodownload: true,
   download_queue: true,
+  new_item_auto_download: true,
   new_sets_available_for_ignored_items: true,
   check_for_media_item_changes_job: false,
   sonarr_notification: true,
+  silo_plugin: true,
 };
+
+// hasSiloMediaServer is whether a Silo server is in use, the Silo Plugin template is only for Silo
+export const hasSiloMediaServer = (config: AppConfig) =>
+  config.media_server?.type === "Silo" ||
+  (config.media_servers ?? []).some((server) => server.type === "Silo" && server.enabled !== false);
 
 const TEMPLATE_VAR_REGEX = /\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/g;
 
@@ -96,12 +108,19 @@ export const ConfigSectionNotifications: React.FC<ConfigSectionNotificationsProp
   errorsUpdate,
   configAlreadyLoaded,
   templateVariablesCatalog,
+  showSiloPlugin = false,
 }) => {
   const prevErrorsRef = useRef<string>("");
   const hasRunInitialValidation = useRef(false);
 
-  const [insertTargetByTemplate, setInsertTargetByTemplate] = useState<
-    Partial<Record<keyof AppConfigNotificationTemplate, "title" | "message">>
+  // The title and message fields of each template, to add variables at the cursor
+  const templateFieldRefs = useRef<
+    Partial<
+      Record<
+        keyof AppConfigNotificationTemplate,
+        { title?: HTMLInputElement | null; message?: HTMLTextAreaElement | null }
+      >
+    >
   >({});
 
   // Local select state for adding providers
@@ -118,7 +137,13 @@ export const ConfigSectionNotifications: React.FC<ConfigSectionNotificationsProp
   const [appConnectionStatus, setAppConnectionStatus] = useState<Record<number, ConfigConnectionStatus>>({});
   const [remoteTokenErrors, setRemoteTokenErrors] = useState<Record<number, string | null>>({});
 
-  const templateKeys = useMemo(() => Object.keys(TEMPLATE_TITLES) as Array<keyof AppConfigNotificationTemplate>, []);
+  const templateKeys = useMemo(
+    () =>
+      (Object.keys(TEMPLATE_TITLES) as Array<keyof AppConfigNotificationTemplate>).filter(
+        (key) => key !== "silo_plugin" || showSiloPlugin
+      ),
+    [showSiloPlugin]
+  );
   const templateVariables = useMemo(() => templateVariablesCatalog, [templateVariablesCatalog]);
 
   const getUsedVars = (text: string) => {
@@ -215,25 +240,25 @@ export const ConfigSectionNotifications: React.FC<ConfigSectionNotificationsProp
       newEntry = {
         provider: "Discord",
         enabled: true,
-        discord: { enabled: true, webhook: "" },
+        discord: { webhook: "" },
       };
     } else if (type === "Pushover") {
       newEntry = {
         provider: "Pushover",
         enabled: true,
-        pushover: { enabled: true, user_key: "", api_token: "" },
+        pushover: { user_key: "", api_token: "" },
       };
     } else if (type === "Gotify") {
       newEntry = {
         provider: "Gotify",
         enabled: true,
-        gotify: { enabled: true, url: "", api_token: "" },
+        gotify: { url: "", api_token: "" },
       };
     } else if (type === "Webhook") {
       newEntry = {
         provider: "Webhook",
         enabled: true,
-        webhook: { enabled: true, url: "", headers: {} },
+        webhook: { url: "", headers: {} },
       };
     } else {
       return;
@@ -338,6 +363,7 @@ export const ConfigSectionNotifications: React.FC<ConfigSectionNotificationsProp
     });
   };
 
+  // insertTemplateVariable puts the variable at the cursor of the title or message, or at the end
   const insertTemplateVariable = (
     key: keyof AppConfigNotificationTemplate,
     variable: string,
@@ -349,8 +375,7 @@ export const ConfigSectionNotifications: React.FC<ConfigSectionNotificationsProp
       message: "",
       include_image: false,
     };
-    const currentText = (tpl[target] || "").trim();
-    const nextText = `${currentText} ${variable}`.trim();
+    const nextText = insertAtCursor(templateFieldRefs.current[key]?.[target], tpl[target] || "", variable);
     updateTemplate(key, { [target]: nextText } as Partial<
       AppConfigNotificationTemplate[keyof AppConfigNotificationTemplate]
     >);
@@ -372,7 +397,7 @@ export const ConfigSectionNotifications: React.FC<ConfigSectionNotificationsProp
         const { ok, message } = await SendTestNotification(
           provider,
           "test_notification",
-          value.templates.test_notification || {
+          value.templates?.test_notification || {
             enabled: false,
             title: "Test Notification",
             message: "This is a test notification from aura.",
@@ -431,7 +456,7 @@ export const ConfigSectionNotifications: React.FC<ConfigSectionNotificationsProp
   }, [configAlreadyLoaded, runRemoteValidation]);
 
   return (
-    <Card className={`p-5 ${Object.values(errors).some(Boolean) ? "border-red-500" : "border-muted"}`}>
+    <Card className={`gap-4 p-4 sm:p-5 ${Object.values(errors).some(Boolean) ? "border-red-500" : "border-muted"}`}>
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-semibold text-blue-500">Notifications</h2>
       </div>
@@ -875,7 +900,7 @@ export const ConfigSectionNotifications: React.FC<ConfigSectionNotificationsProp
         })}
 
         {/* Notification Templates */}
-        <div className="space-y-3 pt-2">
+        <div className="space-y-3">
           <div>
             <h3 className="text-lg font-semibold text-blue-500">Custom Notification Templates</h3>
             <p className="text-sm text-muted-foreground">
@@ -898,7 +923,12 @@ export const ConfigSectionNotifications: React.FC<ConfigSectionNotificationsProp
                 ? [...new Set(usedVars.filter((v) => !allowedVars.includes(v)))]
                 : [];
               const supportsImage = TEMPLATE_SUPPORTS_IMAGE[key] ?? true;
-              const insertTarget = insertTargetByTemplate[key] || "message";
+              const defaultTpl = templateVariables?.default_templates?.[key];
+              const isDefault =
+                !defaultTpl ||
+                ((tpl.title || "") === defaultTpl.title &&
+                  (tpl.message || "") === defaultTpl.message &&
+                  (!supportsImage || !!tpl.include_image === !!defaultTpl.include_image));
 
               return (
                 <AccordionItem key={String(key)} value={String(key)} className="rounded-md border px-3 mb-1">
@@ -917,7 +947,26 @@ export const ConfigSectionNotifications: React.FC<ConfigSectionNotificationsProp
                     <div className="flex items-center justify-between">
                       <Label>Enabled</Label>
 
-                      <div>
+                      <div className="flex items-center">
+                        {/* Restore Default Button */}
+                        {editing && !isDefault && defaultTpl && (
+                          <Button
+                            className="mr-2"
+                            variant="outline"
+                            size="sm"
+                            onClick={() =>
+                              updateTemplate(key, {
+                                title: defaultTpl.title,
+                                message: defaultTpl.message,
+                                include_image: defaultTpl.include_image,
+                              })
+                            }
+                          >
+                            <RotateCcw className="h-4 w-4" />
+                            Restore Default
+                          </Button>
+                        )}
+
                         {/* Test Button */}
                         {value.enabled &&
                           tpl.enabled &&
@@ -934,7 +983,7 @@ export const ConfigSectionNotifications: React.FC<ConfigSectionNotificationsProp
                                 unknownVars.length > 0
                               }
                               onClick={() => {
-                                console.log("Testing notification with template:", {
+                                log("INFO", "Settings", "Notifications", "Testing notification with template", {
                                   ...tpl,
                                   title: tpl.title || "Test Title",
                                   message: tpl.message || "Test Message",
@@ -957,23 +1006,46 @@ export const ConfigSectionNotifications: React.FC<ConfigSectionNotificationsProp
 
                     <div className="space-y-1">
                       <Label>Title</Label>
-                      <Input
-                        disabled={!editing || !tpl.enabled}
-                        value={tpl.title || ""}
-                        onChange={(e) => updateTemplate(key, { title: e.target.value })}
-                        placeholder="Notification title"
-                      />
+                      <div className="flex items-center gap-2">
+                        <VariablePicker
+                          variables={allowedVars}
+                          disabled={!editing || !tpl.enabled}
+                          label={`the ${TEMPLATE_TITLES[key] || key} title`}
+                          onPick={(variable) => insertTemplateVariable(key, variable, "title")}
+                        />
+                        <Input
+                          ref={(el) => {
+                            templateFieldRefs.current[key] = { ...templateFieldRefs.current[key], title: el };
+                          }}
+                          disabled={!editing || !tpl.enabled}
+                          value={tpl.title || ""}
+                          onChange={(e) => updateTemplate(key, { title: e.target.value })}
+                          placeholder="Notification title"
+                          className="h-8 sm:h-9 text-xs sm:text-sm"
+                        />
+                      </div>
                     </div>
 
                     <div className="space-y-1">
                       <Label>Message</Label>
-                      <Textarea
-                        disabled={!editing || !tpl.enabled}
-                        value={tpl.message || ""}
-                        onChange={(e) => updateTemplate(key, { message: e.target.value })}
-                        placeholder="Notification message"
-                        className="w-full min-h-[80px] rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-vertical"
-                      />
+                      <div className="flex items-start gap-2">
+                        <VariablePicker
+                          variables={allowedVars}
+                          disabled={!editing || !tpl.enabled}
+                          label={`the ${TEMPLATE_TITLES[key] || key} message`}
+                          onPick={(variable) => insertTemplateVariable(key, variable, "message")}
+                        />
+                        <Textarea
+                          ref={(el) => {
+                            templateFieldRefs.current[key] = { ...templateFieldRefs.current[key], message: el };
+                          }}
+                          disabled={!editing || !tpl.enabled}
+                          value={tpl.message || ""}
+                          onChange={(e) => updateTemplate(key, { message: e.target.value })}
+                          placeholder="Notification message"
+                          className="w-full min-h-[80px] rounded-md border px-3 py-2 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-vertical"
+                        />
+                      </div>
                     </div>
 
                     {supportsImage && (
@@ -984,87 +1056,6 @@ export const ConfigSectionNotifications: React.FC<ConfigSectionNotificationsProp
                           checked={!!tpl.include_image}
                           onCheckedChange={(v) => updateTemplate(key, { include_image: v })}
                         />
-                      </div>
-                    )}
-
-                    {editing && allowedVars.length > 0 && (
-                      <div className="space-y-2">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Label className="text-xs text-muted-foreground">Insert Variable into</Label>
-                          <Button
-                            type="button"
-                            variant={insertTarget === "title" ? "default" : "outline"}
-                            size="sm"
-                            className="flex-1 sm:flex-none"
-                            disabled={!editing || !tpl.enabled}
-                            onClick={() =>
-                              setInsertTargetByTemplate((prev) => ({
-                                ...prev,
-                                [key]: "title",
-                              }))
-                            }
-                          >
-                            Title
-                          </Button>
-                          <Button
-                            type="button"
-                            variant={insertTarget === "message" ? "default" : "outline"}
-                            size="sm"
-                            className="flex-1 sm:flex-none"
-                            disabled={!editing || !tpl.enabled}
-                            onClick={() =>
-                              setInsertTargetByTemplate((prev) => ({
-                                ...prev,
-                                [key]: "message",
-                              }))
-                            }
-                          >
-                            Message
-                          </Button>
-                        </div>
-
-                        <div className="hidden sm:flex sm:flex-wrap gap-2">
-                          {allowedVars.map((v) => (
-                            <Badge
-                              key={v}
-                              variant="outline"
-                              className={cn(
-                                "cursor-pointer",
-                                (!editing || !tpl.enabled) && "cursor-not-allowed opacity-50"
-                              )}
-                              onClick={() => {
-                                if (!editing || !tpl.enabled) return;
-                                insertTemplateVariable(key, v, insertTarget);
-                              }}
-                            >
-                              {v}
-                            </Badge>
-                          ))}
-                        </div>
-
-                        <div className="sm:hidden space-y-1">
-                          <p className="text-[11px] text-muted-foreground">Swipe to browse variables</p>
-                          <div className="-mx-1 overflow-x-auto px-1 [scrollbar-width:none] [-ms-overflow-style:none]">
-                            <div className="flex snap-x snap-mandatory gap-2 pb-1">
-                              {allowedVars.map((v) => (
-                                <Badge
-                                  key={`mobile-${v}`}
-                                  variant="outline"
-                                  className={cn(
-                                    "cursor-pointer snap-start shrink-0 whitespace-nowrap",
-                                    (!editing || !tpl.enabled) && "cursor-not-allowed opacity-50"
-                                  )}
-                                  onClick={() => {
-                                    if (!editing || !tpl.enabled) return;
-                                    insertTemplateVariable(key, v, insertTarget);
-                                  }}
-                                >
-                                  {v}
-                                </Badge>
-                              ))}
-                            </div>
-                          </div>
-                        </div>
                       </div>
                     )}
 

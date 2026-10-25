@@ -5,12 +5,6 @@ import (
 	"time"
 )
 
-func IsNewerDate(date1, date2 string) bool {
-	dt1 := ConvertDateStringToTime(date1)
-	dt2 := ConvertDateStringToTime(date2)
-	return dt1.After(dt2)
-}
-
 // Formats a date string to time.Time
 func ConvertDateStringToTime(dateStr string) (dt time.Time) {
 

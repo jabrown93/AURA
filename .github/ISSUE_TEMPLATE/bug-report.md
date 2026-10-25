@@ -12,7 +12,7 @@ assignees: ""
 (e.g., 1.2.3)
 
 **Media Server Type:**  
-(e.g., Jellyfin, Plex, Emby)
+(e.g., Plex, Jellyfin, Emby, Silo)
 
 **Browser Used:**  
 (e.g., Chrome, Firefox, Edge)
@@ -43,3 +43,9 @@ assignees: ""
 ## Screenshots
 
 (Add in screenshots if needed)
+
+---
+
+## Debug Bundle
+
+(Attach the debug bundle zip. Download it from the Logs page or Settings > Advanced with the Debug Bundle button. Passwords, tokens, API keys, emails and addresses are replaced, but look through it before attaching.)

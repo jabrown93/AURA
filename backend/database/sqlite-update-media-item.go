@@ -26,7 +26,7 @@ func (s *SQliteDB) UpdateMediaItem(ctx context.Context, updatedItem models.Media
 	res, err := tx.ExecContext(ctx, `
         UPDATE MediaItems
         SET rating_key = ?, type = ?, title = ?, year = ?
-        WHERE tmdb_id = ? AND library_title = ?;
+        WHERE tmdb_id = ? AND library_title = ? AND edition = ?;
     `,
 		updatedItem.RatingKey,
 		updatedItem.Type,
@@ -34,6 +34,7 @@ func (s *SQliteDB) UpdateMediaItem(ctx context.Context, updatedItem models.Media
 		updatedItem.Year,
 		updatedItem.TMDB_ID,
 		updatedItem.LibraryTitle,
+		updatedItem.Edition,
 	)
 	if err != nil {
 		logAction.SetError("Failed to execute update statement", "", map[string]any{"error": err.Error()})

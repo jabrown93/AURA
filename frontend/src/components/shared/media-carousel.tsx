@@ -1,4 +1,4 @@
-import { setRefsToFormItems } from "@/helper/download-modal/set-to-form-item";
+import { setRefsToFormItems, sortFormItems } from "@/helper/download-modal/set-to-form-item";
 import { formatLastUpdatedDate } from "@/helper/format-date-last-updates";
 import { CircleAlert, Database, User, ZoomInIcon } from "lucide-react";
 
@@ -6,7 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { CarouselDisplay } from "@/components/shared/carousel-display";
-import DownloadModal from "@/components/shared/download-modal";
+import DownloadModal, { type FormItemDisplay } from "@/components/shared/download-modal";
 import { SetFileCounts } from "@/components/shared/set-file-counts";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -16,11 +16,12 @@ import { Lead } from "@/components/ui/typography";
 
 import { cn } from "@/lib/cn";
 import { useMediaStore } from "@/lib/stores/global-store-media-store";
+import { useOnboardingStore } from "@/lib/stores/global-store-onboarding";
 import { usePosterSetsStore } from "@/lib/stores/global-store-poster-sets";
 import { useSearchQueryStore } from "@/lib/stores/global-store-search-query";
 
 import type { MediaItem } from "@/types/media-and-posters/media-item-and-library";
-import type { IncludedItem, SetRef } from "@/types/media-and-posters/sets";
+import type { CollectionItemImageFile, IncludedItem, SetRef } from "@/types/media-and-posters/sets";
 
 type MediaCarouselProps = {
   set: SetRef;
@@ -28,9 +29,17 @@ type MediaCarouselProps = {
   mediaItem: MediaItem;
   onMediaItemChange?: (item: MediaItem) => void;
   dimNotFound?: boolean;
+  otherLibraryMediaItems?: MediaItem[];
 };
 
-export function MediaCarousel({ set, includedItems, mediaItem, onMediaItemChange, dimNotFound }: MediaCarouselProps) {
+export function MediaCarousel({
+  set,
+  includedItems,
+  mediaItem,
+  onMediaItemChange,
+  dimNotFound,
+  otherLibraryMediaItems,
+}: MediaCarouselProps) {
   const router = useRouter();
 
   const { setPosterSets, setIncludedItems, setSetBaseInfo } = usePosterSetsStore();
@@ -53,6 +62,36 @@ export function MediaCarousel({ set, includedItems, mediaItem, onMediaItemChange
   };
 
   const { setSearchQuery } = useSearchQueryStore();
+
+  const baseFormItems = setRefsToFormItems([set], includedItems || {});
+
+  // Silo uses one item for every library it is in, so images apply to all libraries at once.
+  // Only show one entry, and list the libraries it will apply to instead.
+  const mediaServerType = useOnboardingStore((state) => state.status?.current_setup?.media_server?.type);
+  const sharesItemsAcrossLibraries = mediaServerType === "Silo";
+  const sharedLibraryTitles = sharesItemsAcrossLibraries
+    ? [
+        mediaItem.library_title,
+        ...(otherLibraryMediaItems ?? [])
+          .filter((otherItem) => otherItem.rating_key === mediaItem.rating_key)
+          .map((otherItem) => otherItem.library_title),
+      ]
+    : [];
+
+  const crossLibraryFormItems: FormItemDisplay[] = (
+    sharesItemsAcrossLibraries ? [] : (otherLibraryMediaItems ?? [])
+  ).flatMap((otherItem) =>
+    baseFormItems
+      .filter((item) => item.MediaItem.tmdb_id === otherItem.tmdb_id)
+      .map((item) => ({ MediaItem: otherItem, Set: { ...item.Set } }))
+  );
+  // The item the page is for first, then the same item in other libraries, then the rest newest first
+  const downloadModalFormItems = sortFormItems([...baseFormItems, ...crossLibraryFormItems], mediaItem);
+
+  // A collection set's own poster and backdrop, for the media server collection they apply to
+  const collectionImages = set.images.filter(
+    (img): img is CollectionItemImageFile => img.type === "collection_poster" || img.type === "collection_backdrop"
+  );
 
   return (
     <Carousel
@@ -146,8 +185,14 @@ export function MediaCarousel({ set, includedItems, mediaItem, onMediaItemChange
             </Link>
             <DownloadModal
               baseSetInfo={set}
-              formItems={setRefsToFormItems([set], includedItems || {})}
+              formItems={downloadModalFormItems}
+              sharedLibraryTitles={sharedLibraryTitles}
               onDownloadComplete={onMediaItemChange}
+              collectionImages={
+                set.collection && collectionImages.length > 0
+                  ? { collection: set.collection, images: collectionImages }
+                  : undefined
+              }
             />
           </div>
         </div>
@@ -182,7 +227,7 @@ export function MediaCarousel({ set, includedItems, mediaItem, onMediaItemChange
           sets={[set] as SetRef[]}
           includedItems={includedItems || {}}
           dimNotFound={dimNotFound}
-          onArtworkApplied={onMediaItemChange}
+          currentTmdbId={mediaItem.tmdb_id}
         />
       </CarouselContent>
     </Carousel>

@@ -1,115 +1,260 @@
 "use client";
 
+import { configDirtyFields } from "@/helper/config/config-changes";
 import { ReturnErrorMessage } from "@/services/api-error-return";
+import { ExportAppConfig, ImportAppConfig } from "@/services/config/export-import";
 import { GetAppConfigStatus } from "@/services/config/status";
 import { GetNotificationTemplateVariables } from "@/services/config/template-variables";
-import { UpdateAppConfig } from "@/services/config/update";
-import { Edit, SaveIcon, X } from "lucide-react";
+import type { AppConfigSection } from "@/services/config/update-section";
+import { DownloadDebugBundle } from "@/services/logs/debug-bundle";
+import {
+  Bell,
+  Bug,
+  Clapperboard,
+  DatabaseBackup,
+  Download,
+  ImageIcon,
+  Loader2,
+  ScrollText,
+  Server,
+  ShieldCheck,
+  Tags,
+  TriangleAlert,
+  Upload,
+  UserCog,
+  Wrench,
+} from "lucide-react";
 import { toast } from "sonner";
 
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
+import { ConfigSaveStatus } from "@/components/settings-onboarding/ConfigSaveStatus";
 import { ConfigSectionAuth } from "@/components/settings-onboarding/ConfigSectionAuth";
-import { ConfigSectionAutoDownload } from "@/components/settings-onboarding/ConfigSectionAutoDownload";
-import { ConfigSectionImages } from "@/components/settings-onboarding/ConfigSectionImages";
+import { ConfigSectionBackups } from "@/components/settings-onboarding/ConfigSectionBackups";
+import { ConfigSectionImages, type ImageNameOptions } from "@/components/settings-onboarding/ConfigSectionImages";
 import { ConfigSectionLabelsAndTags } from "@/components/settings-onboarding/ConfigSectionLabelsAndTags";
 import { ConfigSectionLogging } from "@/components/settings-onboarding/ConfigSectionLogging";
 import { ConfigSectionMediaServer } from "@/components/settings-onboarding/ConfigSectionMediaServer";
 import { ConfigSectionMediux } from "@/components/settings-onboarding/ConfigSectionMediux";
-import { ConfigSectionNotifications } from "@/components/settings-onboarding/ConfigSectionNotifications";
+import {
+  ConfigSectionNotifications,
+  hasSiloMediaServer,
+} from "@/components/settings-onboarding/ConfigSectionNotifications";
+import { ConfigSectionOtherMediaServers } from "@/components/settings-onboarding/ConfigSectionOtherMediaServers";
 import { ConfigSectionSonarrRadarr } from "@/components/settings-onboarding/ConfigSectionSonarrRadarr";
 import { UserPreferencesCard } from "@/components/settings-onboarding/UserPreferences";
 import { ConfirmDestructiveDialogActionButton } from "@/components/shared/dialog-destructive-action";
 import { ErrorMessage } from "@/components/shared/error-message";
 import Loader from "@/components/shared/loader";
+import { MediuxLogoIcon } from "@/components/shared/mediux-logo-icon";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Card } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectSeparator,
+  SelectTrigger,
+} from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 
 import { cn } from "@/lib/cn";
 import { ClearAllStores } from "@/lib/stores/clear-all-stores";
+import { useOnboardingStore } from "@/lib/stores/global-store-onboarding";
+import { useUserPreferencesStore } from "@/lib/stores/global-user-preferences";
+
+import { useConfigAutosave } from "@/hooks/use-config-autosave";
 
 import type { APIResponse } from "@/types/api/api-response";
-import type {
-  AppConfig,
-  AppConfigNotificationDiscord,
-  AppConfigNotificationGotify,
-  AppConfigNotificationPushover,
-  AppConfigNotificationWebhook,
-  NotificationTemplateVariablesCatalog,
-} from "@/types/config/config";
+import type { AppConfig, NotificationTemplateVariablesCatalog } from "@/types/config/config";
 import { defaultAppConfig } from "@/types/config/config-default-app";
+import type { AppStatusResponse } from "@/types/config/response-status";
 
-type ObjectSectionKeys = {
-  [K in keyof AppConfig]-?: NonNullable<AppConfig[K]> extends object ? K : never;
-}[keyof AppConfig];
-
-type SectionDirty<S extends ObjectSectionKeys = ObjectSectionKeys> = S extends "sonarr_radarr"
-  ? Partial<{ type: boolean; library: boolean; url: boolean; api_token: boolean }>
-  : Partial<Record<keyof NonNullable<AppConfig[S]>, boolean>>;
-
-interface ImagesDirty {
-  cache_images?: { enabled?: boolean };
-  save_images_locally?: { enabled?: boolean; path?: string };
-  kometa?: { enabled?: boolean; asset_directory?: string; library_asset_folders?: boolean; import_cron?: string };
+interface SettingsSection {
+  id: string;
+  label: string;
+  description: string;
+  icon: React.ComponentType<{ className?: string }>;
+  group: string;
+  configSection?: AppConfigSection; // Config section the settings are saved to
 }
 
-type NotificationsDirty = {
-  enabled?: boolean;
-  providers?: Array<
-    Partial<
-      Record<
-        string,
-        | boolean
-        | {
-            enabled?: boolean;
-            webhook?: boolean;
-            user_key?: boolean;
-            api_token?: boolean;
-            url?: boolean;
-            headers?: Record<string, boolean>;
-          }
-      >
-    >
-  >;
+const SETTINGS_SECTIONS: SettingsSection[] = [
+  {
+    id: "mediux",
+    label: "MediUX",
+    description: "Your MediUX token and the quality of downloaded images.",
+    icon: MediuxLogoIcon,
+    group: "Connections",
+    configSection: "mediux",
+  },
+  {
+    id: "media-server",
+    label: "Media Servers",
+    description: "The main media server, and any other media servers aura applies images to.",
+    icon: Server,
+    group: "Connections",
+    configSection: "media_server",
+  },
+  {
+    id: "sonarr-radarr",
+    label: "Sonarr & Radarr",
+    description: "Sonarr and Radarr instances, used for tags.",
+    icon: Clapperboard,
+    group: "Connections",
+    configSection: "sonarr_radarr",
+  },
+  {
+    id: "authentication",
+    label: "Authentication",
+    description: "Password and Single Sign-On login, and the API key for integrations.",
+    icon: ShieldCheck,
+    group: "General",
+    configSection: "auth",
+  },
+  {
+    id: "images",
+    label: "Images",
+    description: "Image caching, and saving images next to your media.",
+    icon: ImageIcon,
+    group: "General",
+    configSection: "images",
+  },
+  {
+    id: "labels-and-tags",
+    label: "Labels & Tags",
+    description: "Labels and tags added to or removed from items when images are applied.",
+    icon: Tags,
+    group: "General",
+    configSection: "labels_and_tags",
+  },
+  {
+    id: "notifications",
+    label: "Notifications",
+    description: "Where aura sends notifications, and what they say.",
+    icon: Bell,
+    group: "General",
+    configSection: "notifications",
+  },
+  {
+    id: "logging",
+    label: "Logging",
+    description: "How much aura logs, and the log files.",
+    icon: ScrollText,
+    group: "General",
+    configSection: "logging",
+  },
+  {
+    id: "user-preferences",
+    label: "User Preferences",
+    description: "Download defaults and display options. These are saved to aura, so they apply on every device.",
+    icon: UserCog,
+    group: "Personal",
+  },
+  {
+    id: "backups",
+    label: "Backups",
+    description: "Backups of the database, with your settings and saved sets.",
+    icon: DatabaseBackup,
+    group: "System",
+    configSection: "backups",
+  },
+  {
+    id: "advanced",
+    label: "Advanced",
+    description: "Debug mode and the app cache in this browser.",
+    icon: Wrench,
+    group: "System",
+  },
+];
+
+// Config sections that are objects of settings, not the media server list
+type AppConfigObjectSection = Exclude<keyof AppConfig, "media_servers" | "main_media_server">;
+
+// Config sections that save automatically. Defined here so it stays stable
+const AUTOSAVE_SECTIONS = SETTINGS_SECTIONS.flatMap((section) =>
+  section.configSection ? [section.configSection] : []
+);
+
+// Older links to the User Preferences section use #preferences-section
+const sectionFromURL = (sectionParam: string | null): string | null => {
+  if (typeof window !== "undefined" && window.location.hash === "#preferences-section") return "user-preferences";
+  return sectionParam;
 };
 
-type DirtyState = {
-  [K in ObjectSectionKeys]?: K extends "images"
-    ? ImagesDirty
-    : K extends "sonarr_radarr"
-      ? Array<SectionDirty<"sonarr_radarr">>
-      : K extends "notifications"
-        ? NotificationsDirty
-        : SectionDirty<K>;
+// highlightSetting scrolls to a setting by its label and briefly highlights it.
+// Retries a few times, as the section may still be rendering.
+const highlightSetting = (container: HTMLElement | null, label: string, attempt = 0) => {
+  if (!container) return;
+  const match = Array.from(container.querySelectorAll("label, h2, h3")).find(
+    (element) => element.textContent?.trim().toLowerCase() === label.trim().toLowerCase()
+  );
+  if (!match) {
+    // Open collapsed sections like Advanced and look again
+    if (attempt === 2) {
+      container
+        .querySelectorAll<HTMLElement>('[data-slot="accordion-trigger"][data-state="closed"]')
+        .forEach((trigger) => trigger.click());
+    }
+    if (attempt < 10) setTimeout(() => highlightSetting(container, label, attempt + 1), 150);
+    return;
+  }
+  // Highlight the setting's box, or the label if it isn't in one
+  const target = (match.closest(".border, .rounded-md") as HTMLElement | null) ?? (match as HTMLElement);
+  target.scrollIntoView({ behavior: "smooth", block: "center" });
+  const classes = ["ring-2", "ring-primary", "ring-offset-2", "ring-offset-background", "transition-shadow"];
+  target.classList.add(...classes);
+  setTimeout(() => target.classList.remove(...classes), 2500);
 };
 
-type ValidationErrors = {
-  [K in ObjectSectionKeys]?: Record<string, string>; // field -> message
-};
+// Dirty field shapes for each settings card, built by configDirtyFields
+const dirtyFieldsAs = <T,>(dirty: unknown): T => dirty as T;
 
-const SettingsPage: React.FC = () => {
+type ValidationErrors = Partial<Record<AppConfigSection, Record<string, string>>>;
+
+function SettingsPageContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const isMounted = useRef(false);
+  const contentRef = useRef<HTMLDivElement>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<APIResponse<unknown> | null>(null);
 
-  const [editing, setEditing] = useState(false);
-  const [saving, setSaving] = useState(false);
-
-  const [initialConfig, setInitialConfig] = useState<AppConfig>(() => defaultAppConfig());
-  const [newConfig, setNewConfig] = useState<AppConfig>(() => defaultAppConfig());
+  // savedConfig is what's saved in aura; draftConfig includes unsaved changes
+  const [savedConfig, setSavedConfig] = useState<AppConfig>(() => defaultAppConfig());
+  const [draftConfig, setDraftConfig] = useState<AppConfig>(() => defaultAppConfig());
   const [notificationTemplateVariables, setNotificationTemplateVariables] =
     useState<NotificationTemplateVariablesCatalog | null>(null);
-  const [dirty, setDirty] = useState<DirtyState>({});
-
+  const [imageNameOptions, setImageNameOptions] = useState<ImageNameOptions | null>(null);
   const [validationErrors, setValidationErrors] = useState<ValidationErrors>({});
+  const [apiKeyConfigured, setApiKeyConfigured] = useState(false);
+  const [authDisabledByEnv, setAuthDisabledByEnv] = useState(false);
 
-  const preferencesRef = useRef<HTMLDivElement>(null);
+  // Export / Import
+  const [exporting, setExporting] = useState(false);
+  const [creatingBundle, setCreatingBundle] = useState(false);
+  const [exportDialogOpen, setExportDialogOpen] = useState(false);
+  const [importFile, setImportFile] = useState<{ name: string; text: string } | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+  const importInputRef = useRef<HTMLInputElement>(null);
 
-  const [activeTab, setActiveTab] = useState("app-settings");
+  const [activeSectionId, setActiveSectionId] = useState(SETTINGS_SECTIONS[0].id);
+  const [groupSaving, setGroupSaving] = useState(false);
 
   // State - Debug Mode
   const [debugEnabled, setDebugEnabled] = useState(false);
@@ -119,48 +264,41 @@ const SettingsPage: React.FC = () => {
     setDebugEnabled(savedMode);
   }, []);
 
-  useEffect(() => {
-    const scrollToPreferences = () => {
-      if (loading) return;
-      if (window.location.hash === "#preferences-section") {
-        preferencesRef.current?.scrollIntoView({ behavior: "smooth" });
-      }
-    };
-    window.addEventListener("hashchange", scrollToPreferences);
-    // Run on mount
-    scrollToPreferences();
-    return () => window.removeEventListener("hashchange", scrollToPreferences);
-  }, [loading]);
-
   const toggleDebugMode = (checked: boolean) => {
     setDebugEnabled(checked);
     localStorage.setItem("debugMode", checked.toString());
   };
 
-  const fetchAndSetConfig = async (reload: boolean = false) => {
+  const fetchAndSetConfig = async () => {
     try {
       setLoading(true);
-      const response = await GetAppConfigStatus(reload);
+      const response = await GetAppConfigStatus();
       const templateVariableResponse = await GetNotificationTemplateVariables();
       if (response.status === "error") {
         setError(response);
-        setInitialConfig(defaultAppConfig());
-        setNewConfig(defaultAppConfig());
+        setSavedConfig(defaultAppConfig());
+        setDraftConfig(defaultAppConfig());
         return;
       }
 
       if (templateVariableResponse.status === "success" && templateVariableResponse.data?.variables) {
         setNotificationTemplateVariables(templateVariableResponse.data.variables);
+        setImageNameOptions({
+          variables: templateVariableResponse.data.image_name_variables ?? [],
+          defaults: templateVariableResponse.data.image_name_defaults,
+        });
       }
 
       const cfg = response.data?.status.current_setup ?? defaultAppConfig();
-      setInitialConfig(cfg);
-      setNewConfig(cfg);
+      setSavedConfig(cfg);
+      setDraftConfig(cfg);
+      setApiKeyConfigured(response.data?.status.api_key_configured ?? false);
+      setAuthDisabledByEnv(response.data?.status.auth_disabled_by_env ?? false);
       setError(null);
     } catch (error) {
       setError(ReturnErrorMessage<AppConfig>(error));
-      setInitialConfig(defaultAppConfig());
-      setNewConfig(defaultAppConfig());
+      setSavedConfig(defaultAppConfig());
+      setDraftConfig(defaultAppConfig());
     } finally {
       setLoading(false);
     }
@@ -170,626 +308,705 @@ const SettingsPage: React.FC = () => {
   useEffect(() => {
     if (isMounted.current) return;
     isMounted.current = true;
-
     fetchAndSetConfig();
   }, []);
 
-  const handleCancel = () => {
-    setEditing(false);
-    setSaving(false);
-    setDirty({});
-    setNewConfig(initialConfig); // <- reset edits
-  };
-
-  const handleSaveAll = async () => {
-    if (!newConfig) return;
-
-    setSaving(true);
-
-    setEditing(false);
-
-    try {
-      const resp = await UpdateAppConfig(newConfig);
-
-      if (resp.status === "error") {
-        setError(resp);
-      } else if (resp.status === "warn") {
-        toast.warning("No changes detected.");
-      } else {
-        toast.success("Configuration updated successfully.");
-        window.location.reload();
-      }
-    } catch (error) {
-      toast.error(
-        typeof error === "object" && error !== null && "message" in error
-          ? (error as { message?: string }).message || "Unknown error"
-          : "Unknown error"
-      );
+  // Open the section from the URL and highlight the setting
+  const sectionParam = searchParams.get("section");
+  const settingParam = searchParams.get("setting");
+  useEffect(() => {
+    const sectionId = sectionFromURL(sectionParam);
+    if (sectionId && SETTINGS_SECTIONS.some((section) => section.id === sectionId)) {
+      setActiveSectionId(sectionId);
     }
-    setSaving(false);
-    setDirty({});
-  };
+  }, [sectionParam]);
+  useEffect(() => {
+    if (loading || !settingParam) return;
+    highlightSetting(contentRef.current, settingParam);
+  }, [loading, sectionParam, settingParam]);
 
-  const structuralEqual = (a: unknown, b: unknown): boolean => {
-    if (a === b) return true;
-    if (Array.isArray(a) && Array.isArray(b)) {
-      if (a.length !== b.length) return false;
-      for (let i = 0; i < a.length; i++) {
-        if (!structuralEqual(a[i], b[i])) return false;
-      }
-      return true;
-    }
-    if (a && b && typeof a === "object" && typeof b === "object") {
-      const keysA = Object.keys(a as object);
-      const keysB = Object.keys(b as object);
-      if (keysA.length !== keysB.length) return false;
-      for (const k of keysA) {
-        if (!structuralEqual((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k])) return false;
-      }
-      return true;
-    }
-    return false;
-  };
+  // User Preferences are saved by their own store
+  const preferencesSaveStatus = useUserPreferencesStore((state) => state.saveStatus);
+  const preferencesSaveError = useUserPreferencesStore((state) => state.saveError);
+  const retryPreferencesSave = useUserPreferencesStore((state) => state.retrySave);
 
-  const updateConfigField = <S extends ObjectSectionKeys, F extends keyof AppConfig[S]>(
-    section: S,
-    field: F,
-    value: AppConfig[S][F]
-  ) => {
-    setNewConfig((prev) => {
-      const prevSection = (prev[section] ?? {}) as NonNullable<AppConfig[S]>;
-      return {
+  const { saveState, hasGroupChanges, isBlockedByErrors, saveGroup, retry, discardGroup } = useConfigAutosave({
+    sections: AUTOSAVE_SECTIONS,
+    savedConfig,
+    draftConfig,
+    setSavedConfig,
+    setDraftConfig,
+    validationErrors,
+  });
+
+  // The other media servers are saved on their own, so only the media server list is updated
+  const applyMediaServersStatus = useCallback((status: AppStatusResponse) => {
+    const mediaServers = {
+      media_servers: status.current_setup.media_servers,
+      main_media_server: status.current_setup.main_media_server,
+    };
+    setSavedConfig((prev) => ({ ...prev, ...mediaServers }));
+    setDraftConfig((prev) => ({ ...prev, ...mediaServers }));
+    useOnboardingStore.getState().setStatus(status);
+  }, []);
+
+  // Changed fields are highlighted in the cards until they are saved
+  const dirty = useMemo(
+    () => configDirtyFields(savedConfig, draftConfig) as Partial<Record<keyof AppConfig, unknown>>,
+    [savedConfig, draftConfig]
+  );
+
+  const updateConfigField = useCallback(
+    <S extends AppConfigObjectSection, F extends keyof AppConfig[S]>(section: S, field: F, value: AppConfig[S][F]) => {
+      setDraftConfig((prev) => ({ ...prev, [section]: { ...prev[section], [field]: value } }));
+    },
+    []
+  );
+
+  const updateImagesField = useCallback(
+    <G extends keyof AppConfig["images"], F extends keyof AppConfig["images"][G]>(
+      group: G,
+      field: F,
+      value: AppConfig["images"][G][F]
+    ) => {
+      setDraftConfig((prev) => ({
         ...prev,
-        [section]: {
-          ...prevSection,
-          [field]: value,
-        },
-      };
-    });
+        images: { ...prev.images, [group]: { ...prev.images[group], [field]: value } },
+      }));
+    },
+    []
+  );
 
-    setDirty((prev) => {
-      // --- SonarrRadarr dirty tracking ---
-      if (section === "sonarr_radarr" && field === "applications") {
-        const originalApps = initialConfig.sonarr_radarr.applications ?? [];
-        const newApps = (value as AppConfig["sonarr_radarr"]["applications"]) ?? [];
-        const dirtyArr = newApps.map((app, idx) => {
-          const orig = originalApps[idx];
-          const dirtyObj: SectionDirty<"sonarr_radarr"> = {};
-          for (const key of ["type", "library", "url", "api_token"] as const) {
-            if (app[key] !== orig?.[key]) dirtyObj[key] = true;
-          }
-          return dirtyObj;
-        });
-        return { ...prev, sonarr_radarr: dirtyArr };
-      }
-
-      // --- Notifications dirty tracking ---
-      if (section === "notifications" && field === "providers") {
-        const originalProviders = initialConfig.notifications?.providers ?? [];
-        const newProviders = value as AppConfig["notifications"]["providers"];
-        const dirtyProviders = newProviders.map((prov, idx) => {
-          const orig = originalProviders[idx] ?? {};
-          const dirtyObj: Partial<
-            Record<
-              string,
-              {
-                enabled?: boolean;
-                webhook?: boolean;
-                user_key?: boolean;
-                api_token?: boolean;
-                url?: boolean;
-                headers?: Record<string, boolean>;
-              }
-            >
-          > = {};
-
-          for (const key of ["discord", "pushover", "gotify", "webhook"] as const) {
-            if (prov[key] && orig?.[key]) {
-              const fieldDirty: {
-                enabled?: boolean;
-                webhook?: boolean;
-                user_key?: boolean;
-                url?: boolean;
-                api_token?: boolean;
-                headers?: Record<string, boolean>;
-              } = {};
-              if (key === "discord") {
-                const discordKeys = ["enabled", "webhook"] as const;
-                for (const subKey of discordKeys) {
-                  if (
-                    (prov[key] as AppConfigNotificationDiscord)[subKey] !==
-                    (orig[key] as AppConfigNotificationDiscord)[subKey]
-                  ) {
-                    fieldDirty[subKey] = true;
-                  }
-                }
-              } else if (key === "pushover") {
-                const pushoverKeys = ["enabled", "user_key", "api_token"] as const;
-                for (const subKey of pushoverKeys) {
-                  if (
-                    (prov[key] as AppConfigNotificationPushover)[subKey] !==
-                    (orig[key] as AppConfigNotificationPushover)[subKey]
-                  ) {
-                    fieldDirty[subKey] = true;
-                  }
-                }
-              } else if (key === "gotify") {
-                const gotifyKeys = ["enabled", "api_token", "url"] as const;
-                for (const subKey of gotifyKeys) {
-                  if (
-                    (prov[key] as AppConfigNotificationGotify)[subKey] !==
-                    (orig[key] as AppConfigNotificationGotify)[subKey]
-                  ) {
-                    fieldDirty[subKey] = true;
-                  }
-                }
-              } else if (key === "webhook") {
-                const webhookKeys = ["enabled", "url"] as const;
-                for (const subKey of webhookKeys) {
-                  if (
-                    (prov[key] as AppConfigNotificationWebhook)[subKey] !==
-                    (orig[key] as AppConfigNotificationWebhook)[subKey]
-                  ) {
-                    fieldDirty[subKey] = true;
-                  }
-                }
-                // Deep compare Headers
-                const newHeaders = (prov[key] as AppConfigNotificationWebhook).headers ?? {};
-                const origHeaders = (orig[key] as AppConfigNotificationWebhook).headers ?? {};
-                const headersDirty: Record<string, boolean> = {};
-                const allHeaderKeys = Array.from(new Set([...Object.keys(newHeaders), ...Object.keys(origHeaders)]));
-                for (const hKey of allHeaderKeys) {
-                  if (newHeaders[hKey] !== origHeaders[hKey]) {
-                    headersDirty[hKey] = true;
-                  }
-                }
-                fieldDirty.headers = Object.keys(headersDirty).length > 0 ? headersDirty : undefined;
-              }
-              if (Object.keys(fieldDirty).length > 0) {
-                dirtyObj[key] = fieldDirty;
-              }
-            }
-          }
-          return dirtyObj;
-        });
-        return {
-          ...prev,
-          notifications: {
-            ...prev.notifications,
-            providers: dirtyProviders,
-          },
-        };
-      }
-
-      const originalValue = initialConfig[section]?.[field];
-      const reverted: boolean = structuralEqual(originalValue, value);
-
-      const prevSectionDirty = (prev[section] ?? {}) as SectionDirty<S>;
-      let nextSectionDirty = prevSectionDirty;
-
-      // Only run for non-SonarrRadarr sections
-      if (section !== "sonarr_radarr") {
-        // Explicit cast via unknown to satisfy TypeScript
-        const dirtyKey = field as unknown as keyof SectionDirty<S>;
-        if (reverted) {
-          if (prevSectionDirty[dirtyKey]) {
-            const clone = { ...prevSectionDirty };
-            delete clone[dirtyKey];
-            nextSectionDirty = clone;
-          }
-        } else if (!prevSectionDirty[dirtyKey]) {
-          nextSectionDirty = { ...prevSectionDirty, [dirtyKey]: true };
+  const updateSectionErrors = useCallback(
+    (section: AppConfigSection, errs: Record<string, string> | Partial<Record<string, string>>) => {
+      setValidationErrors((prev) => {
+        const cleaned = Object.fromEntries(Object.entries(errs ?? {}).filter(([, message]) => !!message)) as Record<
+          string,
+          string
+        >;
+        if (Object.keys(cleaned).length === 0) {
+          if (!prev[section]) return prev;
+          const { [section]: _, ...rest } = prev;
+          return rest;
         }
+        return { ...prev, [section]: cleaned };
+      });
+    },
+    []
+  );
 
-        const nextState: DirtyState = { ...prev };
-        if (Object.keys(nextSectionDirty).length === 0) {
-          delete nextState[section];
-        } else {
-          nextState[section] = nextSectionDirty as DirtyState[S];
-        }
-        return nextState;
-      }
+  // Labels & Tags only apply to Plex, or with Sonarr/Radarr
+  const labelsAndTagsAvailable =
+    draftConfig.media_server.type === "Plex" ||
+    (Array.isArray(draftConfig.sonarr_radarr.applications) && draftConfig.sonarr_radarr.applications.length > 0);
+  const visibleSections = SETTINGS_SECTIONS.filter(
+    (section) => section.id !== "labels-and-tags" || labelsAndTagsAvailable
+  );
+  const activeSection = visibleSections.find((section) => section.id === activeSectionId) ?? visibleSections[0];
+  const activeConfigSection = activeSection.configSection;
 
-      return prev;
-    });
+  const selectSection = (sectionId: string) => {
+    setActiveSectionId(sectionId);
+    window.history.replaceState(null, "", `?section=${sectionId}`);
   };
 
-  const updateImagesField = <G extends keyof AppConfig["images"], F extends keyof AppConfig["images"][G]>(
-    group: G,
-    field: F,
-    value: AppConfig["images"][G][F]
-  ) => {
-    setNewConfig((prev) => {
-      const nextGroup = {
-        ...prev.images[group],
-        [field]: value,
-      };
-      return {
-        ...prev,
-        images: {
-          ...prev.images,
-          [group]: nextGroup,
-        },
-      };
-    });
-
-    setDirty((prev) => {
-      const originalVal = initialConfig.images[group][field];
-      const reverted = originalVal === value;
-
-      const prevImagesDirty = (prev.images ?? {}) as ImagesDirty;
-      const prevGroupDirty = (prevImagesDirty[group] ?? {}) as { [k in F]?: boolean };
-
-      let nextGroupDirty = prevGroupDirty;
-
-      if (reverted) {
-        if (prevGroupDirty[field]) {
-          const clone = { ...prevGroupDirty };
-          delete clone[field];
-          nextGroupDirty = clone;
-        }
-      } else if (!prevGroupDirty[field]) {
-        nextGroupDirty = { ...prevGroupDirty, [field]: true };
-      }
-
-      const nextImagesDirty: ImagesDirty = { ...prevImagesDirty };
-      if (Object.keys(nextGroupDirty).length === 0) {
-        delete nextImagesDirty[group];
-      } else {
-        nextImagesDirty[group] = nextGroupDirty;
-      }
-
-      const nextState: DirtyState = { ...prev };
-      if (Object.keys(nextImagesDirty).length === 0) {
-        delete nextState.images;
-      } else {
-        nextState.images = nextImagesDirty;
-      }
-      return nextState;
-    });
+  // Show a dot on sections that need attention
+  const sectionIndicator = (section: SettingsSection): "error" | "unsaved" | null => {
+    const configSection = section.configSection;
+    if (!configSection) return null;
+    if (saveState[configSection]?.status === "error" || validationErrors[configSection]) return "error";
+    if (hasGroupChanges(configSection) || isBlockedByErrors(configSection)) return "unsaved";
+    return null;
   };
 
-  const anyDirty =
-    Object.values(dirty).some((section) => section && Object.values(section).some(Boolean)) ||
-    JSON.stringify(initialConfig) !== JSON.stringify(newConfig);
-
-  const updateSectionErrors = <S extends ObjectSectionKeys>(
-    section: S,
-    errs: Record<string, string> | Partial<Record<string, string>>
-  ) => {
-    setValidationErrors((prev) => {
-      if (!errs || Object.keys(errs).length === 0) {
-        const { [section]: _, ...rest } = prev;
-        return rest;
-      }
-      return { ...prev, [section]: errs as Record<string, string> };
-    });
+  const handleExport = async (redacted: boolean) => {
+    setExporting(true);
+    const result = await ExportAppConfig(redacted);
+    setExporting(false);
+    setExportDialogOpen(false);
+    if (!result.ok) {
+      toast.error(`Failed to export configuration: ${result.error}`);
+      return;
+    }
+    const url = URL.createObjectURL(result.blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = result.filename;
+    link.click();
+    URL.revokeObjectURL(url);
+    toast.success(redacted ? "Redacted configuration exported" : "Configuration exported");
   };
 
-  const hasValidationErrors = Object.keys(validationErrors).length > 0;
+  const handleDebugBundle = async () => {
+    setCreatingBundle(true);
+    const result = await DownloadDebugBundle();
+    setCreatingBundle(false);
+    if (!result.ok) {
+      toast.error(`Failed to download the debug bundle: ${result.error}`);
+      return;
+    }
+    toast.success("Debug bundle downloaded");
+  };
+
+  const handleImportFileChosen = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = ""; // Allow choosing the same file again
+    if (!file) return;
+    setImportError(null);
+    setImportFile({ name: file.name, text: await file.text() });
+  };
+
+  const handleImportConfirm = async () => {
+    if (!importFile) return;
+    setImporting(true);
+    setImportError(null);
+    const response = await ImportAppConfig(importFile.text);
+    setImporting(false);
+    if (response.status === "error") {
+      setImportError(response.error?.message || "Failed to import configuration");
+      return;
+    }
+    setImportFile(null);
+    if (response.data?.status) {
+      useOnboardingStore.getState().setStatus(response.data.status);
+    }
+    toast.success(
+      response.status === "warn" ? "The file matches your current configuration" : "Configuration imported"
+    );
+    await fetchAndSetConfig();
+  };
+
+  const handleTestAndSave = async (section: AppConfigSection, label: string) => {
+    setGroupSaving(true);
+    const success = await saveGroup(section);
+    setGroupSaving(false);
+    if (success) {
+      toast.success(`${label} settings saved`);
+    } else {
+      toast.error(`Failed to save ${label} settings`);
+    }
+  };
+
+  const groupChangesPending = activeConfigSection ? hasGroupChanges(activeConfigSection) : false;
+  const activeSectionHasErrors = activeConfigSection ? !!validationErrors[activeConfigSection] : false;
+
+  const renderSectionContent = () => {
+    switch (activeSection.id) {
+      case "mediux":
+        return (
+          <ConfigSectionMediux
+            value={draftConfig.mediux}
+            editing={true}
+            showActions={true}
+            configAlreadyLoaded={true}
+            dirtyFields={dirtyFieldsAs(dirty.mediux)}
+            onChange={(field, value) => updateConfigField("mediux", field, value)}
+            errorsUpdate={(errs) => updateSectionErrors("mediux", errs as Record<string, string>)}
+          />
+        );
+      case "media-server":
+        return (
+          <>
+            <ConfigSectionMediaServer
+              value={draftConfig.media_server}
+              editing={true}
+              showActions={true}
+              configAlreadyLoaded={true}
+              title={draftConfig.media_server.name || draftConfig.media_server.type || "Media Server"}
+              badge="Main"
+              showName={true}
+              dirtyFields={dirtyFieldsAs(dirty.media_server)}
+              onChange={(field, value) => updateConfigField("media_server", field, value)}
+              errorsUpdate={(errs) => updateSectionErrors("media_server", errs as Record<string, string>)}
+            />
+            <ConfigSectionOtherMediaServers
+              servers={savedConfig.media_servers ?? []}
+              mainMediaServer={savedConfig.main_media_server ?? ""}
+              mainLibraries={savedConfig.media_server.libraries ?? []}
+              onSaved={applyMediaServersStatus}
+            />
+          </>
+        );
+      case "sonarr-radarr":
+        return (
+          <ConfigSectionSonarrRadarr
+            value={draftConfig.sonarr_radarr}
+            editing={true}
+            dirtyFields={dirtyFieldsAs(dirty.sonarr_radarr)}
+            onChange={(field, val) => updateConfigField("sonarr_radarr", field, val)}
+            errorsUpdate={(errs) => updateSectionErrors("sonarr_radarr", errs as Record<string, string>)}
+            configAlreadyLoaded={true}
+            libraries={draftConfig.media_server.libraries || []}
+          />
+        );
+      case "authentication":
+        return (
+          <>
+            {authDisabledByEnv && (
+              <Alert className="mb-4 border-amber-500 text-amber-500">
+                <TriangleAlert className="h-4 w-4" />
+                <AlertTitle>Authentication is turned off by AURA_DISABLE_AUTH</AlertTitle>
+                <AlertDescription>
+                  Anyone who can reach aura can use it, even if authentication is enabled below. Once you have access
+                  again (e.g. after setting a new password), remove the AURA_DISABLE_AUTH environment variable and
+                  restart aura.
+                </AlertDescription>
+              </Alert>
+            )}
+            <ConfigSectionAuth
+              value={draftConfig.auth}
+              editing={true}
+              dirtyFields={dirtyFieldsAs(dirty.auth)}
+              onChange={(field, value) => updateConfigField("auth", field, value)}
+              errorsUpdate={(errs) => updateSectionErrors("auth", errs as Record<string, string>)}
+              apiKeyConfigured={apiKeyConfigured}
+            />
+          </>
+        );
+      case "images":
+        return (
+          <ConfigSectionImages
+            value={draftConfig.images}
+            editing={true}
+            showActions={true}
+            dirtyFields={dirtyFieldsAs(dirty.images)}
+            onChange={updateImagesField}
+            errorsUpdate={(errs) => updateSectionErrors("images", errs as Record<string, string>)}
+            mediaServerType={draftConfig.media_server.type}
+            imageNameOptions={imageNameOptions}
+            libraries={draftConfig.media_server.libraries ?? []} // Fork: Kometa subfolders
+          />
+        );
+      case "labels-and-tags":
+        return (
+          <ConfigSectionLabelsAndTags
+            value={draftConfig.labels_and_tags}
+            editing={true}
+            dirtyFields={dirtyFieldsAs(dirty.labels_and_tags)}
+            mediaServerType={draftConfig.media_server.type}
+            srOptions={Array.from(
+              new Set((draftConfig.sonarr_radarr.applications ?? []).map((app) => app.type).filter((type) => !!type))
+            )}
+            onChange={(field, val) => updateConfigField("labels_and_tags", field, val)}
+            errorsUpdate={(errs) => updateSectionErrors("labels_and_tags", errs as Record<string, string>)}
+          />
+        );
+      case "notifications":
+        return (
+          <ConfigSectionNotifications
+            value={draftConfig.notifications}
+            editing={true}
+            dirtyFields={dirtyFieldsAs(dirty.notifications)}
+            onChange={(field, val) => updateConfigField("notifications", field, val)}
+            errorsUpdate={(errs) => updateSectionErrors("notifications", errs as Record<string, string>)}
+            // Checking a provider sends a test notification, so only check when Test is clicked
+            configAlreadyLoaded={false}
+            templateVariablesCatalog={notificationTemplateVariables}
+            showSiloPlugin={hasSiloMediaServer(draftConfig)}
+          />
+        );
+      case "logging":
+        return (
+          <ConfigSectionLogging
+            value={draftConfig.logging}
+            editing={true}
+            showActions={true}
+            dirtyFields={dirtyFieldsAs(dirty.logging)}
+            onChange={(field, value) => updateConfigField("logging", field, value)}
+            errorsUpdate={(errs) => updateSectionErrors("logging", errs as Record<string, string>)}
+          />
+        );
+      case "backups":
+        return (
+          <ConfigSectionBackups
+            value={draftConfig.backups}
+            dirtyFields={dirtyFieldsAs(dirty.backups)}
+            onChange={(field, value) => updateConfigField("backups", field, value)}
+            errorsUpdate={(errs) => updateSectionErrors("backups", errs as Record<string, string>)}
+          />
+        );
+      case "user-preferences":
+        return <UserPreferencesCard />;
+      case "advanced":
+        return (
+          <Card className="gap-4 border-muted p-4 sm:p-5">
+            <div className="flex flex-col gap-3 border rounded-md p-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <Label>Export Configuration</Label>
+                <p className="text-sm text-muted-foreground">
+                  Download your configuration as a YAML file. Export the full file to back it up or move it to another
+                  install, or a redacted one to share when you need help.
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                onClick={() => setExportDialogOpen(true)}
+                disabled={exporting}
+                className="cursor-pointer shrink-0"
+              >
+                {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                Export
+              </Button>
+            </div>
+
+            <div className="flex flex-col gap-3 border rounded-md p-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <Label>Import Configuration</Label>
+                <p className="text-sm text-muted-foreground">
+                  Replace your configuration with an exported file (or a config.yaml). The connections are checked
+                  before anything is saved.
+                </p>
+              </div>
+              <input
+                ref={importInputRef}
+                type="file"
+                accept=".yaml,.yml,application/x-yaml,text/yaml"
+                className="hidden"
+                onChange={handleImportFileChosen}
+              />
+              <Button
+                variant="outline"
+                onClick={() => importInputRef.current?.click()}
+                className="cursor-pointer shrink-0"
+              >
+                <Upload className="h-4 w-4" />
+                Import
+              </Button>
+            </div>
+
+            <div className="flex flex-col gap-3 border rounded-md p-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <Label>Debug Bundle</Label>
+                <p className="text-sm text-muted-foreground">
+                  Download a zip with your versions, media servers, redacted configuration and recent logs, to attach
+                  when reporting a problem. Passwords, tokens, API keys, emails and addresses are replaced.
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                onClick={handleDebugBundle}
+                disabled={creatingBundle}
+                className="cursor-pointer shrink-0"
+              >
+                {creatingBundle ? <Loader2 className="h-4 w-4 animate-spin" /> : <Bug className="h-4 w-4" />}
+                Download
+              </Button>
+            </div>
+
+            <div className="flex items-center justify-between gap-4 border rounded-md p-3">
+              <div>
+                <Label htmlFor="debug-mode">Debug Mode</Label>
+                <p className="text-sm text-muted-foreground">Show extra details for troubleshooting in this browser.</p>
+              </div>
+              <Switch id="debug-mode" checked={debugEnabled} onCheckedChange={toggleDebugMode} />
+            </div>
+
+            <div className="flex items-center justify-between gap-4 border rounded-md p-3">
+              <div>
+                <Label>App Cache</Label>
+                <p className="text-sm text-muted-foreground">
+                  Clear the data this browser stores for aura. Your settings are not affected.
+                </p>
+              </div>
+              <ConfirmDestructiveDialogActionButton
+                onConfirm={async () => {
+                  localStorage.clear();
+                  await ClearAllStores();
+                  toast.success("App Cache Cleared. Reloading...", { duration: 750 });
+                  setTimeout(() => {
+                    router.replace("/settings");
+                  }, 1000);
+                }}
+                title="Clear App Cache?"
+                description="This will clear all local storage and IndexedDB data. Are you sure you want to continue?"
+                confirmText="Yes, Clear Cache"
+                cancelText="Cancel"
+                variant="ghost"
+                className="text-destructive border-1 shadow-none hover:text-red-500 cursor-pointer"
+              >
+                Clear App Cache
+              </ConfirmDestructiveDialogActionButton>
+            </div>
+          </Card>
+        );
+      default:
+        return null;
+    }
+  };
+
+  const groups = Array.from(new Set(visibleSections.map((section) => section.group)));
+  const ActiveIcon = activeSection.icon;
 
   return (
-    <div className="container mx-auto p-4 sm:p-6 lg:p-8">
+    <div className="container mx-auto max-w-6xl p-4 sm:p-6 lg:p-8">
       {loading ? (
         <Loader message="Loading configuration..." />
       ) : error ? (
         <ErrorMessage error={error} />
       ) : (
         <>
-          {/* If on Dev version (show reload config button) */}
-          {process.env.NEXT_PUBLIC_APP_VERSION && process.env.NEXT_PUBLIC_APP_VERSION.endsWith("dev") && (
-            <div className="flex justify-center md:justify-end">
-              <Button
-                variant="ghost"
-                onClick={() => fetchAndSetConfig(true)}
-                disabled={loading}
-                className="cursor-pointer bg-green-500/10 hover:text-primary active:scale-95 hover:brightness-120 mb-4"
-              >
-                Reload Configuration
-              </Button>
-            </div>
-          )}
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h1 className="text-3xl font-bold">
-                {activeTab === "user-preferences" ? "User Preferences" : "Settings"}
-              </h1>
-              <p className="text-gray-600 dark:text-gray-400">
-                {activeTab === "user-preferences" ? "Manage your user preferences" : "Manage your application settings"}
-              </p>
+          <div className="mb-6">
+            <h1 className="text-3xl font-bold">Settings</h1>
+          </div>
+
+          <div className="md:grid md:grid-cols-[13rem_minmax(0,1fr)] md:gap-8">
+            {/* Desktop: Section list */}
+            <nav className="hidden md:block" aria-label="Settings sections">
+              <div className="sticky top-20 space-y-5">
+                {groups.map((group) => (
+                  <div key={group}>
+                    <p className="mb-1 px-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      {group}
+                    </p>
+                    <div className="space-y-0.5">
+                      {visibleSections
+                        .filter((section) => section.group === group)
+                        .map((section) => {
+                          const Icon = section.icon;
+                          const indicator = sectionIndicator(section);
+                          const active = section.id === activeSection.id;
+                          return (
+                            <button
+                              key={section.id}
+                              type="button"
+                              onClick={() => selectSection(section.id)}
+                              aria-current={active ? "page" : undefined}
+                              className={cn(
+                                "flex w-full cursor-pointer items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition-colors",
+                                active
+                                  ? "bg-primary/10 font-medium text-primary"
+                                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                              )}
+                            >
+                              <Icon className="h-4 w-4 shrink-0" />
+                              <span className="flex-1 truncate">{section.label}</span>
+                              {indicator && (
+                                <span
+                                  className={cn(
+                                    "h-2 w-2 shrink-0 rounded-full",
+                                    indicator === "error" ? "bg-red-500" : "bg-amber-500"
+                                  )}
+                                  title={indicator === "error" ? "Needs attention" : "Not saved yet"}
+                                />
+                              )}
+                            </button>
+                          );
+                        })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </nav>
+
+            <div className="min-w-0">
+              {/* Mobile: Section picker */}
+              <div className="mb-3 md:hidden">
+                <Select value={activeSection.id} onValueChange={selectSection}>
+                  <SelectTrigger className="h-11 w-full cursor-pointer" aria-label="Settings section">
+                    <span className="flex items-center gap-2">
+                      <ActiveIcon className="h-4 w-4 text-primary" />
+                      <span className="font-medium">{activeSection.label}</span>
+                    </span>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {groups.map((group, groupIndex) => (
+                      <SelectGroup key={group}>
+                        {groupIndex > 0 && <SelectSeparator />}
+                        <SelectLabel>{group}</SelectLabel>
+                        {visibleSections
+                          .filter((section) => section.group === group)
+                          .map((section) => {
+                            const Icon = section.icon;
+                            const indicator = sectionIndicator(section);
+                            return (
+                              <SelectItem key={section.id} value={section.id} className="cursor-pointer">
+                                <span className="flex w-full items-center gap-2">
+                                  <Icon className="h-4 w-4" />
+                                  {section.label}
+                                  {indicator && (
+                                    <span
+                                      className={cn(
+                                        "ml-1 h-2 w-2 rounded-full",
+                                        indicator === "error" ? "bg-red-500" : "bg-amber-500"
+                                      )}
+                                      title={indicator === "error" ? "Needs attention" : "Not saved yet"}
+                                    />
+                                  )}
+                                </span>
+                              </SelectItem>
+                            );
+                          })}
+                      </SelectGroup>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Section header */}
+              <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <h2 className="hidden text-xl font-semibold md:block">{activeSection.label}</h2>
+                  <p className="text-sm text-muted-foreground">{activeSection.description}</p>
+                </div>
+                {activeConfigSection && (
+                  <ConfigSaveStatus
+                    className="shrink-0"
+                    state={saveState[activeConfigSection]}
+                    blockedByErrors={isBlockedByErrors(activeConfigSection)}
+                    onRetry={() => void retry(activeConfigSection)}
+                  />
+                )}
+                {activeSection.id === "user-preferences" && (
+                  <ConfigSaveStatus
+                    className="shrink-0"
+                    state={{ status: preferencesSaveStatus, error: preferencesSaveError }}
+                    onRetry={retryPreferencesSave}
+                  />
+                )}
+              </div>
+
+              <div ref={contentRef} key={activeSection.id} className="animate-in fade-in-0 duration-200">
+                {renderSectionContent()}
+              </div>
+
+              {/* Connection settings are saved together with Test & Save */}
+              {activeConfigSection && groupChangesPending && (
+                <div className="sticky bottom-4 z-30 mt-6">
+                  <div className="mx-auto flex w-full flex-col gap-3 rounded-lg border border-amber-500 bg-background/95 px-4 py-3 shadow-lg backdrop-blur sm:flex-row sm:items-center sm:justify-between">
+                    <div className="text-sm">
+                      <p className="font-medium">Connection changes not saved yet</p>
+                      <p className="text-muted-foreground">
+                        {activeSectionHasErrors
+                          ? "Fix the errors above, then test and save."
+                          : "Test the connection and save these changes together."}
+                      </p>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="ghost"
+                        onClick={() => discardGroup(activeConfigSection)}
+                        disabled={groupSaving}
+                        className="cursor-pointer"
+                      >
+                        Discard
+                      </Button>
+                      <Button
+                        onClick={() => handleTestAndSave(activeConfigSection, activeSection.label)}
+                        disabled={groupSaving || activeSectionHasErrors}
+                        className="cursor-pointer"
+                      >
+                        {groupSaving && <Loader2 className="h-4 w-4 animate-spin" />}
+                        {groupSaving ? "Testing..." : "Test & Save"}
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
-          <Tabs defaultValue="app-settings" value={activeTab} onValueChange={setActiveTab} className="w-full">
-            <TabsList className="rounded-md p-1 w-full flex">
-              <TabsTrigger
-                value="app-settings"
-                className="flex-1 cursor-pointer text-primary data-[state=active]:bg-primary data-[state=active]:text-background dark:data-[state=active]:bg-primary dark:data-[state=active]:text-background hover:brightness-120 active:scale-95"
-              >
-                App Settings
-              </TabsTrigger>
-              <TabsTrigger
-                value="user-preferences"
-                className="flex-1 cursor-pointer text-primary data-[state=active]:bg-primary data-[state=active]:text-background dark:data-[state=active]:bg-primary dark:data-[state=active]:text-background hover:brightness-120 active:scale-95"
-              >
-                User Preferences
-              </TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="app-settings" className="mt-6 w-full">
-              <div className="space-y-5 w-full">
-                <ConfigSectionMediux
-                  value={newConfig.mediux}
-                  editing={editing}
-                  configAlreadyLoaded={true}
-                  dirtyFields={dirty.mediux}
-                  onChange={(field, value) => updateConfigField("mediux", field, value)}
-                  errorsUpdate={(errs) => updateSectionErrors("mediux", errs as Record<string, string>)}
-                />
-                <ConfigSectionMediaServer
-                  value={newConfig.media_server}
-                  editing={editing}
-                  configAlreadyLoaded={true}
-                  dirtyFields={dirty.media_server}
-                  onChange={(field, value) => updateConfigField("media_server", field, value)}
-                  errorsUpdate={(errs) => updateSectionErrors("media_server", errs as Record<string, string>)}
-                />
-                <ConfigSectionAuth
-                  value={newConfig.auth}
-                  editing={editing}
-                  dirtyFields={dirty.auth}
-                  onChange={(field, value) => updateConfigField("auth", field, value)}
-                  errorsUpdate={(errs) => updateSectionErrors("auth", errs as Record<string, string>)}
-                />
-                <ConfigSectionLogging
-                  value={newConfig.logging}
-                  editing={editing}
-                  dirtyFields={dirty.logging}
-                  onChange={(field, value) => updateConfigField("logging", field, value)}
-                  errorsUpdate={(errs) => updateSectionErrors("logging", errs as Record<string, string>)}
-                />
-                <ConfigSectionImages
-                  value={newConfig.images}
-                  editing={editing}
-                  dirtyFields={
-                    dirty.images
-                      ? {
-                          ...dirty.images,
-                          save_images_locally: dirty.images.save_images_locally
-                            ? {
-                                ...dirty.images.save_images_locally,
-                                path:
-                                  typeof dirty.images.save_images_locally.path === "string"
-                                    ? !!dirty.images.save_images_locally.path
-                                    : dirty.images.save_images_locally.path,
-                              }
-                            : undefined,
-                          kometa: dirty.images.kometa
-                            ? {
-                                ...dirty.images.kometa,
-                                asset_directory:
-                                  typeof dirty.images.kometa.asset_directory === "string"
-                                    ? !!dirty.images.kometa.asset_directory
-                                    : dirty.images.kometa.asset_directory,
-                                import_cron:
-                                  typeof dirty.images.kometa.import_cron === "string"
-                                    ? !!dirty.images.kometa.import_cron
-                                    : dirty.images.kometa.import_cron,
-                              }
-                            : undefined,
-                        }
-                      : undefined
-                  }
-                  onChange={updateImagesField}
-                  errorsUpdate={(errs) => updateSectionErrors("images", errs as Record<string, string>)}
-                  mediaServerType={newConfig.media_server.type}
-                  libraries={newConfig.media_server.libraries || []}
-                />
-                <ConfigSectionAutoDownload
-                  value={newConfig.auto_download}
-                  editing={editing}
-                  dirtyFields={dirty.auto_download}
-                  onChange={(f, v) => updateConfigField("auto_download", f, v)}
-                  errorsUpdate={(errs) => updateSectionErrors("auto_download", errs as Record<string, string>)}
-                />
-
-                {/* <ConfigSectionTMDB
-									value={newConfig.TMDB}
-									editing={editing}
-									dirtyFields={dirty.TMDB}
-									onChange={(f, v) => updateConfigField("TMDB", f, v)}
-									errorsUpdate={(errs) => updateSectionErrors("TMDB", errs as Record<string, string>)}
-								/> */}
-
-                <ConfigSectionSonarrRadarr
-                  value={newConfig.sonarr_radarr}
-                  editing={editing}
-                  dirtyFields={
-                    dirty.sonarr_radarr
-                      ? {
-                          applications: dirty.sonarr_radarr as Partial<{
-                            type: boolean;
-                            library: boolean;
-                            url: boolean;
-                            api_token: boolean;
-                          }>[],
-                        }
-                      : undefined
-                  }
-                  onChange={(field, val) => updateConfigField("sonarr_radarr", field, val)}
-                  errorsUpdate={(errs) => updateSectionErrors("sonarr_radarr", errs as Record<string, string>)}
-                  configAlreadyLoaded={true}
-                  libraries={newConfig.media_server.libraries || []}
-                />
-
-                {(newConfig.media_server.type === "Plex" ||
-                  (Array.isArray(newConfig.sonarr_radarr.applications) &&
-                    newConfig.sonarr_radarr.applications.length > 0)) && (
-                  <ConfigSectionLabelsAndTags
-                    value={newConfig.labels_and_tags}
-                    editing={editing}
-                    dirtyFields={
-                      dirty.labels_and_tags as {
-                        applications?: Array<
-                          Partial<Record<string, boolean | { enabled?: boolean; add?: boolean; remove?: boolean }>>
-                        >;
-                      }
-                    }
-                    mediaServerType={newConfig.media_server.type}
-                    srOptions={Array.from(
-                      new Set(
-                        (newConfig.sonarr_radarr.applications ?? []).map((app) => app.type).filter((type) => !!type)
-                      )
-                    )}
-                    onChange={(field, val) => updateConfigField("labels_and_tags", field, val)}
-                    errorsUpdate={(errs) => updateSectionErrors("labels_and_tags", errs as Record<string, string>)}
-                  />
-                )}
-
-                <ConfigSectionNotifications
-                  value={newConfig.notifications}
-                  editing={editing}
-                  dirtyFields={
-                    dirty.notifications as {
-                      enabled?: boolean;
-                      providers?: Partial<
-                        Record<
-                          string,
-                          | boolean
-                          | {
-                              enabled?: boolean;
-                              webhook?: boolean;
-                              user_key?: boolean;
-                              api_token?: boolean;
-                              url?: boolean;
-                              headers?: Record<string, boolean>;
-                            }
-                        >
-                      >[];
-                    }
-                  }
-                  onChange={(field, val) => updateConfigField("notifications", field, val)}
-                  errorsUpdate={(errs) => updateSectionErrors("notifications", errs as Record<string, string>)}
-                  configAlreadyLoaded={true}
-                  templateVariablesCatalog={notificationTemplateVariables}
-                />
+          {/* Choose between a redacted or a full export */}
+          <Dialog open={exportDialogOpen} onOpenChange={(open) => !exporting && setExportDialogOpen(open)}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Export Configuration</DialogTitle>
+                <DialogDescription>Choose what to include in the file.</DialogDescription>
+              </DialogHeader>
+              <div className="flex flex-col gap-2">
+                {[
+                  {
+                    redacted: true,
+                    icon: ShieldCheck,
+                    title: "Redacted",
+                    description:
+                      "To share when you need help. Passwords, tokens, API keys, emails and addresses are replaced. It can't be imported.",
+                  },
+                  {
+                    redacted: false,
+                    icon: DatabaseBackup,
+                    title: "Full",
+                    description:
+                      "To back up or move to another install. It includes your passwords, tokens and API keys, so keep it private.",
+                  },
+                ].map((option) => (
+                  <button
+                    key={option.title}
+                    type="button"
+                    disabled={exporting}
+                    onClick={() => handleExport(option.redacted)}
+                    className="flex items-start gap-3 rounded-md border p-3 text-left transition hover:bg-muted/50 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <option.icon className="h-5 w-5 mt-0.5 shrink-0 text-primary" />
+                    <span>
+                      <span className="block font-medium">{option.title}</span>
+                      <span className="block text-sm text-muted-foreground">{option.description}</span>
+                    </span>
+                  </button>
+                ))}
               </div>
-            </TabsContent>
+              <DialogFooter>
+                <Button
+                  variant="ghost"
+                  onClick={() => setExportDialogOpen(false)}
+                  disabled={exporting}
+                  className="cursor-pointer"
+                >
+                  {exporting && <Loader2 className="h-4 w-4 animate-spin" />}
+                  {exporting ? "Exporting..." : "Cancel"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
 
-            <TabsContent value="user-preferences" className="mt-6 w-full">
-              <div id="preferences-section" ref={preferencesRef} className="w-full">
-                <UserPreferencesCard />
-              </div>
-            </TabsContent>
-          </Tabs>
-
-          {activeTab === "app-settings" && editing && hasValidationErrors && (
-            <p className="mb-2 text-red-500">Fix validation errors before saving.</p>
-          )}
-
-          {activeTab === "app-settings" && editing && (
-            <div className="sticky bottom-0 mt-10 z-30">
-              <div
-                className={`mx-auto w-fit bg-background/90 backdrop-blur border rounded-md shadow px-4 py-3 flex items-center gap-3 ${anyDirty && "border-amber-500"}`}
-              >
-                <span className="text-sm">{anyDirty ? "Unsaved changes" : "No changes yet"}</span>
-              </div>
-            </div>
-          )}
+          {/* Confirm before replacing the configuration */}
+          <Dialog
+            open={importFile !== null}
+            onOpenChange={(open) => {
+              if (!open && !importing) {
+                setImportFile(null);
+                setImportError(null);
+              }
+            }}
+          >
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Replace your configuration?</DialogTitle>
+                <DialogDescription>
+                  All settings will be replaced with the ones in <span className="font-medium">{importFile?.name}</span>
+                  . Settings that are not in the file are cleared. Your API key is not changed.
+                </DialogDescription>
+              </DialogHeader>
+              {importError && <p className="text-sm text-red-500">{importError}</p>}
+              <DialogFooter>
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    setImportFile(null);
+                    setImportError(null);
+                  }}
+                  disabled={importing}
+                  className="cursor-pointer"
+                >
+                  Cancel
+                </Button>
+                <Button onClick={handleImportConfirm} disabled={importing} className="cursor-pointer">
+                  {importing && <Loader2 className="h-4 w-4 animate-spin" />}
+                  {importing ? "Checking..." : "Replace Configuration"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </>
-      )}
-
-      {/* Debug Mode Toggle & Cache Clear */}
-      <div className="flex items-center justify-between mt-6 border-t pt-4">
-        <ToggleGroup
-          type="single"
-          variant={debugEnabled ? "default" : "outline"}
-          value={debugEnabled ? "enabled" : "disabled"}
-          onValueChange={(value) => toggleDebugMode(value === "enabled")}
-        >
-          <ToggleGroupItem value="enabled" variant={debugEnabled ? "default" : "outline"}>
-            <span className="flex items-center gap-2 cursor-pointer">
-              Debug Mode:
-              {debugEnabled ? (
-                <span className="text-green-500">Enabled</span>
-              ) : (
-                <span className="text-destructive hover:text-red-500">Disabled</span>
-              )}
-            </span>
-          </ToggleGroupItem>
-        </ToggleGroup>
-
-        <ConfirmDestructiveDialogActionButton
-          onConfirm={async () => {
-            localStorage.clear();
-            await ClearAllStores();
-            toast.success("App Cache Cleared. Reloading...", { duration: 750 });
-            setTimeout(() => {
-              router.replace("/settings");
-            }, 1000);
-          }}
-          title="Clear App Cache?"
-          description="This will clear all local storage and IndexedDB data. Are you sure you want to continue?"
-          confirmText="Yes, Clear Cache"
-          cancelText="Cancel"
-          variant="ghost"
-          className="text-destructive border-1 shadow-none hover:text-red-500 cursor-pointer"
-        >
-          Clear App Cache
-        </ConfirmDestructiveDialogActionButton>
-      </div>
-
-      {activeTab !== "user-preferences" && (
-        <div className="fixed z-100 right-3 bottom-5 sm:bottom-15 flex flex-col items-end gap-2">
-          {editing && anyDirty && (
-            <Button
-              variant="default"
-              size="sm"
-              className={cn(
-                `mb-1 rounded-full shadow-lg transition-all duration-300 border-1 border-green-500 bg-green-500/50
-          hover:text-black hover:!bg-green-500 cursor-pointer`
-              )}
-              onClick={handleSaveAll}
-              disabled={!anyDirty || saving || hasValidationErrors}
-              aria-label="save"
-            >
-              <SaveIcon className="h-3 w-3" />
-              <span className="text-xs hidden sm:inline">{saving ? "Saving..." : "Save"}</span>
-            </Button>
-          )}
-          {!editing ? (
-            <Button
-              variant="ghost"
-              size="sm"
-              className={cn(
-                `rounded-full shadow-lg transition-all duration-300 border-1 border-primary bg-primary/50 
-          hover:text-black hover:!bg-primary cursor-pointer`
-              )}
-              onClick={() => setEditing(true)}
-              aria-label="edit"
-            >
-              <Edit className="h-3 w-3" />
-              <span className="text-xs hidden sm:inline">Edit</span>
-            </Button>
-          ) : (
-            <Button
-              variant="ghost"
-              size="sm"
-              className={cn(
-                `rounded-full shadow-lg transition-all duration-300 border-1 border-destructive bg-destructive/50
-          hover:text-white hover:!bg-destructive cursor-pointer`
-              )}
-              onClick={handleCancel}
-              aria-label="cancel"
-            >
-              <X className="h-3 w-3" />
-              <span className="text-xs hidden sm:inline">Cancel</span>
-            </Button>
-          )}
-        </div>
       )}
     </div>
   );
-};
+}
 
-export default SettingsPage;
+// useSearchParams needs a Suspense boundary
+export default function SettingsPage() {
+  return (
+    <Suspense fallback={<Loader message="Loading configuration..." />}>
+      <SettingsPageContent />
+    </Suspense>
+  );
+}

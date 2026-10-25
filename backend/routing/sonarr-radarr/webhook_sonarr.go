@@ -3,7 +3,6 @@ package routes_sonarr_radarr
 import (
 	"aura/cache"
 	"aura/database"
-	"aura/kometa"
 	"aura/logging"
 	"aura/mediaserver"
 	"aura/mediux"
@@ -50,6 +49,15 @@ type mediaItemFetchInfo struct {
 	CacheHit  bool
 }
 
+// SonarrWebhookHandler godoc
+// @Summary      Sonarr/Radarr Webhook
+// @Description  Receives Sonarr/Radarr "On Import"/"On Upgrade" webhook events. Requires HTTP Basic Auth since Sonarr/Radarr's built-in Webhook connection type has no custom-header support - set the Username field to anything, and the Password field to your AURA API key (Settings > Auth).
+// @Tags         Sonarr/Radarr
+// @Accept       json
+// @Security     BasicAuth
+// @Failure      401  {object}  httpx.UnauthorizedResponse "Unauthorized - missing or invalid Basic Auth"
+// @Success      200  {object}  httpx.JSONResponse
+// @Router       /api/sonarr/webhook [post]
 func SonarrWebhookHandler(w http.ResponseWriter, r *http.Request) {
 	ctx, ld := logging.CreateLoggingContext(r.Context(), r.URL.Path)
 	logAction := ld.AddAction("Handle Sonarr Webhook", logging.LevelInfo)
@@ -178,6 +186,7 @@ func SonarrWebhookHandler(w http.ResponseWriter, r *http.Request) {
 		dbItem models.DBSavedItem,
 		payload SonarrWebHookOnUpgradePayload,
 	) {
+		defer logging.RecoverPanic("Sonarr Webhook")
 		eventTypeStr := ""
 		switch payload.IsUpgrade {
 		case true:
@@ -213,7 +222,7 @@ func processSonarrDownloadEvent(ctx context.Context, payload SonarrWebHookOnUpgr
 
 	// Get the base Show Media Item from the cache
 	_, actionGetFromCache := logging.AddSubActionToContext(ctx, fmt.Sprintf("Getting %s Item from cache", utils.MediaItemInfo(dbItem.MediaItem)), logging.LevelTrace)
-	mediaItem, found := cache.LibraryStore.GetMediaItemFromSectionByTMDBID(dbItem.MediaItem.LibraryTitle, dbItem.MediaItem.TMDB_ID)
+	mediaItem, found := cache.LibraryStore.GetMediaItemFromSectionByTMDBIDAndEdition(dbItem.MediaItem.LibraryTitle, dbItem.MediaItem.TMDB_ID, dbItem.MediaItem.Edition)
 	if !found || mediaItem == nil {
 		actionGetFromCache.SetError("Media Item not found in cache", "Try refreshing the cache if this issue persists", nil)
 		actionGetFromCache.Complete()
@@ -280,13 +289,8 @@ func processSonarrDownloadEvent(ctx context.Context, payload SonarrWebHookOnUpgr
 			continue
 		}
 
-		// Kometa-imported sets have no MediUX set to re-fetch; skip them.
-		if kometa.IsKometaSetID(dbSet.ID) {
-			continue
-		}
-
 		// Get the latest set details from MediUX
-		mediuxSet, _, Err := mediux.GetShowSetByID(ctx, dbSet.ID, mediaItem.LibraryTitle)
+		mediuxSet, _, Err := mediux.GetShowSetByID(ctx, dbSet.ID, mediaItem.LibraryTitle, mediaItem.Edition)
 		if Err.Message != "" {
 			logging.LOGGER.Error().Timestamp().Msgf("Error fetching set details from MediUX for set ID %s: %s", dbSet.ID, Err.Message)
 			continue
@@ -388,6 +392,7 @@ func processSonarrDownloadEvent(ctx context.Context, payload SonarrWebHookOnUpgr
 			}
 
 			go func(image models.ImageFile, result string) {
+				defer logging.RecoverPanic("Sonarr Webhook Notification")
 				sendFileDownloadNotification(*mediaItem, dbSet, image, payload.IsUpgrade, result)
 			}(image, result)
 		}
@@ -412,7 +417,8 @@ func processSonarrDownloadEvent(ctx context.Context, payload SonarrWebHookOnUpgr
 				SelectedTypes:             dbSet.SelectedTypes,
 				AutoDownload:              dbSet.AutoDownload,
 				AutoAddNewCollectionItems: dbSet.AutoAddNewCollectionItems,
-				ForcePreloadMissing:       dbSet.ForcePreloadMissing,
+				NoAutoUpgrade:             dbSet.NoAutoUpgrade,
+				ForcePreloadMissing:       dbSet.ForcePreloadMissing, // Fork: Kometa preload
 				ToDelete:                  false,
 			}
 			found, dbItem.PosterSets = utils.UpdatePosterSetInDBItem(dbItem.PosterSets, newSetInfo)

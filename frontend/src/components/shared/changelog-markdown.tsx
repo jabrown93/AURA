@@ -1,28 +1,21 @@
-import { Plus, SparklesIcon, TriangleAlert, Wrench } from "lucide-react";
+import { ArrowUpFromDot, Plus, SparklesIcon, TriangleAlert, Wrench } from "lucide-react";
 
 import { FaGithub } from "react-icons/fa";
 import ReactMarkdown from "react-markdown";
 
+import { cn } from "@/lib/cn";
+
 interface ChangelogMarkdownProps {
   currentVersion?: string | null;
-  latestVersion?: string | null;
   children: string;
 }
 
-export function ChangelogMarkdown({ currentVersion, latestVersion, children }: ChangelogMarkdownProps) {
+export function ChangelogMarkdown({ currentVersion, children }: ChangelogMarkdownProps) {
   return (
     <div>
-      {latestVersion && currentVersion && (
-        <>
-          <div className="my-6 flex items-center gap-3">
-            <hr className="flex-grow border-amber-400 border-t-2" />
-          </div>
-          <h2 className="text-xl font-bold mb-4 text-amber-700 text-center">Updates since {currentVersion}</h2>
-        </>
-      )}
       <ReactMarkdown
         components={{
-          a: ({ href, children, ...props }) => {
+          a: ({ node: _node, href, children, ...props }) => {
             const isGithub = href?.includes("github.com");
             return (
               <a
@@ -37,7 +30,7 @@ export function ChangelogMarkdown({ currentVersion, latestVersion, children }: C
               </a>
             );
           },
-          h2: ({ ...props }) => {
+          h2: ({ node: _node, ...props }) => {
             const headingText = Array.isArray(props.children)
               ? props.children.map(String).join("")
               : String(props.children ?? "");
@@ -106,36 +99,34 @@ export function ChangelogMarkdown({ currentVersion, latestVersion, children }: C
                 </h3>
               );
             }
+
+            if (/updated/i.test(text)) {
+              return (
+                <h3 className="text-lg font-semibold mb-1 text-purple-600 flex items-center gap-2">
+                  <ArrowUpFromDot className="w-5 h-5" />
+                  {props.children}
+                </h3>
+              );
+            }
             return <h3 className="text-lg font-semibold mt-4 mb-1">{props.children}</h3>;
           },
-          ul: (props) => <ul className="text-md list-disc ml-6 mb-2" {...props} />,
-          ol: (props) => <ol className="text-md list-decimal ml-6 mb-2" {...props} />,
-          li: (props) => <li className="text-md mb-1" {...props} />,
-          code: ({
-            inline,
-            className,
-            children,
-            ...props
-          }: React.HTMLAttributes<HTMLElement> & {
-            inline?: boolean;
-            className?: string;
-            children?: React.ReactNode;
-          }) =>
-            inline ? (
-              <code className="bg-zinc-100 dark:bg-zinc-800 px-1 rounded text-sm" {...props}>
-                {children}
-              </code>
-            ) : (
-              <pre className="bg-zinc-100 dark:bg-zinc-800 p-3 rounded mb-4 overflow-x-auto">
-                <code className={className} {...props}>
-                  {children}
-                </code>
-              </pre>
-            ),
-          blockquote: (props) => (
+          ul: ({ node: _node, ...props }) => <ul className="text-md list-disc ml-6 mb-2" {...props} />,
+          ol: ({ node: _node, ...props }) => <ol className="text-md list-decimal ml-6 mb-2" {...props} />,
+          li: ({ node: _node, ...props }) => <li className="text-md mb-1" {...props} />,
+          // react-markdown no longer says if code is inline, so code blocks are styled by pre
+          pre: ({ node: _node, ...props }) => (
+            <pre
+              className="bg-zinc-100 dark:bg-zinc-800 p-3 rounded mb-4 overflow-x-auto [&>code]:p-0 [&>code]:text-base"
+              {...props}
+            />
+          ),
+          code: ({ node: _node, className, ...props }) => (
+            <code className={cn("bg-zinc-100 dark:bg-zinc-800 px-1 rounded text-sm", className)} {...props} />
+          ),
+          blockquote: ({ node: _node, ...props }) => (
             <blockquote className="border-l-4 border-primary pl-4 italic text-muted-foreground my-4" {...props} />
           ),
-          p: (props) => <p className="mb-2" {...props} />,
+          p: ({ node: _node, ...props }) => <p className="mb-2" {...props} />,
           hr: () => <hr className="my-6 border-muted-foreground/20" />,
         }}
       >

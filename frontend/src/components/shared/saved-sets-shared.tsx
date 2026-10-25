@@ -1,9 +1,11 @@
 import { setRefsToFormItems } from "@/helper/download-modal/set-to-form-item";
 import { DeleteItemFromDB } from "@/services/database/delete";
 import { UpdateItemInDB } from "@/services/database/update";
+import { UpgradeSavedSets } from "@/services/downloads/favorite-creators";
 import { GetMediaItemDetails } from "@/services/mediaserver/get-media-item-details";
 import { GetSetByID } from "@/services/mediux/get-set-by-id";
 import { User } from "lucide-react";
+import { toast } from "sonner";
 
 import React from "react";
 
@@ -89,7 +91,8 @@ export const refreshPosterSet = async ({
           savedSet.media_item.library_title,
           savedSet.media_item.tmdb_id,
           set.id,
-          set.type
+          set.type,
+          savedSet.media_item.edition
         );
 
         if (!response || response.status === "error") {
@@ -158,7 +161,8 @@ export const refreshPosterSet = async ({
 };
 
 export const renderTypeBadges = (savedSet: DBSavedItem) => {
-  const selected = savedSet.poster_sets.reduce(
+  // A Download Queue entry with only collection images has no sets
+  const selected = (savedSet.poster_sets ?? []).reduce(
     (acc, ps) => {
       acc.poster ||= ps.selected_types?.poster === true;
       acc.backdrop ||= ps.selected_types?.backdrop === true;
@@ -213,6 +217,14 @@ export const renderTypeBadges = (savedSet: DBSavedItem) => {
     );
   }
 
+  // A Download Queue entry's collection images
+  for (const image of savedSet.collection_images?.images ?? []) {
+    badges.push(
+      <Badge key={image.type} className="bg-primary text-primary-foreground">
+        {image.type === "collection_poster" ? "Collection Poster" : "Collection Backdrop"}
+      </Badge>
+    );
+  }
   return badges;
 };
 
@@ -305,6 +317,7 @@ export const savedSetsConfirmEdit = async ({
       selected_types: editSet.selected_types,
       auto_download: editSet.auto_download,
       auto_add_new_collection_items: editSet.auto_add_new_collection_items,
+      no_auto_upgrade: editSet.no_auto_upgrade,
       force_preload_missing: editSet.force_preload_missing,
       to_delete: editSet.to_delete,
     })),
@@ -569,6 +582,20 @@ export const SavedSetEditModal: React.FC<SavedSetEditModalProps> = ({
                 >
                   {editSet.auto_download ? "Autodownload" : "No Autodownload"}
                 </Badge>
+                <Badge
+                  className={`cursor-pointer transition duration-200 ${
+                    !editSet.no_auto_upgrade
+                      ? "bg-primary text-primary-foreground hover:bg-red-500"
+                      : "bg-secondary text-secondary-foreground"
+                  }`}
+                  onClick={() => {
+                    setEditSets((prev) =>
+                      prev.map((item, i) => (i === index ? { ...item, no_auto_upgrade: !item.no_auto_upgrade } : item))
+                    );
+                  }}
+                >
+                  {editSet.no_auto_upgrade ? "No Auto Upgrade" : "Auto Upgrade"}
+                </Badge>
                 {editSet.type === "show" && (
                   <Badge
                     className={`cursor-pointer transition duration-200 ${
@@ -736,4 +763,27 @@ export const SavedSetsList: React.FC<SavedSetsListProps> = ({ savedSet, layout }
       </ul>
     </div>
   );
+};
+
+// upgradeSavedItem replaces the item's saved sets with a set from a higher ranked favorite creator
+export const upgradeSavedItem = async (item: DBSavedItem) => {
+  const title = item.media_item.title;
+  const id = `upgrade-${item.media_item.tmdb_id}-${item.media_item.library_title}`;
+  toast.loading(`Checking ${title} for an upgrade...`, { id });
+  const response = await UpgradeSavedSets([
+    {
+      tmdb_id: item.media_item.tmdb_id,
+      library_title: item.media_item.library_title,
+      edition: item.media_item.edition ?? "",
+    },
+  ]);
+  if (response.status === "error" || !response.data) {
+    toast.error(response.error?.message || `Could not upgrade ${title}`, { id });
+  } else if (response.data.upgraded > 0) {
+    toast.success(`${title} was upgraded, the new set is in the Download Queue.`, { id });
+  } else if (response.data.checked === 0) {
+    toast.info(`Auto Upgrade is off for ${title}'s sets, so they're kept.`, { id });
+  } else {
+    toast.info(`None of your favorite creators ranked above this set's creator have a set for ${title}.`, { id });
+  }
 };

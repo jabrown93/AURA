@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
+import { syncPageView } from "@/lib/stores/page-view-sync";
 import { PageStore } from "@/lib/stores/stores";
 
 import type { PaginationStore, SortStore } from "@/types/store-interfaces";
@@ -124,3 +125,17 @@ export const useSavedSetsPageStore = create<SavedSets_PageStore>()(
     }
   )
 );
+
+// The sort and filter options are the same on every device
+syncPageView("saved_sets", useSavedSetsPageStore, [
+  "sortOption",
+  "sortOrder",
+  "itemsPerPage",
+  "viewOption",
+  "filteredLibraries",
+  "filterAutoDownload",
+  "filteredUsers",
+  "filteredTypes",
+  "filterMultiSetOnly",
+  "filterMediaItemOnServer",
+]);

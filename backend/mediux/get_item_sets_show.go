@@ -34,7 +34,7 @@ type BaseMediuxShowSet struct {
 	Titlecards    []ImageAsset `json:"titlecards"`
 }
 
-func GetShowItemSets(ctx context.Context, tmdbID string, itemLibraryTitle string) (sets []models.SetRef, includedItems map[string]models.IncludedItem, Err logging.LogErrorInfo) {
+func GetShowItemSets(ctx context.Context, tmdbID string, itemLibraryTitle string, edition string) (sets []models.SetRef, includedItems map[string]models.IncludedItem, Err logging.LogErrorInfo) {
 	ctx, logAction := logging.AddSubActionToContext(ctx, "Get Show Item Sets", logging.LevelInfo)
 	defer logAction.Complete()
 
@@ -98,7 +98,7 @@ func GetShowItemSets(ctx context.Context, tmdbID string, itemLibraryTitle string
 	includedItem.MediuxInfo = baseItem
 
 	// Find the Media Item info from the cache
-	mediaItem, found := cache.LibraryStore.GetMediaItemFromSectionByTMDBID(itemLibraryTitle, tmdbID)
+	mediaItem, found := cache.LibraryStore.GetMediaItemFromSectionByTMDBIDAndEdition(itemLibraryTitle, tmdbID, edition)
 	if found {
 		includedItem.MediaItem = *mediaItem
 		includedItems[mediuxShow.ID] = includedItem

@@ -6,7 +6,9 @@ import (
 	"os"
 	"path"
 	"strings"
+	"sync"
 	"sync/atomic"
+	"testing"
 
 	"github.com/rs/zerolog"
 	"gopkg.in/natefinch/lumberjack.v2"
@@ -16,6 +18,50 @@ var LOGGER *zerolog.Logger                      // Global logger instance
 var LogFolder string                            // Global log folder path
 var LogLevel zerolog.Level = zerolog.DebugLevel // -1: Trace, 0: Debug, 1: Info, 2: Warn, 3: Error
 var LogFilePath string                          // Global log file path
+var logFile = &logFileWriter{}                  // Log file writer, handles rotation and cleanup
+
+// logFileWriter writes to the current log file.
+// Lumberjack reads its settings from another goroutine, so it is replaced instead of changed.
+type logFileWriter struct {
+	mu   sync.RWMutex
+	file *lumberjack.Logger
+}
+
+func (w *logFileWriter) Write(p []byte) (int, error) {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return w.file.Write(p)
+}
+
+// setKeep replaces the log file writer if the keep settings changed. 0 keeps the current value.
+func (w *logFileWriter) setKeep(days, files int) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if days <= 0 {
+		days = w.file.MaxAge
+	}
+	if files <= 0 {
+		files = w.file.MaxBackups
+	}
+	if days == w.file.MaxAge && files == w.file.MaxBackups {
+		return
+	}
+	old := w.file
+	w.file = newLumberjackLogger(days, files)
+	_ = old.Close()
+}
+
+// newLumberjackLogger creates the log file writer
+func newLumberjackLogger(keepDays, keepFiles int) *lumberjack.Logger {
+	return &lumberjack.Logger{
+		Filename:   LogFilePath, // log file path
+		MaxSize:    25,          // megabytes
+		MaxBackups: keepFiles,   // number of backups
+		MaxAge:     keepDays,    // days
+		LocalTime:  true,        // use local time
+		Compress:   false,       // disabled by default
+	}
+}
 
 var (
 	devMode   atomic.Bool
@@ -44,13 +90,22 @@ func DevMsg(msg string) {
 	Dev().Msg(msg)
 }
 
+// DevMsgf is a convenience wrapper.
 func DevMsgf(format string, v ...any) {
 	Dev().Msgf(format, v...)
 }
 
+// CreateLogFolder creates the log folder if it doesn't exist.
 func CreateLogFolder() {
 	// Create the log directory if it doesn't exist
 	configPath := os.Getenv("CONFIG_PATH")
+	if configPath == "" && testing.Testing() {
+		// When testing, use a temp folder so tests run without CONFIG_PATH set
+		if dir, err := os.MkdirTemp("", "aura-test-config-"); err == nil {
+			configPath = dir
+			_ = os.Setenv("CONFIG_PATH", dir)
+		}
+	}
 	if configPath == "" {
 		configPath = "/config"
 	}
@@ -73,14 +128,7 @@ func init() {
 	LogFilePath = path.Join(LogFolder, "aura.log")
 
 	// rotate logs using lumberjack; output is written as JSON lines (jsonl)
-	logFile := &lumberjack.Logger{
-		Filename:   LogFilePath,
-		MaxSize:    25,    // megabytes
-		MaxBackups: 7,     // number of backups
-		MaxAge:     14,    // days
-		LocalTime:  true,  // use local time
-		Compress:   false, // disabled by default
-	}
+	logFile.file = newLumberjackLogger(7, 7)
 
 	// Create a console writer for pretty printing to console
 	consoleWriter := zerolog.ConsoleWriter{
@@ -116,6 +164,7 @@ func init() {
 	LOGGER = &logger
 }
 
+// ApplyLogLevel applies the current LogLevel to the global logger.
 func ApplyLogLevel() {
 	zerolog.SetGlobalLevel(LogLevel)
 	if LOGGER != nil {
@@ -124,6 +173,7 @@ func ApplyLogLevel() {
 	}
 }
 
+// SetLogLevel sets the global log level and applies it to the logger.
 func SetLogLevel(level string) {
 	switch strings.ToLower(level) {
 	case "trace":
@@ -140,4 +190,14 @@ func SetLogLevel(level string) {
 		LogLevel = zerolog.InfoLevel
 	}
 	ApplyLogLevel()
+}
+
+// SetLogKeepDays sets how many days old log files are kept.
+func SetLogKeepDays(days int) {
+	logFile.setKeep(days, 0)
+}
+
+// SetLogKeepFiles sets how many old log files are kept.
+func SetLogKeepFiles(files int) {
+	logFile.setKeep(0, files)
 }

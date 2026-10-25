@@ -17,7 +17,7 @@ import (
 	"golang.org/x/text/language"
 )
 
-func applyImageToMediaItemViaMediuxURL(ctx context.Context, item *models.MediaItem, itemRatingKey string, imageFile models.ImageFile) (Err logging.LogErrorInfo) {
+func applyImageToMediaItemViaMediuxURL(ctx context.Context, msConfig config.Config_MediaServer, item *models.MediaItem, itemRatingKey string, imageFile models.ImageFile) (Err logging.LogErrorInfo) {
 	fileDownloadName := utils.GetFileDownloadName(item.Title, imageFile)
 	ctx, logAction := logging.AddSubActionToContext(ctx, fmt.Sprintf(
 		"Plex: Applying '%s' Image via MediUX URL", fileDownloadName), logging.LevelDebug)
@@ -28,14 +28,14 @@ func applyImageToMediaItemViaMediuxURL(ctx context.Context, item *models.MediaIt
 	// Construct the MediUX Image URL
 	imageURL, Err := mediux.ConstructImageUrl(ctx, imageFile.ID, imageFile.Modified.String(), mediux.ImageQualityOriginal)
 	if Err.Message != "" {
-		return *logAction.Error
+		return Err
 	}
 
 	// Refresh the Plex Item
-	//RefreshItemMetadata(ctx, item, itemRatingKey, false)
+	//RefreshItemMetadata(ctx, msConfig, item, itemRatingKey, false)
 
 	// Set the Poster using the MediUX URL
-	Err = applyImageToMediaItem(ctx, item, itemRatingKey, imageURL, imageFile.Type)
+	Err = applyImageToMediaItem(ctx, msConfig, item, itemRatingKey, imageURL, imageFile.Type)
 	if Err.Message != "" {
 		return Err
 	}
@@ -43,7 +43,7 @@ func applyImageToMediaItemViaMediuxURL(ctx context.Context, item *models.MediaIt
 	return Err
 }
 
-func applyImageToMediaItem(ctx context.Context, item *models.MediaItem, itemRatingKey, imageKey, imageType string) (Err logging.LogErrorInfo) {
+func applyImageToMediaItem(ctx context.Context, msConfig config.Config_MediaServer, item *models.MediaItem, itemRatingKey, imageKey, imageType string) (Err logging.LogErrorInfo) {
 	ctx, logAction := logging.AddSubActionToContext(ctx, fmt.Sprintf(
 		"Plex: Applying '%s' Image to %s",
 		cases.Title(language.English).String(imageType), utils.MediaItemInfo(*item),
@@ -81,7 +81,7 @@ func applyImageToMediaItem(ctx context.Context, item *models.MediaItem, itemRati
 	}
 
 	// Construct the URL for the Plex API request
-	u, err := url.Parse(config.Current.MediaServer.URL)
+	u, err := url.Parse(msConfig.URL)
 	if err != nil {
 		logAction.SetError("Failed to parse base URL", "Ensure the URL is valid", map[string]any{"error": err.Error()})
 		return *logAction.Error
@@ -93,7 +93,7 @@ func applyImageToMediaItem(ctx context.Context, item *models.MediaItem, itemRati
 	URL := u.String()
 
 	// Make the HTTP Request to Plex
-	resp, respBody, Err := makeRequest(ctx, config.Current.MediaServer, URL, requestMethod, nil)
+	resp, respBody, Err := makeRequest(ctx, msConfig, URL, requestMethod, nil)
 	if Err.Message != "" {
 		return Err
 	}

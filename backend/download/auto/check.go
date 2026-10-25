@@ -3,7 +3,6 @@ package autodownload
 import (
 	"aura/cache"
 	"aura/database"
-	"aura/kometa"
 	"aura/logging"
 	"aura/mediaserver"
 	"aura/models"
@@ -41,7 +40,7 @@ func CheckAllItems(ctx context.Context) (Err logging.LogErrorInfo) {
 	out, Err := database.GetAllSavedSets(ctx, models.DBFilter{ItemsPerPage: -1})
 	if Err.Message != "" {
 		getAllItemAction.Complete()
-		return *getAllItemAction.Error
+		return Err
 	}
 	getAllItemAction.Complete()
 
@@ -121,7 +120,7 @@ func CheckItem(ctx context.Context, dbItem models.DBSavedItem) (result AutoDownl
 
 	// Get the base Show Media Item from the cache
 	_, actionGetFromCache := logging.AddSubActionToContext(ctx, fmt.Sprintf("Getting %s Item from cache", utils.MediaItemInfo(dbItem.MediaItem)), logging.LevelTrace)
-	mediaItem, found := cache.LibraryStore.GetMediaItemFromSectionByTMDBID(dbItem.MediaItem.LibraryTitle, dbItem.MediaItem.TMDB_ID)
+	mediaItem, found := cache.LibraryStore.GetMediaItemFromSectionByTMDBIDAndEdition(dbItem.MediaItem.LibraryTitle, dbItem.MediaItem.TMDB_ID, dbItem.MediaItem.Edition)
 	if !found || mediaItem == nil {
 		result.OverallResult = "error"
 		result.OverallMessage = "Media Item not found in cache"
@@ -132,24 +131,14 @@ func CheckItem(ctx context.Context, dbItem models.DBSavedItem) (result AutoDownl
 
 	// Get the latest Show Media Item from the media server
 	found, Err := mediaserver.GetMediaItemDetails(ctx, mediaItem)
-	if Err.Message != "" || !found {
-		// Only when the item is genuinely gone (a 404): if the Sonarr/Radarr → Kometa fallback is
-		// enabled and the item exists in Sonarr/Radarr, write its saved auto-download images into
-		// the Kometa asset folder instead of failing outright. Transient/auth/server errors keep
-		// failing so the check is retried.
-		if mediaserver.IsItemNotFound(Err) {
-			if handled, _, _ := kometa.SaveSavedSetsViaSonarrRadarrFallback(ctx, dbItem.MediaItem); handled {
-				result.OverallResult = "warning"
-				result.OverallMessage = "Media item not on media server; saved images to the Kometa asset folder via Sonarr/Radarr"
-				return result
-			}
-		}
+	if Err.Message != "" {
 		result.OverallResult = "error"
-		if Err.Message != "" {
-			result.OverallMessage = "Failed to get latest Media Item details from media server"
-		} else {
-			result.OverallMessage = "Media Item not found on media server"
-		}
+		result.OverallMessage = "Failed to get latest Media Item details from media server"
+		return result
+	}
+	if !found {
+		result.OverallResult = "error"
+		result.OverallMessage = "Media Item not found on media server"
 		return result
 	}
 
@@ -163,34 +152,6 @@ func CheckItem(ctx context.Context, dbItem models.DBSavedItem) (result AutoDownl
 		result.OverallMessage = "Unknown media type"
 	}
 	return result
-}
-
-func seasonExists(mediaItem models.MediaItem, seasonNumber int) bool {
-	if mediaItem.Series == nil {
-		return false
-	}
-	for _, season := range mediaItem.Series.Seasons {
-		if season.SeasonNumber == seasonNumber {
-			return true
-		}
-	}
-	return false
-}
-
-func episodeExists(mediaItem models.MediaItem, seasonNumber int, episodeNumber int) bool {
-	if mediaItem.Series == nil {
-		return false
-	}
-	for _, season := range mediaItem.Series.Seasons {
-		if season.SeasonNumber == seasonNumber {
-			for _, episode := range season.Episodes {
-				if episode.EpisodeNumber == episodeNumber {
-					return true
-				}
-			}
-		}
-	}
-	return false
 }
 
 // Only mark size as changed if the size differs by at least 256KB to avoid minor Media Server metadata/container drift.
@@ -298,7 +259,8 @@ func insertRedownloadedSetIntoDB(ctx context.Context, newMediaItem models.MediaI
 		SelectedTypes:             dbSet.SelectedTypes,
 		AutoDownload:              dbSet.AutoDownload,
 		AutoAddNewCollectionItems: dbSet.AutoAddNewCollectionItems,
-		ForcePreloadMissing:       dbSet.ForcePreloadMissing,
+		NoAutoUpgrade:             dbSet.NoAutoUpgrade,
+		ForcePreloadMissing:       dbSet.ForcePreloadMissing, // Fork: Kometa preload
 		ToDelete:                  false,
 	}
 	var found bool

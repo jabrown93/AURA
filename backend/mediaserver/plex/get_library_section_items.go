@@ -3,6 +3,7 @@ package plex
 import (
 	"aura/cache"
 	"aura/config"
+	"aura/database"
 	"aura/logging"
 	"aura/models"
 	"aura/utils/httpx"
@@ -10,31 +11,26 @@ import (
 	"fmt"
 	"net/url"
 	"path"
-	"strconv"
 	"strings"
 	"time"
 )
 
-func (p *Plex) PrepareLatestEpisodeAddedAt(ctx context.Context, section models.LibrarySection) logging.LogErrorInfo {
-	p.latestEpisodeAddedAtByShow = nil
-	if section.Type != "show" || !config.Current.MediaServer.EnableSortByEpisodeAddedDate {
-		return logging.LogErrorInfo{}
-	}
-	latest, Err := fetchLatestEpisodeAddedAtByShow(ctx, section.ID)
-	if Err.Message == "" {
-		p.latestEpisodeAddedAtByShow = latest
-	}
-	return Err
+func (p *Plex) GetLibrarySectionItems(ctx context.Context, section models.LibrarySection, sectionStartIndex string, limit string) (items []models.MediaItem, totalSize int, fetched int, Err logging.LogErrorInfo) {
+	return p.getLibrarySectionItems(ctx, section, sectionStartIndex, limit, false)
 }
 
-func (p *Plex) GetLibrarySectionItems(ctx context.Context, section models.LibrarySection, sectionStartIndex string, limit string) (items []models.MediaItem, rawItemCount int, totalSize int, Err logging.LogErrorInfo) {
+// GetNewestLibrarySectionItems gets a library's items, newest first
+func (p *Plex) GetNewestLibrarySectionItems(ctx context.Context, section models.LibrarySection, sectionStartIndex string, limit string) (items []models.MediaItem, totalSize int, fetched int, Err logging.LogErrorInfo) {
+	return p.getLibrarySectionItems(ctx, section, sectionStartIndex, limit, true)
+}
+
+func (p *Plex) getLibrarySectionItems(ctx context.Context, section models.LibrarySection, sectionStartIndex string, limit string, newestFirst bool) (items []models.MediaItem, totalSize int, fetched int, Err logging.LogErrorInfo) {
 	ctx, logAction := logging.AddSubActionToContext(ctx, fmt.Sprintf(
 		"Plex: Fetching Items for Library Section: %s", section.Title,
 	), logging.LevelInfo)
 	defer logAction.Complete()
 
 	items = []models.MediaItem{}
-	rawItemCount = 0
 	totalSize = 0
 	Err = logging.LogErrorInfo{}
 
@@ -44,24 +40,27 @@ func (p *Plex) GetLibrarySectionItems(ctx context.Context, section models.Librar
 	}
 
 	// Construct the URL for the Plex library sections API request
-	u, err := url.Parse(config.Current.MediaServer.URL)
+	u, err := url.Parse(p.Config.URL)
 	if err != nil {
 		logAction.SetError("Failed to parse base URL", "Ensure the URL is valid", map[string]any{"error": err.Error()})
-		return items, rawItemCount, totalSize, *logAction.Error
+		return items, totalSize, fetched, *logAction.Error
 	}
 	u.Path = path.Join(u.Path, "library", "sections", section.ID, "all")
 	query := u.Query()
 	query.Set("X-Plex-Container-Start", sectionStartIndex)
 	query.Set("X-Plex-Container-Size", limit)
 	query.Set("includeGuids", "1")
+	if newestFirst {
+		query.Set("sort", "addedAt:desc")
+	}
 	u.RawQuery = query.Encode()
 	URL := u.String()
 
 	// Make the HTTP Request to Plex
-	resp, respBody, Err := makeRequest(ctx, config.Current.MediaServer, URL, "GET", nil)
+	resp, respBody, Err := makeRequest(ctx, p.Config, URL, "GET", nil)
 	if Err.Message != "" {
 		logAction.SetErrorFromInfo(Err)
-		return items, rawItemCount, totalSize, *logAction.Error
+		return items, totalSize, fetched, *logAction.Error
 	}
 	defer resp.Body.Close()
 
@@ -69,11 +68,17 @@ func (p *Plex) GetLibrarySectionItems(ctx context.Context, section models.Librar
 	var plexResp PlexLibraryItemsWrapper
 	Err = httpx.DecodeResponseToJSON(ctx, respBody, &plexResp, "Plex Library Items Response")
 	if Err.Message != "" {
-		return items, rawItemCount, totalSize, *logAction.Error
+		return items, totalSize, fetched, Err
 	}
 
-	rawItemCount = len(plexResp.MediaContainer.Metadata)
 	totalSize = plexResp.MediaContainer.TotalSize
+	fetched = len(plexResp.MediaContainer.Metadata)
+
+	// Saved sets and ignored state for the whole page
+	dbStates, dbErr := database.GetLibraryDBStates(ctx, section.Title)
+	if dbErr.Message != "" {
+		logAction.AppendWarning("db_states_error", dbErr.Message)
+	}
 
 	for _, metadata := range plexResp.MediaContainer.Metadata {
 		var item models.MediaItem
@@ -82,10 +87,11 @@ func (p *Plex) GetLibrarySectionItems(ctx context.Context, section models.Librar
 		item.Title = metadata.Title
 		item.Year = metadata.Year
 		item.LibraryTitle = plexResp.MediaContainer.LibrarySectionTitle
-		item.UpdatedAt = artworkVersion(metadata.UpdatedAt)
+		item.UpdatedAt = metadata.UpdatedAt
 		item.AddedAt = metadata.AddedAt
 		item.ContentRating = metadata.ContentRating
 		item.Summary = metadata.Summary
+		item.Edition = metadata.Edition
 
 		if item.Title == "" {
 			if metadata.OriginalTitle != "" {
@@ -102,23 +108,14 @@ func (p *Plex) GetLibrarySectionItems(ctx context.Context, section models.Librar
 		}
 
 		if metadata.Type == "movie" {
-			item.Movie = &models.MediaItemMovie{
-				File: models.MediaItemFile{
-					Path:     metadata.Media[0].Part[0].File,
-					Size:     metadata.Media[0].Part[0].Size,
-					Duration: metadata.Media[0].Part[0].Duration,
-				},
-			}
+			item.Movie = &models.MediaItemMovie{File: firstFile(metadata.Media)}
 		}
 
-		// Parse the modern multi-GUID array (populated by the new Plex agents
-		// when includeGuids=1 is requested).
 		for _, guid := range metadata.Guids {
 			if guid.ID == "" {
 				continue
 			}
 			// Sample guid.id : tmdb://######
-			// Split into provider and id
 			parts := strings.SplitN(guid.ID, "://", 2)
 			if len(parts) != 2 {
 				continue
@@ -129,16 +126,16 @@ func (p *Plex) GetLibrarySectionItems(ctx context.Context, section models.Librar
 			})
 		}
 
-		// Resolve the TMDB ID from the GUIDs, falling back to Plex's legacy
-		// single-guid string (HAMA/classic agents, which never populate the
-		// multi-GUID array) and the Fribb AniDB mapping so anime and
-		// classic-agent items resolve instead of being dropped.
+		// Fork: resolve the TMDB ID from the GUIDs, falling back to Plex's legacy single-guid
+		// string (HAMA and classic agents never fill the GUID array) and the AniDB mapping.
 		resolveTMDBID(ctx, &item, metadata.Guid, logAction)
-
 		if item.TMDB_ID == "" {
 			logging.LOGGER.Warn().Timestamp().Str("item_title", item.Title).Str("library_section", section.Title).Msgf("Skipping item in '%s' as no TMDB ID could be found", section.Title)
-			continue // Keep server total intact so subsequent page offsets remain stable.
+			continue // Skip items without TMDB ID
 		}
+
+		// Saved sets and ignored state from the database
+		database.ApplyDBState(dbStates, &item)
 
 		// Check if Media Item exists in MediUX with a set
 		if cache.MediuxItems.CheckItemExists(item.Type, item.TMDB_ID) {
@@ -146,7 +143,7 @@ func (p *Plex) GetLibrarySectionItems(ctx context.Context, section models.Librar
 		}
 
 		// If the item is a movie, update the movie collections cache
-		if item.Type == "movie" {
+		if item.Type == "movie" && p.Config.IsMain() {
 			if len(metadata.Collections) > 0 {
 				for _, coll := range metadata.Collections {
 					cache.CollectionsStore.UpdateMediaItemInCollectionByTitle(coll.Tag, &item)
@@ -154,19 +151,32 @@ func (p *Plex) GetLibrarySectionItems(ctx context.Context, section models.Librar
 			}
 		}
 
+		// Only the main media server's items go in the main library cache
+		if p.Config.IsMain() {
+			cache.LibraryStore.UpdateMediaItem(section.Title, &item)
+		}
 		items = append(items, item)
 	}
 
-	for i := range items {
-		items[i].LatestEpisodeAddedAt = p.latestEpisodeAddedAtByShow[items[i].RatingKey]
+	// For show sections, bulk-fetch all episodes to compute LatestEpisodeAddedAt per show.
+	// Skipped for the newest items, it gets every episode of the library
+	if section.Type == "show" && p.Config.EnableSortByEpisodeAddedDate && !newestFirst {
+		latestEpAdded, fetchErr := fetchLatestEpisodeAddedAtByShow(ctx, p.Config, section.ID)
+		if fetchErr.Message != "" {
+			logAction.AppendWarning("latest_episode_added_at", "Failed to bulk-fetch latest episode addedAt for shows")
+		} else {
+			for i := range items {
+				items[i].LatestEpisodeAddedAt = latestEpAdded[items[i].RatingKey]
+			}
+		}
 	}
 
-	return items, rawItemCount, totalSize, logging.LogErrorInfo{}
+	return items, totalSize, fetched, logging.LogErrorInfo{}
 }
 
 // fetchLatestEpisodeAddedAtByShow fetches all episodes for a library section in one bulk
 // request and returns a map of show RatingKey -> latest episode addedAt timestamp.
-func fetchLatestEpisodeAddedAtByShow(ctx context.Context, sectionID string) (map[string]int64, logging.LogErrorInfo) {
+func fetchLatestEpisodeAddedAtByShow(ctx context.Context, msConfig config.Config_MediaServer, sectionID string) (map[string]int64, logging.LogErrorInfo) {
 	ctx, logAction := logging.AddSubActionToContext(ctx, fmt.Sprintf(
 		"Plex: Bulk-fetching episode addedAt for section %s", sectionID,
 	), logging.LevelDebug)
@@ -174,7 +184,7 @@ func fetchLatestEpisodeAddedAtByShow(ctx context.Context, sectionID string) (map
 
 	logging.DevMsgf("Bulk-fetching latest episode addedAt for shows in section %s", sectionID)
 
-	u, err := url.Parse(config.Current.MediaServer.URL)
+	u, err := url.Parse(msConfig.URL)
 	if err != nil {
 		logAction.SetError("Failed to parse base URL", "Ensure the URL is valid", map[string]any{"error": err.Error()})
 		return nil, *logAction.Error
@@ -188,7 +198,7 @@ func fetchLatestEpisodeAddedAtByShow(ctx context.Context, sectionID string) (map
 	query.Set("X-Plex-Container-Size", "0")
 	u.RawQuery = query.Encode()
 
-	resp, respBody, Err := makeRequest(ctx, config.Current.MediaServer, u.String(), "GET", nil)
+	resp, respBody, Err := makeRequest(ctx, msConfig, u.String(), "GET", nil)
 	if Err.Message != "" {
 		logAction.SetErrorFromInfo(Err)
 		return nil, *logAction.Error
@@ -198,42 +208,37 @@ func fetchLatestEpisodeAddedAtByShow(ctx context.Context, sectionID string) (map
 	var countResp PlexLibraryItemsWrapper
 	Err = httpx.DecodeResponseToJSON(ctx, respBody, &countResp, "Plex Episode Count Response")
 	if Err.Message != "" {
-		return nil, *logAction.Error
+		return nil, Err
 	}
 	totalEpisodes := countResp.MediaContainer.TotalSize
 	if totalEpisodes == 0 {
 		return map[string]int64{}, logging.LogErrorInfo{}
 	}
 
-	const pageSize = 1000
-	latest := make(map[string]int64)
-	for start := 0; start < totalEpisodes; {
-		query.Set("X-Plex-Container-Start", strconv.Itoa(start))
-		query.Set("X-Plex-Container-Size", strconv.Itoa(min(pageSize, totalEpisodes-start)))
-		u.RawQuery = query.Encode()
+	// Second pass: fetch all episodes in one shot
+	query.Set("X-Plex-Container-Size", fmt.Sprintf("%d", totalEpisodes))
+	u.RawQuery = query.Encode()
 
-		resp, respBody, Err = makeRequest(ctx, config.Current.MediaServer, u.String(), "GET", nil)
-		if Err.Message != "" {
-			logAction.SetErrorFromInfo(Err)
-			return nil, *logAction.Error
-		}
-		resp.Body.Close()
-
-		var episodesResp PlexLibraryItemsWrapper
-		Err = httpx.DecodeResponseToJSON(ctx, respBody, &episodesResp, "Plex Episodes Page Response")
-		if Err.Message != "" {
-			return nil, *logAction.Error
-		}
-		if len(episodesResp.MediaContainer.Metadata) == 0 {
-			break
-		}
-		for _, ep := range episodesResp.MediaContainer.Metadata {
-			showKey := ep.GrandParentRatingKey
-			if ep.AddedAt > latest[showKey] {
-				latest[showKey] = ep.AddedAt
-			}
-		}
-		start += len(episodesResp.MediaContainer.Metadata)
+	resp, respBody, Err = makeRequest(ctx, msConfig, u.String(), "GET", nil)
+	if Err.Message != "" {
+		logAction.SetErrorFromInfo(Err)
+		return nil, *logAction.Error
 	}
+	resp.Body.Close()
+
+	var episodesResp PlexLibraryItemsWrapper
+	Err = httpx.DecodeResponseToJSON(ctx, respBody, &episodesResp, "Plex All Episodes Response")
+	if Err.Message != "" {
+		return nil, Err
+	}
+
+	latest := make(map[string]int64)
+	for _, ep := range episodesResp.MediaContainer.Metadata {
+		showKey := ep.GrandParentRatingKey
+		if ep.AddedAt > latest[showKey] {
+			latest[showKey] = ep.AddedAt
+		}
+	}
+
 	return latest, logging.LogErrorInfo{}
 }

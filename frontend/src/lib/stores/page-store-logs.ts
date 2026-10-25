@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
+import { syncPageView } from "@/lib/stores/page-view-sync";
 import { PageStore } from "@/lib/stores/stores";
 
 import type { PaginationStore } from "@/types/store-interfaces";
@@ -66,3 +67,6 @@ export const useLogsPageStore = create<Logs_PageStore>()(
     }
   )
 );
+
+// The sort and filter options are the same on every device
+syncPageView("logs", useLogsPageStore, ["levelsFilter", "statusFilter", "actionsFilter"]);

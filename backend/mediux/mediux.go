@@ -179,7 +179,7 @@ func convertMediuxImageAssetToImageFile(a *ImageAsset, imageType string) *models
 
 // Convert MediUX ShowSet to Set Response ShowSet
 func convertMediuxShowImagesToImageFiles(set BaseMediuxShowSet, showTMDBID string) []models.ImageFile {
-	var images []models.ImageFile
+	images := []models.ImageFile{}
 
 	// Poster(s)
 	if len(set.ShowPoster) > 0 && set.ShowPoster[0].ID != "" {
@@ -221,7 +221,7 @@ func convertMediuxShowImagesToImageFiles(set BaseMediuxShowSet, showTMDBID strin
 }
 
 func convertMediuxMovieImagesToImageFiles(set BaseMediuxMovieSet, movieTMDBID string) []models.ImageFile {
-	var images []models.ImageFile
+	images := []models.ImageFile{}
 
 	// Poster(s)
 	if len(set.MoviePoster) > 0 && set.MoviePoster[0].ID != "" {

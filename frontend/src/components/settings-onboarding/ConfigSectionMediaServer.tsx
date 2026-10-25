@@ -1,5 +1,6 @@
 "use client";
 
+import { withoutEmptyFieldErrors } from "@/helper/validation/empty-field-errors";
 import { ValidateURL } from "@/helper/validation/validate-url";
 import { GetLibrarySectionOptions } from "@/services/mediaserver/get-library-section-options";
 import { CheckAuthStatusWithPlex, GetPlexPinAndID, type PlexServersResponse } from "@/services/mediaserver/plex";
@@ -36,14 +37,36 @@ import type { AppConfigMediaServer, AppConfigMediaServerLibrary } from "@/types/
 interface ConfigSectionMediaServerProps {
   value: AppConfigMediaServer;
   editing: boolean;
+  showActions?: boolean; // Show actions hidden while editing, as Settings is always editable
+  hideEmptyFieldErrors?: boolean; // Don't turn the card red for empty fields during setup
+  autoLoadLibraries?: boolean; // Load all libraries once connected, if none are added yet
+  onConnectionVerifiedChange?: (verified: boolean, checking: boolean) => void; // Reports whether the connection has been checked and works
   configAlreadyLoaded: boolean;
+  title?: string; // Card title
+  badge?: string; // Badge shown next to the title
+  isMainServer?: boolean; // Options that only apply to the main media server are hidden for the other media servers
+  showName?: boolean; // Show the name field
   dirtyFields?: Partial<Record<keyof AppConfigMediaServer, boolean>>;
   onChange: <K extends keyof AppConfigMediaServer>(field: K, value: AppConfigMediaServer[K]) => void;
   errorsUpdate?: (errors: Partial<Record<keyof AppConfigMediaServer, string>>) => void;
 }
 
-const SERVER_TYPES = ["Plex", "Emby", "Jellyfin"];
-const USER_ID_REQUIRED_TYPES = new Set<string>(["Emby", "Jellyfin"]);
+const SERVER_TYPES = ["Plex", "Emby", "Jellyfin", "Silo"];
+// Logo of each media server type, shown in the type list
+const SERVER_TYPE_ICONS: Record<string, string> = {
+  Plex: "/plex-icon.png",
+  Emby: "/emby-icon.png",
+  Jellyfin: "/jellyfin-icon.png",
+  Silo: "/silo-icon.png",
+};
+const USER_ID_REQUIRED_TYPES = new Set<string>(["Emby", "Jellyfin", "Silo"]);
+const DEFAULT_PORTS: Record<string, string> = { Plex: "32400", Emby: "8096", Jellyfin: "8096", Silo: "8090" };
+
+// Wait this long after the URL stops changing before checking the connection
+const URL_CHECK_DELAY = 800; // milliseconds
+
+// Silo uses a Profile ID instead of a User ID
+const getUserIDLabel = (type: string) => (type === "Silo" ? "Profile ID" : "User ID");
 
 export function GetConnectionColor(status: "unknown" | "ok" | "error"): "green-500" | "red-500" | "gray-500" {
   switch (status) {
@@ -59,7 +82,15 @@ export function GetConnectionColor(status: "unknown" | "ok" | "error"): "green-5
 export const ConfigSectionMediaServer: React.FC<ConfigSectionMediaServerProps> = ({
   value,
   editing,
+  showActions = false,
+  hideEmptyFieldErrors = false,
+  autoLoadLibraries = false,
+  onConnectionVerifiedChange,
   configAlreadyLoaded,
+  title = "Media Server",
+  badge,
+  isMainServer = true,
+  showName = false,
   dirtyFields = {},
   onChange,
   errorsUpdate,
@@ -124,7 +155,7 @@ export const ConfigSectionMediaServer: React.FC<ConfigSectionMediaServerProps> =
 
     // User ID requirement
     if (USER_ID_REQUIRED_TYPES.has(typeNormalized) && !value.user_id?.trim()) {
-      errs.user_id = "User ID should be set automatically after URL & Token are valid.";
+      errs.user_id = `${getUserIDLabel(typeNormalized)} should be set automatically after URL & Token are valid.`;
     }
 
     // Libraries
@@ -149,6 +180,13 @@ export const ConfigSectionMediaServer: React.FC<ConfigSectionMediaServerProps> =
     return errs;
   }, [typeNormalized, value.url, value.api_token, value.user_id, libraries, remoteTokenError]);
 
+  // Errors that turn the card red
+  const displayErrors = React.useMemo(
+    () =>
+      hideEmptyFieldErrors ? withoutEmptyFieldErrors(errors, value as unknown as Record<string, unknown>) : errors,
+    [errors, hideEmptyFieldErrors, value]
+  );
+
   // Emit errors upward
   useEffect(() => {
     if (!errorsUpdate) return;
@@ -158,34 +196,56 @@ export const ConfigSectionMediaServer: React.FC<ConfigSectionMediaServerProps> =
     errorsUpdate(errors);
   }, [errors, errorsUpdate]);
 
-  // Reset remote token error when URL or Token changes
+  // Reset remote token error and connection status when URL or Token changes
   useEffect(() => {
     setRemoteTokenError(null);
+    setConnectionStatus({ status: "unknown", color: GetConnectionColor("unknown") });
   }, [value.api_token, value.url]);
 
+  // Report whether the connection has been checked and works
   useEffect(() => {
-    if (editing && value.url) {
+    onConnectionVerifiedChange?.(connectionStatus.status === "ok" && !testingToken, testingToken);
+  }, [connectionStatus.status, testingToken, onConnectionVerifiedChange]);
+
+  // Check the connection when the URL changes, once typing stops.
+  // In Settings, skip the first check as it was already checked on load.
+  const isFirstURLCheck = useRef(true);
+  const urlCheckTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    const skipFirstCheck = isFirstURLCheck.current && showActions;
+    isFirstURLCheck.current = false;
+    if (skipFirstCheck) return;
+    if (!editing || !value.url) return;
+    urlCheckTimer.current = setTimeout(() => {
+      urlCheckTimer.current = null;
       runRemoteValidation();
-    }
+    }, URL_CHECK_DELAY);
+    return () => {
+      if (urlCheckTimer.current) clearTimeout(urlCheckTimer.current);
+      urlCheckTimer.current = null;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value.url]);
 
+  // Leaving the URL field checks it right away instead of waiting
+  const checkURLNow = () => {
+    if (urlCheckTimer.current) clearTimeout(urlCheckTimer.current);
+    urlCheckTimer.current = null;
+    runRemoteValidation();
+  };
+
+  const latestCheck = useRef(0);
   const runRemoteValidation = useCallback(
     async (showToast = true) => {
       setConnectionStatus({ status: "unknown", color: GetConnectionColor("unknown") });
       const current = valueRef.current;
-      if (!current.api_token.trim()) {
-        setRemoteTokenError("Token is required.");
-        setConnectionStatus({ status: "error", color: GetConnectionColor("error") });
-        return;
-      }
-      if (!current.url.trim()) {
-        setRemoteTokenError("URL is required.");
-        setConnectionStatus({ status: "error", color: GetConnectionColor("error") });
+      // Nothing to check without a URL and token
+      if (!current.api_token.trim() || !current.url.trim()) {
         return;
       }
 
       setTestingToken(true);
+      const check = ++latestCheck.current;
       const start = Date.now();
       const { valid, message, media_server } = await ValidateMediaServerInfo(current, showToast);
       const elapsed = Date.now() - start;
@@ -194,6 +254,8 @@ export const ConfigSectionMediaServer: React.FC<ConfigSectionMediaServerProps> =
       if (elapsed < minDelay) {
         await new Promise((resolve) => setTimeout(resolve, minDelay - elapsed));
       }
+      // A newer check has started
+      if (check !== latestCheck.current) return;
       setTestingToken(false);
 
       if (valid) {
@@ -241,6 +303,17 @@ export const ConfigSectionMediaServer: React.FC<ConfigSectionMediaServerProps> =
     }
     replaceLibraries(resp.data.library_sections.map((lib) => lib.title));
   };
+
+  // Load all of the server's libraries once connected, once per server and only if none are added yet
+  const autoLoadedLibrariesFor = useRef("");
+  useEffect(() => {
+    if (!autoLoadLibraries || connectionStatus.status !== "ok" || libraries.length > 0) return;
+    const server = `${value.type}|${value.url}|${value.api_token}`;
+    if (autoLoadedLibrariesFor.current === server) return;
+    autoLoadedLibrariesFor.current = server;
+    void fetchServerLibraries();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoLoadLibraries, connectionStatus.status, libraries.length, value.type, value.url, value.api_token]);
 
   // Plex OAuth Flow (Get PIN and ID)
   const handleGetPlexPinAndID = async () => {
@@ -310,26 +383,53 @@ export const ConfigSectionMediaServer: React.FC<ConfigSectionMediaServerProps> =
   }
 
   return (
-    <Card className={`p-5 ${Object.values(errors).some(Boolean) ? "border-red-500" : "border-muted"}`}>
+    <Card
+      className={`gap-4 p-4 sm:p-5 ${Object.values(displayErrors).some(Boolean) ? "border-red-500" : "border-muted"}`}
+    >
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <h2 className={`text-xl font-semibold text-${connectionStatus.color}`}>Media Server</h2>
-          <span
-            className={`h-2 w-2 rounded-full ${CONNECTION_STATUS_COLORS_BG[connectionStatus.status]} animate-pulse`}
-            title={`Connection status: ${connectionStatus.status}`}
-          />
+        <div className="space-y-1">
+          {badge && <Badge variant="secondary">{badge}</Badge>}
+          <div className="flex items-center gap-2">
+            <h2 className={`text-xl font-semibold text-${connectionStatus.color}`}>{title}</h2>
+            <span
+              className={`h-2 w-2 rounded-full ${CONNECTION_STATUS_COLORS_BG[connectionStatus.status]} animate-pulse`}
+              title={`Connection status: ${connectionStatus.status}`}
+            />
+          </div>
         </div>
         <Button
           variant="outline"
           size="sm"
-          hidden={editing}
-          disabled={editing || testingToken}
+          hidden={editing && !showActions}
+          disabled={(editing && !showActions) || testingToken}
           onClick={() => runRemoteValidation()}
           className="cursor-pointer hover:text-primary"
         >
           {testingToken ? "Testing..." : "Test Connection"}
         </Button>
       </div>
+
+      {/* Name */}
+      {showName && (
+        <div className={cn("space-y-1")}>
+          <div className="flex items-center justify-between">
+            <Label htmlFor={`media-server-name-${value.id ?? "new"}`}>Name</Label>
+            {editing && (
+              <PopoverHelp ariaLabel="help-media-server-name">
+                <p>The name shown for this media server in aura.</p>
+              </PopoverHelp>
+            )}
+          </div>
+          <Input
+            id={`media-server-name-${value.id ?? "new"}`}
+            disabled={!editing}
+            placeholder={value.type || "Media Server"}
+            value={value.name ?? ""}
+            onChange={(e) => onChange("name", e.target.value)}
+            className={cn(dirtyFields.name && "border-amber-500")}
+          />
+        </div>
+      )}
 
       {/* Type */}
       <div className={cn("space-y-1")}>
@@ -342,6 +442,7 @@ export const ConfigSectionMediaServer: React.FC<ConfigSectionMediaServerProps> =
                 <li>Plex</li>
                 <li>Emby</li>
                 <li>Jellyfin</li>
+                <li>Silo</li>
               </ul>
             </PopoverHelp>
           )}
@@ -373,7 +474,10 @@ export const ConfigSectionMediaServer: React.FC<ConfigSectionMediaServerProps> =
           <SelectContent>
             {SERVER_TYPES.map((t) => (
               <SelectItem className="cursor-pointer" key={t} value={t}>
-                {t}
+                <span className="flex items-center gap-2">
+                  <img src={SERVER_TYPE_ICONS[t]} alt="" aria-hidden="true" className="h-4 w-4 object-contain" />
+                  {t}
+                </span>
               </SelectItem>
             ))}
             <SelectScrollUpButton />
@@ -491,11 +595,14 @@ export const ConfigSectionMediaServer: React.FC<ConfigSectionMediaServerProps> =
                 <p>Examples:</p>
                 <ul className="list-disc list-inside mb-1">
                   <li>https://{value.type.toLowerCase()}.domain.com</li>
-                  <li>http://192.168.1.10:{value.type === "Plex" ? "32400" : "8096"}</li>
+                  <li>http://192.168.1.10:{DEFAULT_PORTS[value.type] ?? "8096"}</li>
                   <li>
-                    http://{value.type.toLowerCase()}:{value.type === "Plex" ? "32400" : "8096"}
+                    http://{value.type.toLowerCase()}:{DEFAULT_PORTS[value.type] ?? "8096"}
                   </li>
                 </ul>
+                {value.type === "Silo" && (
+                  <p className="mb-1">Use the main Silo server URL, not the Jellyfin compatibility URL.</p>
+                )}
                 <p>Rules:</p>
                 <ul className="list-disc list-inside">
                   <li>Must be a valid URL</li>
@@ -511,7 +618,7 @@ export const ConfigSectionMediaServer: React.FC<ConfigSectionMediaServerProps> =
             placeholder="https://server.example.com"
             value={value.url}
             onChange={(e) => onChange("url", e.target.value)}
-            onBlur={() => runRemoteValidation()}
+            onBlur={checkURLNow}
             className={cn("w-full", dirtyFields.url && "border-amber-500")}
           />
 
@@ -527,6 +634,13 @@ export const ConfigSectionMediaServer: React.FC<ConfigSectionMediaServerProps> =
           {editing && (
             <PopoverHelp ariaLabel="help-media-server-token">
               <p>API token used to authenticate requests to the media server.</p>
+              {value.type === "Silo" && (
+                <p className="mt-2">
+                  For Silo, create the API key from an admin account. Setting the API key's rate tier to{" "}
+                  <span className="font-medium">elevated</span> in Silo is recommended, as Silo limits how many requests
+                  an API key can make.
+                </p>
+              )}
             </PopoverHelp>
           )}
         </div>
@@ -542,23 +656,30 @@ export const ConfigSectionMediaServer: React.FC<ConfigSectionMediaServerProps> =
         {errors.api_token && <p className="text-xs text-red-500">{errors.api_token}</p>}
       </div>
 
-      {/* User ID (Emby / Jellyfin) */}
+      {/* User ID (Emby / Jellyfin) or Profile ID (Silo) */}
       {USER_ID_REQUIRED_TYPES.has(value.type) && (
         <div className={cn("space-y-1")}>
           <div className="flex items-center justify-between">
-            <Label>User ID</Label>
+            <Label>{getUserIDLabel(value.type)}</Label>
             {editing && (
               <PopoverHelp ariaLabel="help-media-server-user-id">
-                <p>
-                  User ID is required for Emby/Jellyfin. It should be set automatically after URL & Token are valid.
-                </p>
+                {value.type === "Silo" ? (
+                  <p>
+                    Profile ID is required for Silo. It is the primary profile of the API key's account, and should be
+                    set automatically after URL & Token are valid.
+                  </p>
+                ) : (
+                  <p>
+                    User ID is required for Emby/Jellyfin. It should be set automatically after URL & Token are valid.
+                  </p>
+                )}
               </PopoverHelp>
             )}
           </div>
           <Input
             disabled={true}
             value={value.user_id ?? ""}
-            placeholder="Emby/Jellyfin user id"
+            placeholder={value.type === "Silo" ? "Silo profile id" : "Emby/Jellyfin user id"}
             className={cn("w-full", dirtyFields.user_id && "border-amber-500")}
           />
           {errors.user_id && <p className="text-xs text-red-500">{errors.user_id}</p>}
@@ -619,7 +740,8 @@ export const ConfigSectionMediaServer: React.FC<ConfigSectionMediaServerProps> =
       </div>
 
       {/* Enable Sort by Episode Added Date */}
-      {value.type === "Plex" && (
+      {/* Only the main media server's items are shown on the Home page */}
+      {value.type === "Plex" && isMainServer && (
         <div
           className={cn(
             "flex items-center justify-between border rounded-md p-3 transition",
@@ -650,7 +772,8 @@ export const ConfigSectionMediaServer: React.FC<ConfigSectionMediaServerProps> =
       )}
 
       {/* Plex Websocket Listener */}
-      {value.type === "Plex" && (
+      {/* Only the main media server listens for Plex events */}
+      {value.type === "Plex" && isMainServer && (
         <div
           className={cn(
             "flex items-center justify-between border rounded-md p-3 transition",

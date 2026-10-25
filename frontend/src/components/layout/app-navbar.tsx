@@ -1,6 +1,7 @@
 "use client";
 
-import { GetSession, Logout } from "@/services/auth/login";
+import { Logout } from "@/services/auth/logout";
+import { subscribeToDownloadQueue } from "@/services/downloads/queue-stream";
 import {
   ArrowLeftCircle,
   ArrowRightCircle,
@@ -33,8 +34,9 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 import { cn } from "@/lib/cn";
-import { ClearAllStores } from "@/lib/stores/clear-all-stores";
+import { DeepResetAllStores } from "@/lib/stores/clear-all-stores";
 import { useCollectionStore } from "@/lib/stores/global-store-collection-store";
+import { useFailedDownloadsStore } from "@/lib/stores/global-store-failed-downloads";
 import { useMediaStore } from "@/lib/stores/global-store-media-store";
 import { useOnboardingStore } from "@/lib/stores/global-store-onboarding";
 import { useSearchQueryStore } from "@/lib/stores/global-store-search-query";
@@ -47,21 +49,6 @@ type AppNavbarProps = {
   version?: string;
 };
 
-/**
- * Guards a full-page navigation to a URL the app did not compose itself. The provider's
- * logout endpoint comes from its discovery document, so a malformed one must not be able
- * to hand us a javascript: or data: URL.
- */
-const externalNavigationURL = (raw?: string): string | undefined => {
-  if (!raw) return undefined;
-  try {
-    const parsed = new URL(raw);
-    return parsed.protocol === "https:" || parsed.protocol === "http:" ? parsed.toString() : undefined;
-  } catch {
-    return undefined;
-  }
-};
-
 export function Navbar({ version = "dev" }: AppNavbarProps) {
   // Router
   const router = useRouter();
@@ -72,6 +59,7 @@ export function Navbar({ version = "dev" }: AppNavbarProps) {
   const isHomePage = pathName === "/";
   const isMediaPage = pathName.startsWith("/media-item") || pathName.startsWith("/media-item/");
   const isOnboardingPage = pathName === "/onboarding" || pathName === "/onboarding/";
+  const isLoginPage = pathName === "/login" || pathName === "/login/";
   const isLogsPage = pathName === "/logs" || pathName === "/logs/";
   const isChangeLogPage = pathName === "/change-log" || pathName === "/change-log/";
   const isCollectionItemPage = pathName.startsWith("/collection-item") || pathName.startsWith("/collection-item/");
@@ -99,6 +87,7 @@ export function Navbar({ version = "dev" }: AppNavbarProps) {
   // Onboarding Store
   const { fetchStatus } = useOnboardingStore();
   const status = useOnboardingStore((state) => state.status);
+  const dependencyWarning = getDependencyWarning(status); // Fork
   const hasHydrated = useOnboardingStore((state) => state.hasHydrated);
 
   // Prevent repeated redirects while loading
@@ -110,20 +99,12 @@ export function Navbar({ version = "dev" }: AppNavbarProps) {
   // App Version Hook
   const { latestVersion, isNewerVersion } = useAppVersion(version);
 
-  const dependencyWarning = getDependencyWarning(status);
-  const shouldPollStatus = dependencyWarning !== null;
+  // Some media servers do not support collections
 
+  // Fetch onboarding/status on mount, and again whenever the route changes
   useEffect(() => {
     void fetchStatus();
-  }, [fetchStatus]);
-
-  // Poll while a dependency warning is active, then stop once backend recovery
-  // or a config update clears it.
-  useEffect(() => {
-    if (!shouldPollStatus) return;
-    const interval = window.setInterval(() => void fetchStatus(), 30_000);
-    return () => window.clearInterval(interval);
-  }, [fetchStatus, shouldPollStatus]);
+  }, [fetchStatus, pathName]);
 
   // App Not Fully Loaded Redirect Logic
   useEffect(() => {
@@ -185,24 +166,14 @@ export function Navbar({ version = "dev" }: AppNavbarProps) {
     document.title = status?.media_server_name ? `aura | ${status.media_server_name}` : "aura";
   }, [status?.media_server_name]);
 
-  // On mount, check auth status. The session cookie is HttpOnly, so the backend has to
-  // answer this rather than reading anything client-side.
+  // On mount, check auth status
   useEffect(() => {
     if (status?.current_setup?.auth?.enabled === false) {
       setIsAuthed(true);
       return;
     }
-
-    let cancelled = false;
-    void GetSession().then((session) => {
-      if (!cancelled) {
-        setIsAuthed(!!session.data?.authenticated);
-      }
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [pathName, status?.current_setup?.auth?.enabled]);
+    setIsAuthed(status !== null);
+  }, [pathName, status]);
 
   // When clicking on the logo, navigate to home
   // If already on homepage, reset home page states
@@ -222,27 +193,28 @@ export function Navbar({ version = "dev" }: AppNavbarProps) {
     router.push("/");
   };
 
+  // Hide the menu when it would be empty
+  // While the backend is starting, hide the menu and search
+  const appLoading = !!status && !status.needs_setup && !status.app_fully_loaded;
+  const appReady = !!status && !status.needs_setup && status.app_fully_loaded;
+  const hasNewVersion = !appLoading && isNewerVersion(latestVersion ?? "", version);
+  const showLogout = !appLoading && isAuthed && !!status?.current_setup.auth.enabled && !status?.auth_disabled_by_env;
+  const menuHasItems = appReady || hasNewVersion || showLogout;
+
+  // Failed downloads, kept current as Download Queue jobs finish
+  const failedCount = useFailedDownloadsStore((state) => state.failedCount);
+  const refreshFailedCount = useFailedDownloadsStore((state) => state.refreshFailedCount);
+  useEffect(() => {
+    if (!appReady || !isAuthed) return;
+    void refreshFailedCount();
+    return subscribeToDownloadQueue({ onJobFinished: () => void refreshFailedCount() });
+  }, [appReady, isAuthed, refreshFailedCount]);
+
   // Handle Logout
   const handleLogout = async () => {
-    // With OIDC single logout the provider has to end its session too, and that is a full
-    // navigation off this origin rather than a client-side route change.
-    let endSessionURL: string | undefined;
-
-    // Whatever fails, the user still ends up signed out: a half-finished logout that
-    // leaves them looking at a stale page is the worse outcome.
-    try {
-      const resp = await Logout();
-      endSessionURL = externalNavigationURL(resp.data?.end_session_url);
-      // Cached library/media data belongs to the session that just ended.
-      await ClearAllStores();
-    } finally {
-      setIsAuthed(false);
-      if (endSessionURL) {
-        window.location.href = endSessionURL;
-      } else {
-        router.replace("/login");
-      }
-    }
+    await Logout(); // clears the HttpOnly session cookie server-side
+    await DeepResetAllStores();
+    window.location.href = "/login";
   };
 
   return (
@@ -264,15 +236,18 @@ export function Navbar({ version = "dev" }: AppNavbarProps) {
         </div>
       </div>
 
-      {/* Center: Search */}
+      {/* Center: Search, only once set up and loaded */}
       <div className="relative flex-1 flex justify-center mx-3">
-        <div className="relative w-full max-w-2xl">
-          <DynamicSearch placeholder="Search" />
-        </div>
+        {appReady && !isLoginPage && !isOnboardingPage && (
+          <div className="relative w-full max-w-2xl">
+            <DynamicSearch placeholder="Search" />
+          </div>
+        )}
       </div>
 
       {/* Right: Arrows and/or Settings */}
       <div className="flex items-center gap-2 flex-shrink-0">
+        {/* Fork: a degraded start (media server or MediUX unreachable) shows here instead of opening setup */}
         {dependencyWarning && (
           <span role="status" aria-label={dependencyWarning.label} title={dependencyWarning.detail}>
             <TriangleAlert className="h-6 w-6 text-yellow-500" />
@@ -310,98 +285,108 @@ export function Navbar({ version = "dev" }: AppNavbarProps) {
             />
           </>
         )}
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            asChild
-            className="cursor-pointer hover:brightness-120 active:scale-95 transition text-muted-foreground"
-          >
-            <MenuIcon
-              className={cn(
-                "w-8 h-8 ml-2",
-                isNewerVersion(latestVersion ?? "", version) && "text-yellow-500 animate-pulse"
-              )}
-            />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent className="w-56 md:w-64" side="bottom" align="end">
-            {status && !status.needs_setup && (
-              <>
-                <DropdownMenuItem
-                  className="cursor-pointer flex items-center active:scale-95 hover:brightness-120"
-                  onClick={() => router.push("/saved-sets")}
-                >
-                  <BookmarkIcon className="w-6 h-6 mr-2" />
-                  Saved Sets
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  className="cursor-pointer flex items-center active:scale-95 hover:brightness-120"
-                  onClick={() => router.push("/collections")}
-                >
-                  <LayoutGrid className="w-6 h-6 mr-2" />
-                  Collections
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  className="cursor-pointer flex items-center active:scale-95 hover:brightness-120"
-                  onClick={() => router.push("/download-queue")}
-                >
-                  <ListOrdered className="w-6 h-6 mr-2" />
-                  Download Queue
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  className="cursor-pointer flex items-center active:scale-95 hover:brightness-120"
-                  onClick={() => router.push("/settings")}
-                >
-                  <FileCogIcon className="w-6 h-6 mr-2" />
-                  Settings
-                </DropdownMenuItem>
-                {isWideScreen && (
-                  <DropdownMenuItem className="cursor-pointer flex items-center active:scale-95 hover:brightness-120">
-                    <ViewDensitySlider />
-                  </DropdownMenuItem>
+        {isAuthed && !isLoginPage && menuHasItems && (
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              asChild
+              className="cursor-pointer hover:brightness-120 active:scale-95 transition text-muted-foreground"
+            >
+              <MenuIcon
+                className={cn(
+                  "w-8 h-8 ml-2",
+                  hasNewVersion && "text-yellow-500 animate-pulse",
+                  appReady && failedCount > 0 && "text-red-500"
                 )}
-              </>
-            )}
-            <DropdownMenuItem
-              className="cursor-pointer flex items-center active:scale-95 hover:brightness-120"
-              onClick={() => router.push("/logs")}
-            >
-              <Logs className="w-6 h-6 mr-2" />
-              Logs
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              className="cursor-pointer flex items-center active:scale-95 hover:brightness-120"
-              onClick={() => router.push("/jobs")}
-            >
-              <Clock className="w-6 h-6 mr-2" />
-              Jobs
-            </DropdownMenuItem>
-            {isNewerVersion(latestVersion ?? "", version) && (
-              <DropdownMenuItem
-                className="cursor-pointer flex items-center active:scale-95 hover:brightness-120 text-yellow-500 animate-pulse"
-                onClick={() =>
-                  router.push(
-                    `/change-log?currentVersion=${encodeURIComponent(version)}&updates=true&latestVersion=${encodeURIComponent(latestVersion ?? "")}`
-                  )
-                }
-              >
-                <Sparkles className="w-6 h-6 mr-2 text-yellow-500" />
-                New Version Available ({latestVersion})
-              </DropdownMenuItem>
-            )}
-            {isAuthed && status?.current_setup.auth.enabled && (
-              <>
-                <DropdownMenuSeparator />
+              />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent className="w-56 md:w-64" side="bottom" align="end">
+              {appReady && (
+                <>
+                  <DropdownMenuItem
+                    className="cursor-pointer flex items-center active:scale-95 hover:brightness-120"
+                    onClick={() => router.push("/saved-sets")}
+                  >
+                    <BookmarkIcon className="w-6 h-6 mr-2" />
+                    Saved Sets
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    className="cursor-pointer flex items-center active:scale-95 hover:brightness-120"
+                    onClick={() => router.push("/collections")}
+                  >
+                    <LayoutGrid className="w-6 h-6 mr-2" />
+                    Collections
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    className="cursor-pointer flex items-center active:scale-95 hover:brightness-120"
+                    onClick={() => router.push("/download-queue")}
+                  >
+                    <ListOrdered className="w-6 h-6 mr-2" />
+                    <div className="flex flex-col">
+                      <span>Download Queue</span>
+                      {failedCount > 0 && <span className="text-xs text-red-500">{failedCount} Failed</span>}
+                    </div>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    className="cursor-pointer flex items-center active:scale-95 hover:brightness-120"
+                    onClick={() => router.push("/settings")}
+                  >
+                    <FileCogIcon className="w-6 h-6 mr-2" />
+                    Settings
+                  </DropdownMenuItem>
+                  {isWideScreen && (
+                    <DropdownMenuItem className="cursor-pointer flex items-center active:scale-95 hover:brightness-120">
+                      <ViewDensitySlider />
+                    </DropdownMenuItem>
+                  )}
+                </>
+              )}
+              {appReady && (
                 <DropdownMenuItem
-                  className="cursor-pointer flex items-center active:scale-95 hover:brightness-120 text-red-600 focus:text-red-700"
-                  onClick={() => void handleLogout()}
+                  className="cursor-pointer flex items-center active:scale-95 hover:brightness-120"
+                  onClick={() => router.push("/logs")}
                 >
-                  <LogOutIcon className="w-6 h-6 mr-2" />
-                  Logout
+                  <Logs className="w-6 h-6 mr-2" />
+                  Logs
                 </DropdownMenuItem>
-              </>
-            )}
-          </DropdownMenuContent>
-        </DropdownMenu>
+              )}
+              {appReady && (
+                <DropdownMenuItem
+                  className="cursor-pointer flex items-center active:scale-95 hover:brightness-120"
+                  onClick={() => router.push("/jobs")}
+                >
+                  <Clock className="w-6 h-6 mr-2" />
+                  Jobs
+                </DropdownMenuItem>
+              )}
+              {hasNewVersion && (
+                <DropdownMenuItem
+                  className="cursor-pointer flex items-center active:scale-95 hover:brightness-120 text-yellow-500 animate-pulse"
+                  onClick={() =>
+                    router.push(
+                      `/change-log?currentVersion=${encodeURIComponent(version)}&updates=true&latestVersion=${encodeURIComponent(latestVersion ?? "")}`
+                    )
+                  }
+                >
+                  <Sparkles className="w-6 h-6 mr-2 text-yellow-500" />
+                  New Version Available ({latestVersion})
+                </DropdownMenuItem>
+              )}
+              {showLogout && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    className="cursor-pointer flex items-center active:scale-95 hover:brightness-120 text-red-600 focus:text-red-700"
+                    onClick={handleLogout}
+                  >
+                    <LogOutIcon className="w-6 h-6 mr-2" />
+                    Logout
+                  </DropdownMenuItem>
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
       </div>
     </nav>
   );

@@ -148,7 +148,7 @@ func GetAllUserSets(ctx context.Context, username string) (creatorSets models.Cr
 	// Collection Sets
 	for _, mediuxCollectionSet := range userSetsResponse.Data.CollectionSets {
 		var itemIDs []string
-		var images []models.ImageFile
+		images := []models.ImageFile{}
 		movieIDSet := map[string]struct{}{}
 
 		// Posters

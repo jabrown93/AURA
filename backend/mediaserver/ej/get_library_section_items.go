@@ -3,6 +3,7 @@ package ej
 import (
 	"aura/cache"
 	"aura/config"
+	"aura/database"
 	"aura/logging"
 	"aura/mediux"
 	"aura/models"
@@ -15,14 +16,22 @@ import (
 	"strings"
 )
 
-func (e *EJ) GetLibrarySectionItems(ctx context.Context, section models.LibrarySection, sectionStartIndex string, limit string) (items []models.MediaItem, rawItemCount int, totalSize int, Err logging.LogErrorInfo) {
+func (e *EJ) GetLibrarySectionItems(ctx context.Context, section models.LibrarySection, sectionStartIndex string, limit string) (items []models.MediaItem, totalSize int, fetched int, Err logging.LogErrorInfo) {
+	return e.getLibrarySectionItems(ctx, section, sectionStartIndex, limit, false)
+}
+
+// GetNewestLibrarySectionItems gets a library's items, newest first
+func (e *EJ) GetNewestLibrarySectionItems(ctx context.Context, section models.LibrarySection, sectionStartIndex string, limit string) (items []models.MediaItem, totalSize int, fetched int, Err logging.LogErrorInfo) {
+	return e.getLibrarySectionItems(ctx, section, sectionStartIndex, limit, true)
+}
+
+func (e *EJ) getLibrarySectionItems(ctx context.Context, section models.LibrarySection, sectionStartIndex string, limit string, newestFirst bool) (items []models.MediaItem, totalSize int, fetched int, Err logging.LogErrorInfo) {
 	ctx, logAction := logging.AddSubActionToContext(ctx, fmt.Sprintf(
-		"%s: Fetching Items for Library Section: %s", config.Current.MediaServer.Type, section.Title,
+		"%s: Fetching Items for Library Section: %s", e.Config.Type, section.Title,
 	), logging.LevelInfo)
 	defer logAction.Complete()
 
 	items = []models.MediaItem{}
-	rawItemCount = 0
 	totalSize = 0
 	Err = logging.LogErrorInfo{}
 
@@ -32,16 +41,21 @@ func (e *EJ) GetLibrarySectionItems(ctx context.Context, section models.LibraryS
 	}
 
 	// Construct the URL for the EJ server API request
-	u, err := url.Parse(config.Current.MediaServer.URL)
+	u, err := url.Parse(e.Config.URL)
 	if err != nil {
 		logAction.SetError(logging.Error_BaseUrlParsing(err))
-		return items, rawItemCount, totalSize, *logAction.Error
+		return items, totalSize, fetched, *logAction.Error
 	}
-	u.Path = path.Join(u.Path, "Users", config.Current.MediaServer.UserID, "Items")
+	u.Path = path.Join(u.Path, "Users", e.Config.UserID, "Items")
 	query := u.Query()
 	query.Add("Recursive", "true")
-	query.Add("SortBy", "Name")
-	query.Add("SortOrder", "Ascending")
+	if newestFirst {
+		query.Add("SortBy", "DateCreated")
+		query.Add("SortOrder", "Descending")
+	} else {
+		query.Add("SortBy", "Name")
+		query.Add("SortOrder", "Ascending")
+	}
 	query.Add("IncludeItemTypes", "Movie,Series")
 	query.Add("Fields", "DateLastContentAdded,PremiereDate,DateCreated,ProviderIds,BasicSyncInfo,CanDelete,CanDownload,PrimaryImageAspectRatio,ProductionYear,Status,EndDate")
 	query.Add("ParentId", section.ID)
@@ -51,25 +65,33 @@ func (e *EJ) GetLibrarySectionItems(ctx context.Context, section models.LibraryS
 	URL := u.String()
 
 	// Make the HTTP Request to EJ
-	resp, respBody, Err := makeRequest(ctx, config.Current.MediaServer, URL, "GET", nil)
+	resp, respBody, Err := makeRequest(ctx, e.Config, URL, "GET", nil)
 	if Err.Message != "" {
 		logAction.SetErrorFromInfo(Err)
-		return items, rawItemCount, totalSize, *logAction.Error
+		return items, totalSize, fetched, *logAction.Error
 	}
 	defer resp.Body.Close()
 
 	// Decode the Response
 	var ejResp EmbyJellyLibraryItemsResponse
-	Err = httpx.DecodeResponseToJSON(ctx, respBody, &ejResp, fmt.Sprintf("%s Library Section Items Response", config.Current.MediaServer.Type))
+	Err = httpx.DecodeResponseToJSON(ctx, respBody, &ejResp, fmt.Sprintf("%s Library Section Items Response", e.Config.Type))
 	if Err.Message != "" {
-		return items, rawItemCount, totalSize, *logAction.Error
+		return items, totalSize, fetched, Err
 	}
 
-	rawItemCount = len(ejResp.Items)
-	totalSize = ejResp.TotalRecordCount
-	if rawItemCount == 0 {
+	// Check to see if any items were returned
+	if len(ejResp.Items) == 0 {
 		logAction.AppendWarning("message", fmt.Sprintf("Library Section '%s' is empty", section.Title))
-		return items, rawItemCount, totalSize, Err
+		return items, totalSize, fetched, Err
+	}
+
+	totalSize = ejResp.TotalRecordCount
+	fetched = len(ejResp.Items)
+
+	// Saved sets and ignored state for the whole page
+	dbStates, dbErr := database.GetLibraryDBStates(ctx, section.Title)
+	if dbErr.Message != "" {
+		logAction.AppendWarning("db_states_error", dbErr.Message)
 	}
 
 	for _, ejItem := range ejResp.Items {
@@ -78,9 +100,9 @@ func (e *EJ) GetLibrarySectionItems(ctx context.Context, section models.LibraryS
 		// If Type is Boxset, then split them up
 		if ejItem.Type == "BoxSet" {
 			// Split the BoxSet into individual items
-			boxSetItems, boxSetErr := splitCollectionIntoIndividualItems(ctx, ejItem.Name, ejItem.ID, section.Title)
+			boxSetItems, boxSetErr := splitCollectionIntoIndividualItems(ctx, e.Config, ejItem.Name, ejItem.ID, section.Title, dbStates)
 			if boxSetErr.Message != "" {
-				return nil, rawItemCount, totalSize, boxSetErr
+				return nil, 0, 0, boxSetErr
 			}
 			// Only include unique items from the BoxSet split (some servers may return duplicate items in the BoxSet response vs the main section items response)
 			existingRatingKeys := make(map[string]bool)
@@ -110,10 +132,10 @@ func (e *EJ) GetLibrarySectionItems(ctx context.Context, section models.LibraryS
 			item.Guids = append(item.Guids, models.MediaItemGuid{Provider: "tvdb", ID: ejItem.ProviderIds.Tvdb})
 			item.TMDB_ID = ejItem.ProviderIds.Tmdb
 		}
-		item.AddedAt = ejItem.DateCreated.UnixMilli()
-		item.ReleasedAt = ejItem.PremiereDate.UnixMilli()
+		item.AddedAt = unixSeconds(ejItem.DateCreated)
+		item.ReleasedAt = unixSeconds(ejItem.PremiereDate)
 		if item.Type == "show" && !ejItem.DateLastContentAdded.IsZero() {
-			item.LatestEpisodeAddedAt = ejItem.DateLastContentAdded.Unix()
+			item.LatestEpisodeAddedAt = unixSeconds(ejItem.DateLastContentAdded)
 		}
 
 		// If no TMDB ID found, get the value from MediUX using the GUID[tvdb]
@@ -133,21 +155,28 @@ func (e *EJ) GetLibrarySectionItems(ctx context.Context, section models.LibraryS
 		}
 		if item.TMDB_ID == "" {
 			logging.LOGGER.Warn().Timestamp().Str("item_title", item.Title).Str("library_section", section.Title).Msgf("Skipping item in '%s' as no TMDB ID could be found", section.Title)
-			continue // Keep server total intact so subsequent page offsets remain stable.
+			continue // Skip items without TMDB ID
 		}
+
+		// Saved sets and ignored state from the database
+		database.ApplyDBState(dbStates, &item)
 
 		// Check if Media Item exists in MediUX with a set
 		if cache.MediuxItems.CheckItemExists(item.Type, item.TMDB_ID) {
 			item.HasMediuxSets = true
 		}
 
+		// Only the main media server's items go in the main library cache
+		if e.Config.IsMain() {
+			cache.LibraryStore.UpdateMediaItem(section.Title, &item)
+		}
 		items = append(items, item)
 	}
 
-	return items, rawItemCount, totalSize, logging.LogErrorInfo{}
+	return items, totalSize, fetched, logging.LogErrorInfo{}
 }
 
-func splitCollectionIntoIndividualItems(ctx context.Context, collectionName, parentID, sectionTitle string) (items []models.MediaItem, Err logging.LogErrorInfo) {
+func splitCollectionIntoIndividualItems(ctx context.Context, msConfig config.Config_MediaServer, collectionName, parentID, sectionTitle string, dbStates map[string]database.MediaItemDBState) (items []models.MediaItem, Err logging.LogErrorInfo) {
 	ctx, logAction := logging.AddSubActionToContext(ctx, fmt.Sprintf(
 		"Splitting BoxSet Collection: %s in Section: %s into Individual Items", collectionName, sectionTitle,
 	), logging.LevelInfo)
@@ -157,12 +186,12 @@ func splitCollectionIntoIndividualItems(ctx context.Context, collectionName, par
 	Err = logging.LogErrorInfo{}
 
 	// Construct the URL for the EJ server API request
-	u, err := url.Parse(config.Current.MediaServer.URL)
+	u, err := url.Parse(msConfig.URL)
 	if err != nil {
 		logAction.SetError(logging.Error_BaseUrlParsing(err))
 		return items, *logAction.Error
 	}
-	u.Path = path.Join(u.Path, "Users", config.Current.MediaServer.UserID, "Items")
+	u.Path = path.Join(u.Path, "Users", msConfig.UserID, "Items")
 	query := u.Query()
 	query.Add("Recursive", "true")
 	query.Add("SortBy", "Name")
@@ -174,7 +203,7 @@ func splitCollectionIntoIndividualItems(ctx context.Context, collectionName, par
 	URL := u.String()
 
 	// Make the HTTP Request to EJ
-	resp, respBody, Err := makeRequest(ctx, config.Current.MediaServer, URL, "GET", nil)
+	resp, respBody, Err := makeRequest(ctx, msConfig, URL, "GET", nil)
 	if Err.Message != "" {
 		logAction.SetErrorFromInfo(Err)
 		return items, *logAction.Error
@@ -183,9 +212,9 @@ func splitCollectionIntoIndividualItems(ctx context.Context, collectionName, par
 
 	// Decode the Response
 	var ejResp EmbyJellyLibraryItemsResponse
-	Err = httpx.DecodeResponseToJSON(ctx, respBody, &ejResp, fmt.Sprintf("%s BoxSet Individual Items Response", config.Current.MediaServer.Type))
+	Err = httpx.DecodeResponseToJSON(ctx, respBody, &ejResp, fmt.Sprintf("%s BoxSet Individual Items Response", msConfig.Type))
 	if Err.Message != "" {
-		return items, *logAction.Error
+		return items, Err
 	}
 
 	// Check to see if any items were returned
@@ -195,7 +224,7 @@ func splitCollectionIntoIndividualItems(ctx context.Context, collectionName, par
 	}
 
 	validLibraryPaths := []string{}
-	for _, lib := range config.Current.MediaServer.Libraries {
+	for _, lib := range msConfig.Libraries {
 		if len(lib.Paths) > 0 {
 			validLibraryPaths = append(validLibraryPaths, lib.Paths...)
 		}
@@ -220,7 +249,7 @@ func splitCollectionIntoIndividualItems(ctx context.Context, collectionName, par
 		}
 		// Check to see if the path starts with one of the known library paths, if not, skip the item
 		validPath := false
-		for _, lib := range config.Current.MediaServer.Libraries {
+		for _, lib := range msConfig.Libraries {
 			for _, libPath := range lib.Paths {
 				if libPath != "" && strings.HasPrefix(itemPath, libPath) {
 					validPath = true
@@ -250,8 +279,8 @@ func splitCollectionIntoIndividualItems(ctx context.Context, collectionName, par
 			itemInfo.Guids = append(itemInfo.Guids, models.MediaItemGuid{Provider: "tvdb", ID: item.ProviderIds.Tvdb})
 			itemInfo.TMDB_ID = item.ProviderIds.Tmdb
 		}
-		itemInfo.AddedAt = item.DateCreated.UnixMilli()
-		itemInfo.ReleasedAt = item.PremiereDate.UnixMilli()
+		itemInfo.AddedAt = unixSeconds(item.DateCreated)
+		itemInfo.ReleasedAt = unixSeconds(item.PremiereDate)
 
 		// If no TMDB ID found, get the value from MediUX using the GUID[tvdb]
 		if itemInfo.TMDB_ID == "" {
@@ -273,11 +302,18 @@ func splitCollectionIntoIndividualItems(ctx context.Context, collectionName, par
 			continue // Skip items without TMDB ID
 		}
 
+		// Saved sets and ignored state from the database
+		database.ApplyDBState(dbStates, &itemInfo)
+
 		// Check if Media Item exists in MediUX with a set
 		if cache.MediuxItems.CheckItemExists(itemInfo.Type, itemInfo.TMDB_ID) {
 			itemInfo.HasMediuxSets = true
 		}
 
+		// Only the main media server's items go in the main library cache
+		if msConfig.IsMain() {
+			cache.LibraryStore.UpdateMediaItem(sectionTitle, &itemInfo)
+		}
 		items = append(items, itemInfo)
 	}
 	return items, logging.LogErrorInfo{}

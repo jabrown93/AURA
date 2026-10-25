@@ -17,13 +17,14 @@ type RateMediaItem_Response struct {
 
 // RateMediaItem godoc
 // @Summary      Rate Media Item
-// @Description  Rate a media item on the media server. This endpoint allows clients to submit a user rating for a specific media item, which will be sent to the media server (currently only supported for Plex). The rating should be a number between 0 and 5, and it will be converted to the appropriate scale for the media server before being submitted.
+// @Description  Rate a media item on the media server. This endpoint allows clients to submit a user rating for a specific media item, which will be sent to the media server (currently only supported for Plex and Silo). The rating should be a number between 0 and 5, and it will be converted to the appropriate scale for the media server before being submitted.
 // @Tags         MediaServer
 // @Accept       json
 // @Produce      json
 // @Param        rating_key   query     string  true  "The rating key of the media item to rate"
 // @Param        rating       query     string  true  "The user rating for the media item (0-5)"
-// @Security 	 BearerAuth
+// @Security     SessionCookie
+// @Security     ApiKeyAuth
 // @Failure      401  {object}  httpx.UnauthorizedResponse "Unauthorized (only when Auth.Enabled=true)"
 // @Success      200  {object}  httpx.JSONResponse{data=RateMediaItem_Response}
 // @Failure      500  {object}  httpx.JSONResponse "Internal Server Error"
@@ -34,7 +35,7 @@ func RateMediaItem(w http.ResponseWriter, r *http.Request) {
 	ctx = logging.WithCurrentAction(ctx, logAction)
 	var response RateMediaItem_Response
 
-	if config.Current.MediaServer.Type != "Plex" {
+	if config.Current.MediaServer.Type != "Plex" && config.Current.MediaServer.Type != "Silo" {
 		httpx.SendResponse(w, ld, response)
 		return
 	}
@@ -78,7 +79,7 @@ func RateMediaItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Convert rating to scale of 10 for Plex
+	// Convert rating to scale of 10 for the media server
 	userRating = userRating * 2
 
 	Err := mediaserver.RateMediaItem(ctx, mediaItem, userRating)

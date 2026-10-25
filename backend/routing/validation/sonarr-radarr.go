@@ -24,7 +24,8 @@ type ValidateSonarrRadarrInfo_Response struct {
 // @Accept       json
 // @Produce      json
 // @Param        sonarr_radarr_info body ValidateSonarrRadarrInfo_Request true "Sonarr/Radarr Information to Validate"
-// @Security 	 BearerAuth
+// @Security     SessionCookie
+// @Security     ApiKeyAuth
 // @Failure      401  {object}  httpx.UnauthorizedResponse "Unauthorized (only when Auth.Enabled=true)"
 // @Success      200  {object}  httpx.JSONResponse{data=ValidateSonarrRadarrInfo_Response}
 // @Failure      500  {object}  httpx.JSONResponse "Internal Server Error"

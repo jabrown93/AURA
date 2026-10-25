@@ -1,0 +1,47 @@
+package silo
+
+import "aura/models"
+
+func getItemRatingKeyFromImageFile(item models.MediaItem, imageFile models.ImageFile) string {
+	if item.Type == "movie" || imageFile.Type == "poster" || imageFile.Type == "backdrop" {
+		return item.RatingKey
+	}
+	if imageFile.Type == "season_poster" || imageFile.Type == "special_season_poster" {
+		return getSeasonRatingKeyFromImageFile(item, imageFile)
+	}
+	if imageFile.Type == "titlecard" {
+		return getEpisodeRatingKeyFromImageFile(item, imageFile)
+	}
+	return ""
+}
+
+func getSeasonRatingKeyFromImageFile(item models.MediaItem, imageFile models.ImageFile) string {
+	seasonNumberFromSet := imageFile.SeasonNumber
+	if seasonNumberFromSet == nil || item.Series == nil {
+		return ""
+	}
+	for _, season := range item.Series.Seasons {
+		if season.SeasonNumber == *seasonNumberFromSet {
+			return season.RatingKey
+		}
+	}
+	return ""
+}
+
+func getEpisodeRatingKeyFromImageFile(item models.MediaItem, imageFile models.ImageFile) string {
+	seasonNumberFromSet := imageFile.SeasonNumber
+	episodeNumberFromSet := imageFile.EpisodeNumber
+	if seasonNumberFromSet == nil || episodeNumberFromSet == nil || item.Series == nil {
+		return ""
+	}
+	for _, season := range item.Series.Seasons {
+		if season.SeasonNumber == *seasonNumberFromSet {
+			for _, episode := range season.Episodes {
+				if episode.EpisodeNumber == *episodeNumberFromSet && episode.SeasonNumber == *seasonNumberFromSet {
+					return episode.RatingKey
+				}
+			}
+		}
+	}
+	return ""
+}

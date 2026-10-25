@@ -1,6 +1,6 @@
-import type { BoxsetsWithSetInfo } from "@/app/user/[username]/page";
 import { setRefsToFormItems } from "@/helper/download-modal/set-to-form-item";
 import { GetMediaItemDetails } from "@/services/mediaserver/get-media-item-details";
+import type { CreatorBoxset } from "@/services/mediux/creator-sets";
 
 import { useEffect, useRef, useState } from "react";
 
@@ -132,7 +132,7 @@ export const RenderBoxsetDisplay = ({
   set,
   includedItems,
 }: {
-  set: BoxsetsWithSetInfo;
+  set: CreatorBoxset;
   includedItems?: { [tmdb_id: string]: IncludedItem };
 }) => {
   const [localIncludedItems, setLocalIncludedItems] = useState(includedItems);

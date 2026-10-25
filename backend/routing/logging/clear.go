@@ -21,7 +21,8 @@ type ClearLogFiles_Response struct {
 // @Tags         Logging
 // @Produce      json
 // @Param        option  query     string  false  "Clear Option (current or old)" default(current)
-// @Security 	 BearerAuth
+// @Security     SessionCookie
+// @Security     ApiKeyAuth
 // @Failure      401  {object}  httpx.UnauthorizedResponse "Unauthorized (only when Auth.Enabled=true)"
 // @Success      200     {object}  httpx.JSONResponse{data=ClearLogFiles_Response}
 // @Failure      500     {object}  httpx.JSONResponse "Internal Server Error"

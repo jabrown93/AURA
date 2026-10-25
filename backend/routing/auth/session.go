@@ -1,68 +1,75 @@
 package routes_auth
 
 import (
+	"aura/config"
 	"net/http"
-	"strings"
 	"time"
 )
 
-const (
-	// SessionCookieName is the cookie the browser stores the AURA JWT in.
-	SessionCookieName = "aura_session"
+// SessionCookieName is the name of the browser session cookie used for interactive login
+// (password or OIDC). It carries a signed JWT, but unlike the old bearer-token-in-JSON-body
+// flow, it's HttpOnly so it can't be read by page JS, and it's never returned in a response body.
+const SessionCookieName = "aura_session"
 
-	// SessionTTL matches the "exp" claim set on issued tokens.
-	SessionTTL = 24 * time.Hour
-)
+const sessionTTL = 24 * time.Hour
 
-// TokenFromSessionCookie extracts the AURA JWT from the session cookie so it can be
-// passed to jwtauth.Verify alongside the Authorization header extractor.
-func TokenFromSessionCookie(r *http.Request) string {
-	cookie, err := r.Cookie(SessionCookieName)
-	if err != nil {
-		return ""
+// IssueSessionCookie signs a new session JWT (sub: "aura") and sets it as an HttpOnly,
+// SameSite=Lax cookie on the response. Used by both password login and the OIDC callback.
+func IssueSessionCookie(w http.ResponseWriter, r *http.Request) error {
+	now := time.Now()
+	claims := map[string]any{
+		"sub": "aura",
+		"iat": now.Unix(),
+		"exp": now.Add(sessionTTL).Unix(),
 	}
-	return cookie.Value
-}
 
-// SetSessionCookie stores the JWT in an HttpOnly cookie so it is unreadable from JavaScript.
-func SetSessionCookie(w http.ResponseWriter, r *http.Request, token string) {
+	_, signedToken, err := TokenAuth.Encode(claims)
+	if err != nil {
+		return err
+	}
+
 	http.SetCookie(w, &http.Cookie{
 		Name:     SessionCookieName,
-		Value:    token,
+		Value:    signedToken,
 		Path:     "/",
-		MaxAge:   int(SessionTTL.Seconds()),
 		HttpOnly: true,
-		// Lax rather than Strict: the OIDC provider redirects the browser back to the
-		// callback as a cross-site navigation, and Strict would withhold the cookie.
+		Secure:   resolveSecure(r),
 		SameSite: http.SameSiteLaxMode,
-		Secure:   RequestIsSecure(r),
+		MaxAge:   int(sessionTTL.Seconds()),
 	})
+	return nil
 }
 
-// ClearSessionCookie expires the session cookie.
+// ClearSessionCookie expires the session cookie. Safe to call even if no session exists.
 func ClearSessionCookie(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     SessionCookieName,
 		Value:    "",
 		Path:     "/",
-		MaxAge:   -1,
 		HttpOnly: true,
+		Secure:   resolveSecure(r),
 		SameSite: http.SameSiteLaxMode,
-		Secure:   RequestIsSecure(r),
+		MaxAge:   -1,
 	})
 }
 
-// RequestIsSecure reports whether the client reached us over TLS, directly or through a
-// reverse proxy. Browsers drop Secure cookies sent over plain HTTP, so the flag has to be
-// decided per request rather than hardcoded.
-func RequestIsSecure(r *http.Request) bool {
+// resolveSecure decides whether a cookie should carry the Secure attribute for this request.
+// This app is very commonly self-hosted on a plain-HTTP LAN (http://192.168.x.x:PORT), where a
+// hardcoded Secure=true would make the browser silently discard the cookie and login would
+// appear to fail with no clear error. Default ("auto") reflects the actual inbound transport.
+func resolveSecure(r *http.Request) bool {
+	switch config.Current.Auth.SessionCookieSecure {
+	case "always":
+		return true
+	case "never":
+		return false
+	}
+
 	if r.TLS != nil {
 		return true
 	}
-	if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
-		// Proxies may append to the header when chained; the client-facing scheme is first.
-		first, _, _ := strings.Cut(proto, ",")
-		return strings.EqualFold(strings.TrimSpace(first), "https")
+	if config.Current.Auth.TrustProxyForCookieSecure && r.Header.Get("X-Forwarded-Proto") == "https" {
+		return true
 	}
 	return false
 }

@@ -2,6 +2,8 @@ package routes_config
 
 import (
 	"aura/config"
+	"aura/logging"
+	"context"
 	"testing"
 )
 
@@ -233,4 +235,9 @@ func TestWebhookMaskedHeaderRejectedWhenKeyRenamed(t *testing.T) {
 	if valid {
 		t.Fatal("a masked header under a renamed key must be rejected, not saved as the mask")
 	}
+}
+
+func testContext() context.Context {
+	ctx, ld := logging.CreateLoggingContext(context.Background(), "test")
+	return logging.WithCurrentAction(ctx, ld.AddAction("test", logging.LevelTrace))
 }

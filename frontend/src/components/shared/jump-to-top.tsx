@@ -4,27 +4,12 @@ import { ArrowUp } from "lucide-react";
 
 import { useEffect, useState } from "react";
 
-import { usePathname } from "next/navigation";
-
 import { Button } from "@/components/ui/button";
 
 import { cn } from "@/lib/cn";
 
 export function JumpToTop() {
   const [isVisible, setIsVisible] = useState(false);
-  const pathName = usePathname();
-
-  const isRefreshPage =
-    pathName === "/" ||
-    pathName === "/saved-sets" ||
-    pathName === "/saved-sets/" ||
-    pathName === "/download-queue" ||
-    pathName === "/download-queue/" ||
-    pathName === "/settings" ||
-    pathName === "/settings/" ||
-    pathName.startsWith("/collections") ||
-    pathName.startsWith("/collections/");
-  const rightClass = isRefreshPage ? "right-15 sm:right-25" : "right-3";
 
   useEffect(() => {
     const toggleVisibility = () => {
@@ -51,20 +36,21 @@ export function JumpToTop() {
     });
   };
 
+  // Hidden near the top of the page
+  if (!isVisible) return null;
+
   return (
     <Button
       variant="ghost"
       size="sm"
       className={cn(
-        `fixed z-100 ${rightClass} cursor-pointer
-				bottom-5 sm:bottom-15
+        `order-first cursor-pointer
 				rounded-full shadow-lg
 				transition-all duration-300
 				border-1 border-primary
 				bg-primary/50 
 				hover:text-black hover:!bg-primary
-				`,
-        isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4 pointer-events-none"
+				`
       )}
       onClick={scrollToTop}
       aria-label="jump to top"

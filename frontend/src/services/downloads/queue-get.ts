@@ -4,12 +4,10 @@ import { ReturnErrorMessage } from "@/services/api-error-return";
 import { log } from "@/lib/logger";
 
 import type { APIResponse } from "@/types/api/api-response";
-import type { DBSavedItem } from "@/types/database/db-poster-set";
+import type { DownloadQueueJob } from "@/types/database/download-queue";
 
 export interface GetAllDownloadQueueItems_Response {
-  in_progress_entries: DBSavedItem[];
-  warning_entries: DBSavedItem[];
-  error_entries: DBSavedItem[];
+  jobs: DownloadQueueJob[];
 }
 
 export const GetAllDownloadQueueItems = async (): Promise<APIResponse<GetAllDownloadQueueItems_Response>> => {
@@ -20,9 +18,7 @@ export const GetAllDownloadQueueItems = async (): Promise<APIResponse<GetAllDown
       throw new Error(response.data.error?.message || "Unknown error fetching download queue entries");
     } else {
       log("INFO", "API - Download Queue", "Fetch", "Fetched download queue entries successfully", {
-        in_progress_entries: response.data.data?.in_progress_entries,
-        error_entries: response.data.data?.error_entries,
-        warning_entries: response.data.data?.warning_entries,
+        jobs: response.data.data?.jobs,
       });
     }
     return response.data;

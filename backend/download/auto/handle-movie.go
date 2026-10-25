@@ -119,7 +119,7 @@ func handleMovie(ctx context.Context, mediaItem models.MediaItem, dbItem models.
 		// Get the latest set details from MediUX
 		switch dbSet.Type {
 		case "movie":
-			mediuxSet, _, Err = mediux.GetMovieSetByID(ctx, dbSet.ID, mediaItem.LibraryTitle)
+			mediuxSet, _, Err = mediux.GetMovieSetByID(ctx, dbSet.ID, mediaItem.LibraryTitle, mediaItem.Edition)
 			if Err.Message != "" {
 				setResult.Result = "error"
 				setResult.Reason = "Failed to get latest set details from MediUX"
@@ -127,7 +127,7 @@ func handleMovie(ctx context.Context, mediaItem models.MediaItem, dbItem models.
 				continue
 			}
 		case "collection":
-			mediuxSet, includedItems, Err = mediux.GetMovieCollectionSetByID(ctx, dbSet.ID, mediaItem.TMDB_ID, mediaItem.LibraryTitle, false)
+			mediuxSet, includedItems, Err = mediux.GetMovieCollectionSetByID(ctx, dbSet.ID, mediaItem.TMDB_ID, mediaItem.LibraryTitle, mediaItem.Edition, false)
 			if Err.Message != "" {
 				setResult.Result = "error"
 				setResult.Reason = "Failed to get latest set details from MediUX"
@@ -256,6 +256,7 @@ func handleMovie(ctx context.Context, mediaItem models.MediaItem, dbItem models.
 				// Send a notification to all configured notification services
 				// We do this asynchronously and don't wait for the result
 				go func(image ImageFileWithReason) {
+					defer logging.RecoverPanic("Auto Download Notification")
 					sendFileDownloadNotification(mediaItem, dbSet, image)
 				}(image)
 			}
@@ -385,6 +386,7 @@ func handleCollectionAutoAddNewItems(ctx context.Context, dbSet models.DBPosterS
 			}
 
 			go func(mediaItem models.MediaItem, imageFile models.ImageFile) {
+				defer logging.RecoverPanic("Auto Download Notification")
 				sendFileDownloadNotification(mediaItem, dbSet, ImageFileWithReason{
 					ImageFile:   imageFile,
 					ReasonTitle: "New Collection Item",
@@ -412,6 +414,7 @@ func handleCollectionAutoAddNewItems(ctx context.Context, dbSet models.DBPosterS
 					SelectedTypes:             dbSet.SelectedTypes,
 					AutoDownload:              dbSet.AutoDownload,
 					AutoAddNewCollectionItems: dbSet.AutoAddNewCollectionItems,
+					NoAutoUpgrade:             dbSet.NoAutoUpgrade,
 					ToDelete:                  false,
 				},
 			},

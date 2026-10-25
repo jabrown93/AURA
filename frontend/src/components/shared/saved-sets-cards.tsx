@@ -1,6 +1,16 @@
 "use client";
 
-import { AlertTriangle, Delete, DownloadCloudIcon, Edit, MoreHorizontal, RefreshCcw, RefreshCwOff } from "lucide-react";
+import { formatDateAndTime } from "@/helper/format-date-last-updates";
+import {
+  AlertTriangle,
+  ArrowBigUpDash,
+  Delete,
+  DownloadCloudIcon,
+  Edit,
+  MoreHorizontal,
+  RefreshCcw,
+  RefreshCwOff,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import React, { useMemo, useState } from "react";
@@ -18,6 +28,7 @@ import {
   renderTypeBadges,
   savedSetsConfirmDelete,
   savedSetsConfirmEdit,
+  upgradeSavedItem,
 } from "@/components/shared/saved-sets-shared";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -116,14 +127,7 @@ const SavedSetsCard: React.FC<{
       const t = ps.last_downloaded ? new Date(ps.last_downloaded).getTime() : 0;
       return Math.max(max, Number.isFinite(t) ? t : 0);
     }, 0);
-    if (!latest) return "Never";
-    const latestDate = new Date(latest);
-    return `${latestDate.toLocaleDateString("en-US")} at ${latestDate.toLocaleTimeString("en-US", {
-      hour: "numeric",
-      minute: "numeric",
-      second: "numeric",
-      hour12: true,
-    })}`;
+    return formatDateAndTime(latest) || "Never";
   }, [posterSets]);
 
   return (
@@ -261,6 +265,10 @@ const SavedSetsCard: React.FC<{
                 <DownloadCloudIcon className="ml-2" />
                 Redownload
               </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => upgradeSavedItem(normalizedSavedSet)} className="cursor-pointer">
+                <ArrowBigUpDash className="ml-2" />
+                Upgrade to Favorite Creators
+              </DropdownMenuItem>
               <DropdownMenuItem onClick={() => setIsDeleteModalOpen(true)} className="text-destructive cursor-pointer">
                 <Delete className="ml-2" />
                 Delete
@@ -297,6 +305,7 @@ const SavedSetsCard: React.FC<{
         <div className="flex flex-col gap-1 mb-2">
           <span className="text-xs sm:text-sm text-muted-foreground inline-block">
             {normalizedSavedSet.media_item.year} · {normalizedSavedSet.media_item.library_title}
+            {normalizedSavedSet.media_item.edition ? `· ${normalizedSavedSet.media_item.edition}` : ""}
           </span>
 
           <span className="text-xs sm:text-sm text-muted-foreground inline-block">

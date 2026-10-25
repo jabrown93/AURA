@@ -68,7 +68,7 @@ func SaveViaSonarrRadarrFallback(ctx context.Context, item models.MediaItem, pos
 	// auto-download / re-apply. We still write the bytes to disk (harmless, and the whole point) —
 	// we just do not register those types as a synthetic set. If we cannot determine ownership we
 	// write only and register nothing, to stay safe.
-	_, _, existingSets, dbErr := database.CheckIfMediaItemExists(ctx, item.TMDB_ID, item.LibraryTitle)
+	_, _, existingSets, dbErr := database.CheckIfMediaItemExists(ctx, item.TMDB_ID, item.LibraryTitle, item.Edition)
 	owned := ownedTypes(existingSets)
 	canRegister := dbErr.Message == ""
 

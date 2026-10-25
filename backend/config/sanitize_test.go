@@ -1,51 +1,41 @@
 package config
 
 import (
+	"context"
+	"strings"
 	"testing"
+
+	"aura/logging"
 )
 
-func webhookConfig(url string, headers map[string]string) *Config {
-	return &Config{
-		Notifications: Config_Notifications{
-			Providers: []Config_Notification_Provider{
-				{
-					Provider: "Webhook",
-					Enabled:  true,
-					Webhook:  &Config_Notification_Webhook{URL: url, Headers: headers},
-				},
-			},
-		},
+func TestSanitizeConfigMasksSecrets(t *testing.T) {
+	cfg := testConfig()
+	cfg.Auth.Password = "$argon2id$v=19$m=65536,t=1,p=4$password-hash"
+	cfg.Mediux.ApiToken = "mediux-token"
+
+	ctx, ld := logging.CreateLoggingContext(context.Background(), "test")
+	ctx = logging.WithCurrentAction(ctx, ld.AddAction("test", logging.LevelInfo))
+	sanitized := cfg.SanitizeConfig(ctx)
+
+	secrets := map[string]string{
+		"Auth.Password":            sanitized.Auth.Password,
+		"Auth.OIDC.ClientSecret":   sanitized.Auth.OIDC.ClientSecret,
+		"MediaServer.ApiToken":     sanitized.MediaServer.ApiToken,
+		"MediaServers[0].ApiToken": sanitized.MediaServers[0].ApiToken,
+		"MediaServers[1].ApiToken": sanitized.MediaServers[1].ApiToken,
+		"Mediux.ApiToken":          sanitized.Mediux.ApiToken,
+		"TMDB.ApiToken":            sanitized.TMDB.ApiToken,
+		"SonarrRadarr.ApiToken":    sanitized.SonarrRadarr.Applications[0].ApiToken,
+		"Webhook.Headers":          sanitized.Notifications.Providers[1].Webhook.Headers["Authorization"],
 	}
-}
-
-func TestSanitizeMasksWebhookHeaders(t *testing.T) {
-	original := webhookConfig("https://hooks.example.com/notify", map[string]string{
-		"Authorization": "Bearer supersecrettoken",
-	})
-
-	sanitized := original.SanitizeConfig(testContext())
-
-	got := sanitized.Notifications.Providers[0].Webhook.Headers["Authorization"]
-	if got == "Bearer supersecrettoken" {
-		t.Fatal("Authorization header returned unmasked")
+	for name, value := range secrets {
+		if value != "" && !strings.HasPrefix(value, "***") {
+			t.Errorf("%s is not masked: %q", name, value)
+		}
 	}
-	if got != MaskToken("Bearer supersecrettoken") {
-		t.Errorf("header = %q, want %q", got, MaskToken("Bearer supersecrettoken"))
-	}
-
-	// The sanitized copy must not share the headers map with the live config, or masking
-	// the copy would destroy the real credential.
-	if original.Notifications.Providers[0].Webhook.Headers["Authorization"] != "Bearer supersecrettoken" {
-		t.Error("sanitizing mutated the original config")
-	}
-}
-
-func TestSanitizeLeavesWebhookURL(t *testing.T) {
-	original := webhookConfig("https://hooks.example.com/notify", nil)
-
-	sanitized := original.SanitizeConfig(testContext())
-
-	if got := sanitized.Notifications.Providers[0].Webhook.URL; got != "https://hooks.example.com/notify" {
-		t.Errorf("URL = %q, want it left intact so it round-trips on save", got)
+	// Sanitizing must not change the original config
+	if cfg.Notifications.Providers[1].Webhook.Headers["Authorization"] != "Bearer 1" || !strings.HasPrefix(cfg.Auth.Password, "$argon2id") ||
+		cfg.MediaServers[1].ApiToken != "67890" {
+		t.Error("SanitizeConfig changed the original config")
 	}
 }

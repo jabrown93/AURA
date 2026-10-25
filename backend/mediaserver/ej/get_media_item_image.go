@@ -14,7 +14,7 @@ import (
 func (e *EJ) GetMediaItemImage(ctx context.Context, item *models.MediaItem, imageRatingKey string, imageType string) (imageData []byte, Err logging.LogErrorInfo) {
 	ctx, logAction := logging.AddSubActionToContext(ctx, fmt.Sprintf(
 		"%s: Fetching Image (%s) for %s",
-		config.Current.MediaServer.Type,
+		e.Config.Type,
 		imageType,
 		utils.MediaItemInfo(*item),
 	), logging.LevelDebug)
@@ -23,7 +23,7 @@ func (e *EJ) GetMediaItemImage(ctx context.Context, item *models.MediaItem, imag
 	imageData = []byte{}
 	Err = logging.LogErrorInfo{}
 
-	respBody, Err := GetImageFromEJ(ctx, imageRatingKey, imageType)
+	respBody, Err := GetImageFromEJ(ctx, e.Config, imageRatingKey, imageType)
 	if Err.Message != "" {
 		return imageData, Err
 	}
@@ -35,7 +35,7 @@ func (e *EJ) GetMediaItemImage(ctx context.Context, item *models.MediaItem, imag
 func (e *EJ) GetCollectionItemImage(ctx context.Context, collection *models.CollectionItem, imageType string) (imageData []byte, Err logging.LogErrorInfo) {
 	ctx, logAction := logging.AddSubActionToContext(ctx, fmt.Sprintf(
 		"%s: Fetching Image (%s) for Collection '%s' [%s]",
-		config.Current.MediaServer.Type,
+		e.Config.Type,
 		imageType, collection.Title, collection.RatingKey,
 	), logging.LevelDebug)
 	defer logAction.Complete()
@@ -43,7 +43,7 @@ func (e *EJ) GetCollectionItemImage(ctx context.Context, collection *models.Coll
 	imageData = []byte{}
 	Err = logging.LogErrorInfo{}
 
-	respBody, Err := GetImageFromEJ(ctx, collection.RatingKey, imageType)
+	respBody, Err := GetImageFromEJ(ctx, e.Config, collection.RatingKey, imageType)
 	if Err.Message != "" {
 		return imageData, Err
 	}
@@ -52,7 +52,7 @@ func (e *EJ) GetCollectionItemImage(ctx context.Context, collection *models.Coll
 	return imageData, logging.LogErrorInfo{}
 }
 
-func GetImageFromEJ(ctx context.Context, ratingKey string, imageType string) (imageData []byte, Err logging.LogErrorInfo) {
+func GetImageFromEJ(ctx context.Context, msConfig config.Config_MediaServer, ratingKey string, imageType string) (imageData []byte, Err logging.LogErrorInfo) {
 	switch imageType {
 	case "poster":
 		imageType = "Primary"
@@ -67,7 +67,7 @@ func GetImageFromEJ(ctx context.Context, ratingKey string, imageType string) (im
 	}
 
 	// Construct the URL for the EJ server API request
-	u, err := url.Parse(config.Current.MediaServer.URL)
+	u, err := url.Parse(msConfig.URL)
 	if err != nil {
 		return imageData, logging.LogErrorInfo{
 			Message: "Failed to parse base URL",
@@ -79,7 +79,7 @@ func GetImageFromEJ(ctx context.Context, ratingKey string, imageType string) (im
 	URL := u.String()
 
 	// Make the HTTP Request to EJ
-	resp, respBody, Err := makeRequest(ctx, config.Current.MediaServer, URL, "GET", nil)
+	resp, respBody, Err := makeRequest(ctx, msConfig, URL, "GET", nil)
 	if Err.Message != "" {
 		return imageData, Err
 	}

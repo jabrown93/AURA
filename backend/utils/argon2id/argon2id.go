@@ -5,8 +5,7 @@
 //
 // It replaces the (now release-inactive) github.com/alexedwards/argon2id
 // wrapper with a hash-format-compatible subset of its API on top of
-// golang.org/x/crypto/argon2. AURA never creates hashes, so only decoding and
-// verification are implemented.
+// golang.org/x/crypto/argon2.
 package argon2id
 
 import (

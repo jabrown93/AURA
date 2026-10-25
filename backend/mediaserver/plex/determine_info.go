@@ -48,23 +48,3 @@ func getEpisodeRatingKeyFromImageFile(item models.MediaItem, imageFile models.Im
 	}
 	return ""
 }
-
-func getEpisodePathFromImageFile(item models.MediaItem, imageFile models.ImageFile) string {
-	seasonNumberFromSet := imageFile.SeasonNumber
-	episodeNumberFromSet := imageFile.EpisodeNumber
-
-	if seasonNumberFromSet == nil || episodeNumberFromSet == nil {
-		return ""
-	}
-
-	for _, season := range item.Series.Seasons {
-		if season.SeasonNumber == *seasonNumberFromSet {
-			for _, episode := range season.Episodes {
-				if episode.EpisodeNumber == *episodeNumberFromSet && episode.SeasonNumber == *seasonNumberFromSet {
-					return episode.File.Path
-				}
-			}
-		}
-	}
-	return ""
-}

@@ -1,11 +1,14 @@
 package routing
 
 import (
+	"aura/database"
 	"aura/logging"
 	routes_auth "aura/routing/auth"
 	routes_base "aura/routing/base"
 	"aura/routing/middleware"
+	"context"
 	"sync"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/jwtauth/v5"
@@ -29,13 +32,22 @@ func NewRouter() *chi.Mux {
 	middleware.Configure(r)
 
 	// Initialize Token Auth
-	secret, Err := routes_auth.GetTokenAuthSecret()
-	if Err.Message != "" {
+	// The secret is stored in the database, which isn't open yet when the first router is created.
+	// The routes are created again once it is.
+	if database.Client == nil {
+		logging.LOGGER.Debug().Timestamp().Msg("Database not open yet, JWT Token Auth is initialized once it is")
+	} else if secret, Err := routes_auth.GetTokenAuthSecret(); Err.Message != "" {
 		logging.LOGGER.Error().Timestamp().Msg("Failed to get JWT Token Auth Secret: " + Err.Message)
 	} else {
 		routes_auth.SetTokenAuth(jwtauth.New("HS256", []byte(secret), nil))
 		logging.LOGGER.Info().Timestamp().Msg("JWT Token Auth initialized successfully")
 	}
+
+	// Initialize OIDC (no-op if disabled). Bounded timeout so a slow/unreachable IdP can't hang
+	// router (re)creation - if discovery fails, OIDC login is simply left unavailable (InitOIDC logs why).
+	oidcCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	_ = routes_auth.InitOIDC(oidcCtx)
+	cancel()
 
 	// Add the routes to the router
 	AddRoutes(r)

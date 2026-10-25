@@ -3,8 +3,9 @@
 import { makePlural } from "@/helper/make_plural";
 import { ReturnErrorMessage } from "@/services/api-error-return";
 import { ClearLogFiles } from "@/services/logs/clear";
+import { DownloadDebugBundle } from "@/services/logs/debug-bundle";
 import { GetLogContents, type GetLogContents_Response } from "@/services/logs/get";
-import { EllipsisIcon, SaveIcon, XCircle } from "lucide-react";
+import { Bug, EllipsisIcon, Loader2, SaveIcon, XCircle } from "lucide-react";
 import { toast } from "sonner";
 
 import { useEffect, useState } from "react";
@@ -111,6 +112,18 @@ export default function LogsPage() {
     }
   };
 
+  const [creatingBundle, setCreatingBundle] = useState(false);
+  const downloadDebugBundle = async () => {
+    setCreatingBundle(true);
+    const result = await DownloadDebugBundle();
+    setCreatingBundle(false);
+    if (!result.ok) {
+      toast.error(`Failed to download the debug bundle: ${result.error}`);
+      return;
+    }
+    toast.success("Debug bundle downloaded");
+  };
+
   // Calculate total pages
   const totalPages = Math.ceil(totalLogEntries / itemsPerPage);
 
@@ -133,6 +146,11 @@ export default function LogsPage() {
                 itemsPerPage={itemsPerPage}
                 setItemsPerPage={setItemsPerPage}
               />
+
+              <Button variant="outline" onClick={downloadDebugBundle} disabled={creatingBundle}>
+                {creatingBundle ? <Loader2 className="h-4 w-4 animate-spin" /> : <Bug className="h-4 w-4" />}
+                Debug Bundle
+              </Button>
 
               <Button variant="destructive" onClick={clearLogsFromToday}>
                 Clear Today's Logs

@@ -28,7 +28,7 @@ func (p *Plex) GetMediaItemDetails(ctx context.Context, item *models.MediaItem) 
 	Err = logging.LogErrorInfo{}
 
 	// Construct the URL for the Plex API request
-	u, err := url.Parse(config.Current.MediaServer.URL)
+	u, err := url.Parse(p.Config.URL)
 	if err != nil {
 		logAction.SetError("Failed to parse base URL", "Ensure the URL is valid", map[string]any{"error": err.Error()})
 		return found, *logAction.Error
@@ -37,7 +37,7 @@ func (p *Plex) GetMediaItemDetails(ctx context.Context, item *models.MediaItem) 
 	URL := u.String()
 
 	// Make the HTTP Request to Plex
-	resp, respBody, Err := makeRequest(ctx, config.Current.MediaServer, URL, "GET", nil)
+	resp, respBody, Err := makeRequest(ctx, p.Config, URL, "GET", nil)
 	if Err.Message != "" {
 		logAction.SetErrorFromInfo(Err)
 		return found, Err
@@ -48,7 +48,7 @@ func (p *Plex) GetMediaItemDetails(ctx context.Context, item *models.MediaItem) 
 	var plexResp PlexLibraryItemsWrapper
 	Err = httpx.DecodeResponseToJSON(ctx, respBody, &plexResp, "Plex Media Item Details Response")
 	if Err.Message != "" {
-		return found, *logAction.Error
+		return found, Err
 	}
 
 	// Check if any metadata was returned
@@ -59,9 +59,9 @@ func (p *Plex) GetMediaItemDetails(ctx context.Context, item *models.MediaItem) 
 
 	// Populate the MediaItem details
 	metadata := plexResp.MediaContainer.Metadata[0]
-	extracted, Err := extractMediaItemFromResponse(ctx, metadata)
+	extracted, Err := extractMediaItemFromResponse(ctx, p.Config, metadata)
 	if Err.Message != "" {
-		return found, *logAction.Error
+		return found, Err
 	}
 	*item = *extracted
 
@@ -78,7 +78,7 @@ func (p *Plex) GetMediaItemDetails(ctx context.Context, item *models.MediaItem) 
 	}
 
 	// Check if Media Item exists in DB
-	ignored, ignoredMode, sets, logErr := database.CheckIfMediaItemExists(ctx, item.TMDB_ID, item.LibraryTitle)
+	ignored, ignoredMode, sets, logErr := database.CheckIfMediaItemExists(ctx, item.TMDB_ID, item.LibraryTitle, item.Edition)
 	if logErr.Message != "" {
 		logAction.AppendWarning("message", "Failed to check if media item exists in database")
 		logAction.AppendWarning("error", Err)
@@ -88,6 +88,7 @@ func (p *Plex) GetMediaItemDetails(ctx context.Context, item *models.MediaItem) 
 		item.IgnoredInDB = false
 		item.IgnoredMode = ""
 	} else {
+		item.DBSavedSets = []models.DBSavedSet{}
 		item.IgnoredInDB = true
 		item.IgnoredMode = ignoredMode
 	}
@@ -97,13 +98,13 @@ func (p *Plex) GetMediaItemDetails(ctx context.Context, item *models.MediaItem) 
 		item.HasMediuxSets = true
 	}
 
-	// Update the item in the cache
-	cache.LibraryStore.UpdateMediaItem(item.LibraryTitle, item)
-
-	// Update the Media Item on Server in the DB
-	updateErr := database.UpdateMediaItemOnServer(ctx, item.TMDB_ID, item.LibraryTitle, true)
-	if updateErr.Message != "" {
-		logAction.AppendWarning("update_on_server_error", updateErr.Message)
+	// Only the main media server's items go in the main library cache and the DB
+	if p.Config.IsMain() {
+		cache.LibraryStore.UpdateMediaItem(item.LibraryTitle, item)
+		updateErr := database.UpdateMediaItemOnServer(ctx, item.TMDB_ID, item.LibraryTitle, item.Edition, true)
+		if updateErr.Message != "" {
+			logAction.AppendWarning("update_on_server_error", updateErr.Message)
+		}
 	}
 
 	// Mark as found
@@ -111,7 +112,7 @@ func (p *Plex) GetMediaItemDetails(ctx context.Context, item *models.MediaItem) 
 	return found, logging.LogErrorInfo{}
 }
 
-func extractMediaItemFromResponse(ctx context.Context, metadata PlexLibraryItemsMetadata) (item *models.MediaItem, Err logging.LogErrorInfo) {
+func extractMediaItemFromResponse(ctx context.Context, msConfig config.Config_MediaServer, metadata PlexLibraryItemsMetadata) (item *models.MediaItem, Err logging.LogErrorInfo) {
 	ctx, logAction := logging.AddSubActionToContext(ctx, fmt.Sprintf("Plex: Extracting Media Item '%s' [RatingKey: %s]", metadata.Title, metadata.RatingKey), logging.LevelDebug)
 	defer logAction.Complete()
 
@@ -123,10 +124,11 @@ func extractMediaItemFromResponse(ctx context.Context, metadata PlexLibraryItems
 	item.Title = metadata.Title
 	item.Year = metadata.Year
 	item.LibraryTitle = metadata.LibrarySectionTitle
-	item.UpdatedAt = artworkVersion(metadata.UpdatedAt)
+	item.UpdatedAt = metadata.UpdatedAt
 	item.AddedAt = metadata.AddedAt
 	item.ContentRating = metadata.ContentRating
 	item.Summary = metadata.Summary
+	item.Edition = metadata.Edition
 	// Calculate ReleasedAt from OriginallyAvailableAt if available
 	if t, err := time.Parse("2006-01-02", metadata.OriginallyAvailableAt); err == nil {
 		item.ReleasedAt = t.Unix()
@@ -145,18 +147,12 @@ func extractMediaItemFromResponse(ctx context.Context, metadata PlexLibraryItems
 	// Depending on the Type, populate Movie or Series info
 	switch item.Type {
 	case "movie":
-		item.Movie = &models.MediaItemMovie{
-			File: models.MediaItemFile{
-				Path:     metadata.Media[0].Part[0].File,
-				Size:     metadata.Media[0].Part[0].Size,
-				Duration: metadata.Media[0].Part[0].Duration,
-			},
-		}
+		item.Movie = &models.MediaItemMovie{File: firstFile(metadata.Media)}
 	case "show":
 		// For shows, fetch seasons and episodes
-		Err = fetchSeasonsAndEpisodesForShow(ctx, item)
+		Err = fetchSeasonsAndEpisodesForShow(ctx, msConfig, item)
 		if Err.Message != "" {
-			return item, *logAction.Error
+			return item, Err
 		}
 		item.Series.SeasonCount = metadata.ChildCount
 		item.Series.EpisodeCount = metadata.LeafCount
@@ -168,7 +164,7 @@ func extractMediaItemFromResponse(ctx context.Context, metadata PlexLibraryItems
 		fmt.Sprintf("%.1f", metadata.AudienceRating))
 	item.Guids = guids
 
-	// Resolve the TMDB ID from the GUIDs, falling back to Plex's legacy
+	// Fork: resolve the TMDB ID from the GUIDs, falling back to Plex's legacy
 	// single-guid string (HAMA/classic agents) and the Fribb AniDB mapping.
 	// This mirrors the library-list path so HAMA/anime items that only carry a
 	// legacy guid resolve here too, instead of failing the details endpoint
@@ -187,7 +183,7 @@ func extractMediaItemFromResponse(ctx context.Context, metadata PlexLibraryItems
 	return item, Err
 }
 
-func fetchSeasonsAndEpisodesForShow(ctx context.Context, itemInfo *models.MediaItem) (Err logging.LogErrorInfo) {
+func fetchSeasonsAndEpisodesForShow(ctx context.Context, msConfig config.Config_MediaServer, itemInfo *models.MediaItem) (Err logging.LogErrorInfo) {
 	ctx, logAction := logging.AddSubActionToContext(ctx, fmt.Sprintf(
 		"Fetching Seasons and Episodes for Show '%s' (%s | %s | %d)",
 		itemInfo.Title, itemInfo.RatingKey, itemInfo.LibraryTitle, itemInfo.Year,
@@ -195,7 +191,7 @@ func fetchSeasonsAndEpisodesForShow(ctx context.Context, itemInfo *models.MediaI
 	defer logAction.Complete()
 
 	// Construct the URL for the Plex API request
-	u, err := url.Parse(config.Current.MediaServer.URL)
+	u, err := url.Parse(msConfig.URL)
 	if err != nil {
 		logAction.SetError("Failed to parse base URL", "Ensure the URL is valid", map[string]any{"error": err.Error()})
 		return *logAction.Error
@@ -204,7 +200,7 @@ func fetchSeasonsAndEpisodesForShow(ctx context.Context, itemInfo *models.MediaI
 	URL := u.String()
 
 	// Make the HTTP Request to Plex
-	resp, respBody, Err := makeRequest(ctx, config.Current.MediaServer, URL, "GET", nil)
+	resp, respBody, Err := makeRequest(ctx, msConfig, URL, "GET", nil)
 	if Err.Message != "" {
 		logAction.SetErrorFromInfo(Err)
 		return *logAction.Error
@@ -215,7 +211,7 @@ func fetchSeasonsAndEpisodesForShow(ctx context.Context, itemInfo *models.MediaI
 	var plexResp PlexLibraryItemsWrapper
 	Err = httpx.DecodeResponseToJSON(ctx, respBody, &plexResp, "Plex Show Seasons and Episodes Response")
 	if Err.Message != "" {
-		return *logAction.Error
+		return Err
 	}
 
 	// Group Episodes by Season Number
@@ -229,11 +225,12 @@ func fetchSeasonsAndEpisodesForShow(ctx context.Context, itemInfo *models.MediaI
 			SeasonNumber:  seasonNumber,
 			EpisodeNumber: episode.Index,
 			AddedAt:       episode.AddedAt,
-			File: models.MediaItemFile{
-				Path:     episode.Media[0].Part[0].File,
-				Size:     episode.Media[0].Part[0].Size,
-				Duration: episode.Media[0].Part[0].Duration,
-			},
+			File:          firstFile(episode.Media),
+		}
+
+		// Skip episodes that do not have a file
+		if ep.File.Path == "" {
+			continue
 		}
 
 		if episode.AddedAt > latestEpisodeAddedAt {
@@ -341,4 +338,13 @@ func getGUIDsAndRatingsFromResponse(ctx context.Context, plexGUIDS []PlexTagFiel
 
 	// Return the final slice of GUIDs with associated ratings
 	return returnGUIDs, nil
+}
+
+// firstFile returns the first file of the media, or an empty file when Plex has none
+func firstFile(media []PlexVideoMediaItem) models.MediaItemFile {
+	if len(media) == 0 || len(media[0].Part) == 0 {
+		return models.MediaItemFile{}
+	}
+	part := media[0].Part[0]
+	return models.MediaItemFile{Path: part.File, Size: part.Size, Duration: part.Duration}
 }

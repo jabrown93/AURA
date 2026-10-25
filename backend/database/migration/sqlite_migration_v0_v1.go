@@ -746,6 +746,12 @@ func v0_1_ConvertOldSavedItems(ctx context.Context, conn *sql.DB) logging.LogErr
 		}
 		items = append(items, item)
 	}
+	if err := rows.Err(); err != nil {
+		logAction.SetError("Failed to read data from SavedItemsBackup", "", map[string]any{
+			"error": err.Error(),
+		})
+		return *logAction.Error
+	}
 	rows.Close()
 
 	for _, item := range items {

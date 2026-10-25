@@ -26,7 +26,7 @@ import { ToggleGroup } from "@/components/ui/toggle-group";
 import { cn } from "@/lib/cn";
 import { useUserPreferencesStore } from "@/lib/stores/global-user-preferences";
 
-import { DOWNLOAD_IMAGE_TYPE_OPTIONS, TYPE_DOWNLOAD_IMAGE_TYPE_OPTIONS } from "@/types/ui-options";
+import { DOWNLOAD_DEFAULT_TYPE_OPTIONS, TYPE_DOWNLOAD_DEFAULT_TYPE_OPTIONS } from "@/types/ui-options";
 
 type MediaItemFilterProps = {
   numberOfActiveFilters?: number;
@@ -57,6 +57,14 @@ function MediaItemFilterContent({
   const setShowOnlyDownloadDefaults = useUserPreferencesStore((state) => state.setShowOnlyDownloadDefaults);
   const showDateModified = useUserPreferencesStore((state) => state.showDateModified);
   const setShowDateModified = useUserPreferencesStore((state) => state.setShowDateModified);
+  const defaultAddToQueue = useUserPreferencesStore((state) => state.defaultAddToQueue);
+  const setDefaultAddToQueue = useUserPreferencesStore((state) => state.setDefaultAddToQueue);
+  const defaultAddToDBOnly = useUserPreferencesStore((state) => state.defaultAddToDBOnly);
+  const setDefaultAddToDBOnly = useUserPreferencesStore((state) => state.setDefaultAddToDBOnly);
+  const defaultAutoAddNewCollectionItems = useUserPreferencesStore((state) => state.defaultAutoAddNewCollectionItems);
+  const setDefaultAutoAddNewCollectionItems = useUserPreferencesStore(
+    (state) => state.setDefaultAutoAddNewCollectionItems
+  );
 
   return (
     <div className="flex-grow space-y-4 overflow-y-auto px-4 py-2">
@@ -77,13 +85,13 @@ function MediaItemFilterContent({
           type="multiple"
           className="flex flex-wrap gap-2 ml-2 mt-2"
           value={downloadDefaultsTypes}
-          onValueChange={(value: TYPE_DOWNLOAD_IMAGE_TYPE_OPTIONS[]) => {
+          onValueChange={(value: TYPE_DOWNLOAD_DEFAULT_TYPE_OPTIONS[]) => {
             // Ensure at least one type is always selected
             if (value.length === 0) return;
             setDownloadDefaultsTypes(value);
           }}
         >
-          {DOWNLOAD_IMAGE_TYPE_OPTIONS.map((opt) => (
+          {DOWNLOAD_DEFAULT_TYPE_OPTIONS.map((opt) => (
             <Badge
               key={opt.value}
               className={cn(
@@ -128,8 +136,78 @@ function MediaItemFilterContent({
               If checked, only sets that contain at least one of the selected image types will be shown.
             </p>
             <p className="text-muted-foreground">
-              This is global setting that will be applied to all media items and user sets. You can always change this
+              This is a global setting that will be applied to all media items and user sets. You can always change this
               setting in this filter, or in the Settings Page{" "}
+              <Link href="/settings#preferences-section" className="underline">
+                User Preferences
+              </Link>{" "}
+              Section.
+            </p>
+          </PopoverHelp>
+        </div>
+        <div className="flex items-center space-x-2 justify-between mt-4">
+          <div className="flex items-center space-x-2">
+            <Switch
+              className="ml-0"
+              checked={defaultAddToQueue}
+              onCheckedChange={() => setDefaultAddToQueue(!defaultAddToQueue)}
+            />{" "}
+            <Label>Add to Queue by default</Label>
+          </div>
+
+          <PopoverHelp ariaLabel="help-default-add-to-queue">
+            <p className="mb-2">If checked, 'Add to Queue' will be selected when opening the download modal.</p>
+            <p className="text-muted-foreground">
+              This is global setting that will be applied to all downloads. You can always change this setting in this
+              filter, or in the Settings Page{" "}
+              <Link href="/settings#preferences-section" className="underline">
+                User Preferences
+              </Link>{" "}
+              Section.
+            </p>
+          </PopoverHelp>
+        </div>
+        <div className="flex items-center space-x-2 justify-between mt-4">
+          <div className="flex items-center space-x-2">
+            <Switch
+              className="ml-0"
+              checked={defaultAddToDBOnly}
+              onCheckedChange={() => setDefaultAddToDBOnly(!defaultAddToDBOnly)}
+            />{" "}
+            <Label>Add to Database Only by default</Label>
+          </div>
+
+          <PopoverHelp ariaLabel="help-default-add-to-db-only">
+            <p className="mb-2">
+              If checked, 'Add to Database Only' will be selected for each item when opening the download modal, so the
+              sets are saved without downloading any images.
+            </p>
+            <p className="text-muted-foreground">
+              You can always change this setting in this filter, or in the Settings Page{" "}
+              <Link href="/settings#preferences-section" className="underline">
+                User Preferences
+              </Link>{" "}
+              Section.
+            </p>
+          </PopoverHelp>
+        </div>
+        <div className="flex items-center space-x-2 justify-between mt-4">
+          <div className="flex items-center space-x-2">
+            <Switch
+              className="ml-0"
+              checked={defaultAutoAddNewCollectionItems}
+              onCheckedChange={() => setDefaultAutoAddNewCollectionItems(!defaultAutoAddNewCollectionItems)}
+            />{" "}
+            <Label>Auto Add New Collection Items by default</Label>
+          </div>
+
+          <PopoverHelp ariaLabel="help-default-auto-add-new-collection-items">
+            <p className="mb-2">
+              If checked, 'Auto Add New Collection Items' will be selected when opening the download modal for a
+              collection set. Movies added to the collection later then get their images from the set automatically.
+            </p>
+            <p className="text-muted-foreground">
+              You can always change this setting in this filter, or in the Settings Page{" "}
               <Link href="/settings#preferences-section" className="underline">
                 User Preferences
               </Link>{" "}

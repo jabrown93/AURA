@@ -49,7 +49,7 @@ const HomeMediaItemCard: React.FC<HomeMediaItemCardProps> = ({ item }) => {
 
   return (
     <Card
-      key={item.rating_key}
+      key={`${item.library_title}-${item.rating_key}`}
       className="relative items-center cursor-pointer border border-1 hover:shadow-xl transition-shadow p-0 rounded-xl"
       onClick={() => {
         if (isMediaItem(item)) {
@@ -102,6 +102,9 @@ const HomeMediaItemCard: React.FC<HomeMediaItemCardProps> = ({ item }) => {
               {item.library_title}
             </Badge>
           )}
+        </div>
+        <div className="flex flex-row gap-2 mt-1">
+          {isMediaItem(item) && item.edition && <Badge className="flex items-center text-xs">{item.edition}</Badge>}
         </div>
         {/* Title */}
         {item.title && (

@@ -13,7 +13,7 @@ export interface GetUserFollowingAndHiding_Response {
 export const GetUserFollowingAndHiding = async (): Promise<APIResponse<GetUserFollowingAndHiding_Response>> => {
   log("INFO", "API - MediUX", "Fetch User Follow/Hides", "Fetching user follow/hide data");
   try {
-    const response = await apiClient.get<APIResponse<GetUserFollowingAndHiding_Response>>(`/mediux/user-follow-hiding`);
+    const response = await apiClient.get<APIResponse<GetUserFollowingAndHiding_Response>>(`/mediux/user`);
     if (response.data.status === "error") {
       throw new Error(response.data.error?.message || "Unknown error fetching user follow/hide data");
     } else {

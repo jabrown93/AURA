@@ -13,4 +13,8 @@ export interface AppStatusResponse {
   app_fully_loaded: boolean;
   app_version: string;
   app_loading_step: string;
+  api_key_configured: boolean;
+  auth_disabled_by_env?: boolean; // AURA_DISABLE_AUTH has turned off authentication
+  setup_code_required?: boolean; // The setup code must be entered first
+  config_has_errors?: boolean; // The required settings are entered, but have errors
 }

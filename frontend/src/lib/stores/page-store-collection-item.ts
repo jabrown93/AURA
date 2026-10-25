@@ -40,7 +40,7 @@ export const useCollectionItemPageStore = create<CollectionItem_PageStore>()(
         }),
     }),
     {
-      name: "MediaItem",
+      name: "CollectionItem",
       storage: PageStore,
       partialize: (state) => ({
         sortOption: state.sortOption,

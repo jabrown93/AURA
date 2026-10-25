@@ -6,77 +6,68 @@ import (
 	"aura/logging"
 	"context"
 	"runtime/debug"
-
-	"github.com/go-co-op/gocron/v2"
-	"github.com/google/uuid"
 )
+
+func runAutoDownloadJobBody(ctx context.Context) {
+	defer func() {
+		if r := recover(); r != nil {
+			logging.LOGGER.Error().
+				Timestamp().
+				Interface("recover", r).
+				Str("stack", string(debug.Stack())).
+				Msg("PANIC: in AutoDownload Job")
+		}
+	}()
+	ctx, ld := logging.CreateLoggingContext(ctx, "Cron Job")
+	action := ld.AddAction("AutoDownload Check", logging.LevelInfo)
+	ctx = logging.WithCurrentAction(ctx, action)
+	Err := autodownload.CheckAllItems(ctx)
+	if Err.Message != "" {
+		logging.LOGGER.Error().Timestamp().Str("error", Err.Message).
+			Str("next_run", nextRunString(JobKeyAutoDownload)).
+			Msg("Error running AutoDownload Job")
+	} else {
+		logging.LOGGER.Info().Timestamp().
+			Str("next_run", nextRunString(JobKeyAutoDownload)).
+			Msg("AutoDownload Job Completed")
+	}
+	ld.Log()
+}
 
 func StartAutoDownloadJob() error {
 	mu.Lock()
 	defer mu.Unlock()
 
-	if sched == nil {
+	if c == nil {
 		logging.LOGGER.Error().Timestamp().Msg("Cron Jobs Scheduler is not initialized")
 		return nil
 	}
 
-	if autodownloadJobID != uuid.Nil {
-		if err := sched.RemoveJob(autodownloadJobID); err != nil {
-			logging.LOGGER.Error().Timestamp().Err(err).Msg("Failed to remove existing AutoDownload Job")
-		}
-		autodownloadJobID = uuid.Nil
-		autodownloadJob = nil
-	}
+	removeScheduledJob(JobKeyAutoDownload)
 
-	enabled := config.Current.AutoDownload.Enabled
+	enabled, spec := config.Current.Jobs.AutoDownload.Resolve(config.JobDefaults.AutoDownload)
 	if !enabled {
 		logging.LOGGER.Info().Timestamp().Msg("AutoDownload Job Stopped")
 		return nil
 	}
 
-	spec := config.Current.AutoDownload.Cron
-	if spec == "" {
-		spec = "0 0 * * *" // Default to daily at midnight
-	}
-
-	job, err := sched.NewJob(
-		gocron.CronJob(spec, false),
-		gocron.NewTask(configureJobRunner("AutoDownload Job", func() {
-			defer func() {
-				if r := recover(); r != nil {
-					logging.LOGGER.Error().
-						Timestamp().
-						Interface("recover", r).
-						Str("stack", string(debug.Stack())).
-						Msg("PANIC: in scheduled AutoDownload Job")
-				}
-			}()
-			ctx, ld := logging.CreateLoggingContext(context.Background(), "Cron Job")
-			action := ld.AddAction("AutoDownload Check", logging.LevelInfo)
-			ctx = logging.WithCurrentAction(ctx, action)
-			Err := autodownload.CheckAllItems(ctx)
-			if Err.Message != "" {
-				logging.LOGGER.Error().Timestamp().Str("error", Err.Message).
-					Str("next_run", formatNextRun(autodownloadJob)).
-					Msg("Error running AutoDownload Job")
-			} else {
-				logging.LOGGER.Info().Timestamp().
-					Str("next_run", formatNextRun(autodownloadJob)).
-					Msg("AutoDownload Job Completed")
-			}
-		}).runScheduled),
-		gocron.WithName("AutoDownload Job"),
-		gocron.WithSingletonMode(gocron.LimitModeReschedule),
-	)
-	if err != nil {
+	if err := addScheduledJob(JobKeyAutoDownload, spec, func() {
+		runAutoDownloadJobBody(context.Background())
+	}); err != nil {
 		return err
 	}
-	autodownloadJob = job
-	autodownloadJobID = job.ID()
-	jobSpecs[autodownloadJobID] = spec
 
 	logging.LOGGER.Info().Timestamp().
 		Str("cron", spec).
 		Msg("AutoDownload Job Started")
 	return nil
+}
+
+func RunAutoDownloadJobNow() {
+	go func() {
+		defer releaseJob(JobKeyAutoDownload) // Fork: pairs with claimJob in TriggerJob
+		defer logging.RecoverPanic("Auto Download Job")
+		recordManualRun(JobKeyAutoDownload)
+		runAutoDownloadJobBody(context.Background())
+	}()
 }

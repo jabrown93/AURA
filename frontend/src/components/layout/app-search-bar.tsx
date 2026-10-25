@@ -1,9 +1,23 @@
 "use client";
 
+import { type SettingsSearchEntry, searchSettings, settingURL } from "@/helper/config/settings-search";
 import { formatUnixSeconds } from "@/helper/format-date-last-updates";
 import { ReturnErrorMessage } from "@/services/api-error-return";
 import { HandleSearch } from "@/services/search/api-search";
-import { BookmarkIcon, EyeOff, Film, FilmIcon, Search, Star, TvIcon, User, UserIcon, X } from "lucide-react";
+import {
+  BookmarkIcon,
+  ChevronRight,
+  EyeOff,
+  Film,
+  FilmIcon,
+  Search,
+  Settings,
+  Star,
+  TvIcon,
+  User,
+  UserIcon,
+  X,
+} from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 
 import * as React from "react";
@@ -11,7 +25,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import Image from "next/image";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 
 import { ErrorMessage } from "@/components/shared/error-message";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -32,6 +46,9 @@ import type { MediaItem } from "@/types/media-and-posters/media-item-and-library
 import type { MediuxUserInfo } from "@/types/mediux/mediux-user-follow-hide";
 
 // Props for DynamicSearch component
+// How long typing has to stop before searching
+const SEARCH_DELAY_MS = 200;
+
 export interface DynamicSearchProps {
   placeholder?: string;
   className?: string;
@@ -66,6 +83,7 @@ const itemVariants = {
 
 export function DynamicSearch({ placeholder = "Search", className }: DynamicSearchProps) {
   const router = useRouter();
+  const pathname = usePathname();
 
   // --- States and Refs ---
 
@@ -87,6 +105,8 @@ export function DynamicSearch({ placeholder = "Search", className }: DynamicSear
 
   // Media Store
   const { setMediaItem } = useMediaStore();
+
+  // Some media servers do not support collections
 
   // Filter States
   const [filters, setFilters] = useState<{ [key: string]: boolean }>({
@@ -141,6 +161,10 @@ export function DynamicSearch({ placeholder = "Search", className }: DynamicSear
 
   const hasFilteredResults = filteredMediaItems.length > 0 || filteredMediuxUsers.length > 0;
 
+  // Show matching settings first. They are searched locally, so they show right away
+  const settingsResults = useMemo(() => searchSettings(searchInput), [searchInput]);
+  const settingsOffset = settingsResults.length;
+
   // Use Effect - To handle clicks outside the search results to close the dropdown
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -169,6 +193,23 @@ export function DynamicSearch({ placeholder = "Search", className }: DynamicSear
     setSearchResultsSavedSets([]);
   };
 
+  // A search on the Settings page is for a setting, so clear it when leaving the page.
+  // Opening a saved set from the results keeps it, as the Saved Sets page uses it
+  const previousPath = useRef(pathname);
+  const keepSearch = useRef(false);
+  useEffect(() => {
+    const leftSettings = previousPath.current.startsWith("/settings") && !pathname.startsWith("/settings");
+    previousPath.current = pathname;
+    if (!leftSettings) return;
+    if (keepSearch.current) {
+      keepSearch.current = false;
+      return;
+    }
+    setSearchInput("");
+    setSearchQuery("");
+    setIsExpanded(false);
+  }, [pathname, setSearchQuery]);
+
   // If the search query is changed externally, update the local input state
   useEffect(() => {
     if (searchQuery.trim() === "") {
@@ -180,7 +221,7 @@ export function DynamicSearch({ placeholder = "Search", className }: DynamicSear
     }
   }, [searchQuery]);
 
-  // Use Effect - To perform search when searchInput changes (with debounce of 500ms)
+  // Use Effect - To perform search when searchInput changes, once typing stops for SEARCH_DELAY_MS
   useEffect(() => {
     if (searchInput.trim() === "") {
       setIsSearching(false);
@@ -229,7 +270,7 @@ export function DynamicSearch({ placeholder = "Search", className }: DynamicSear
       } finally {
         setIsLoading(false);
       }
-    }, 500);
+    }, SEARCH_DELAY_MS);
 
     return () => clearTimeout(delayDebounceFn);
   }, [filters.mediaItem, filters.collectionItem, filters.mediuxUser, filters.savedSets, searchInput, setSearchQuery]);
@@ -239,7 +280,8 @@ export function DynamicSearch({ placeholder = "Search", className }: DynamicSear
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (!isExpanded) return;
 
-    const totalItems = filteredMediaItems.length + filteredMediuxUsers.length + filteredSavedSets.length;
+    const totalItems =
+      settingsOffset + filteredMediaItems.length + filteredMediuxUsers.length + filteredSavedSets.length;
 
     if (e.key === "ArrowDown") {
       e.preventDefault();
@@ -255,19 +297,21 @@ export function DynamicSearch({ placeholder = "Search", className }: DynamicSear
       e.preventDefault();
 
       // If an item is focused, select it
-      if (focusedIndex >= 0) {
+      if (focusedIndex >= 0 && focusedIndex < settingsOffset) {
+        // Selecting from Settings
+        handleSettingClick(settingsResults[focusedIndex]);
+      } else if (focusedIndex >= 0) {
+        const index = focusedIndex - settingsOffset;
         // Determine if we're selecting Media Items or MediUX Users
-        if (focusedIndex < filteredMediaItems.length) {
+        if (index < filteredMediaItems.length) {
           // Selecting from Media Items
-          handleMediaItemClick(filteredMediaItems[focusedIndex]);
-        } else if (focusedIndex < filteredMediaItems.length + filteredMediuxUsers.length) {
+          handleMediaItemClick(filteredMediaItems[index]);
+        } else if (index < filteredMediaItems.length + filteredMediuxUsers.length) {
           // Selecting from MediUX Users
-          handleMediuxUserClick(filteredMediuxUsers[focusedIndex - filteredMediaItems.length].username);
+          handleMediuxUserClick(filteredMediuxUsers[index - filteredMediaItems.length].username);
         } else {
           // Selecting from Saved Sets
-          handleSavedSetsClick(
-            filteredSavedSets[focusedIndex - filteredMediaItems.length - filteredMediuxUsers.length]
-          );
+          handleSavedSetsClick(filteredSavedSets[index - filteredMediaItems.length - filteredMediuxUsers.length]);
         }
 
         setIsExpanded(false);
@@ -279,6 +323,12 @@ export function DynamicSearch({ placeholder = "Search", className }: DynamicSear
       setFocusedIndex(-1);
       inputRef.current?.blur();
     }
+  };
+
+  // Handle Setting Click
+  const handleSettingClick = (entry: SettingsSearchEntry) => {
+    setIsExpanded(false);
+    router.push(settingURL(entry));
   };
 
   // Handle Media Item Click
@@ -298,6 +348,7 @@ export function DynamicSearch({ placeholder = "Search", className }: DynamicSear
 
   // Handle Saved Sets Click
   const handleSavedSetsClick = (set: DBSavedItem) => {
+    keepSearch.current = pathname.startsWith("/settings");
     setSearchQuery(
       `${set.media_item.title} Y:${set.media_item.year}: ID:${set.media_item.tmdb_id}: L:${set.media_item.library_title}:`
     );
@@ -414,6 +465,44 @@ export function DynamicSearch({ placeholder = "Search", className }: DynamicSear
                 <X className="w-4 h-4 text-destructive" />
               </Button>
 
+              {/* Settings Section */}
+              {settingsResults.length > 0 && (
+                <div className="mb-6">
+                  <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
+                    <Settings className="h-4 w-4" />
+                    Settings ({settingsResults.length})
+                  </h3>
+                  <div className="space-y-1">
+                    {settingsResults.map((entry, index) => (
+                      <Link
+                        key={`setting-${entry.sectionId}-${entry.label}`}
+                        href={settingURL(entry)}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          handleSettingClick(entry);
+                        }}
+                        className={cn(
+                          "flex items-center gap-3 rounded-md px-2 py-2 transition-colors hover:bg-muted",
+                          index === focusedIndex && "bg-muted"
+                        )}
+                      >
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/10">
+                          <Settings className="h-4 w-4 text-primary" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium">{entry.label}</p>
+                          <p className="truncate text-xs text-muted-foreground">
+                            {entry.sectionLabel} • {entry.description}
+                          </p>
+                        </div>
+                        <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      </Link>
+                    ))}
+                  </div>
+                  {(isLoading || hasFilteredResults) && <Separator className="mt-4" />}
+                </div>
+              )}
+
               {isLoading ? (
                 <div className="text-center py-8 text-muted-foreground">
                   <AuraSpinner size="lg" className="mx-auto mb-2 text-primary-dynamic" />
@@ -445,15 +534,15 @@ export function DynamicSearch({ placeholder = "Search", className }: DynamicSear
                         </h3>
                         <div className="space-y-1">
                           {filteredMediaItems.map((item, index) => {
-                            const isHighlighted = index === focusedIndex;
+                            const isHighlighted = settingsOffset + index === focusedIndex;
                             return (
                               <SearchResultMediaItem
-                                key={`media-item-${item.rating_key}`}
+                                key={`media-item-${item.library_title}-${item.rating_key}`}
                                 title={item.title}
                                 subtitle={`${item.library_title} • ${item.year}`}
                                 href={`/media-item/`}
                                 isHighlighted={isHighlighted}
-                                imageSrc={`/api/images/media/item?rating_key=${item.rating_key}&image_type=poster&v=${item.artwork_version}`}
+                                imageSrc={`/api/images/media/item?rating_key=${item.rating_key}&image_type=poster`}
                                 imageAlt={item.title}
                                 fallbackIcon={
                                   item.type === "movie" ? (
@@ -486,7 +575,7 @@ export function DynamicSearch({ placeholder = "Search", className }: DynamicSear
                         </h3>
                         <div className="space-y-1">
                           {filteredSavedSets.map((set, index) => {
-                            const adjustedIndex = filteredMediaItems.length + index;
+                            const adjustedIndex = settingsOffset + filteredMediaItems.length + index;
                             const isHighlighted = adjustedIndex === focusedIndex;
                             const subtitle = `${set.media_item.library_title} • ${
                               set.poster_sets.length > 1
@@ -500,7 +589,7 @@ export function DynamicSearch({ placeholder = "Search", className }: DynamicSear
                                 subtitle={subtitle}
                                 href={`/saved-sets/`}
                                 isHighlighted={isHighlighted}
-                                imageSrc={`/api/images/media/item?rating_key=${set.media_item.rating_key}&image_type=poster&v=${set.media_item.artwork_version}`}
+                                imageSrc={`/api/images/media/item?rating_key=${set.media_item.rating_key}&image_type=poster`}
                                 imageAlt={set.media_item.title}
                                 fallbackIcon={<Film className="h-4 w-4 text-muted-foreground" />}
                                 onLinkClick={() => {
@@ -531,7 +620,8 @@ export function DynamicSearch({ placeholder = "Search", className }: DynamicSear
 
                         <div className="space-y-1">
                           {filteredMediuxUsers.map((item, index) => {
-                            const adjustedIndex = filteredMediaItems.length + filteredSavedSets.length + index;
+                            const adjustedIndex =
+                              settingsOffset + filteredMediaItems.length + filteredSavedSets.length + index;
                             const isHighlighted = adjustedIndex === focusedIndex;
                             return (
                               <SearchResultUserItem
@@ -551,7 +641,7 @@ export function DynamicSearch({ placeholder = "Search", className }: DynamicSear
 
                   {error && <ErrorMessage error={error} />}
                 </motion.div>
-              ) : isSearching ? (
+              ) : isSearching && settingsResults.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">
                   {!error ? (
                     <>

@@ -9,15 +9,16 @@ import (
 	"aura/utils"
 	"context"
 	"fmt"
-	"time"
 )
 
+// SendNotification sends the result of a Download Queue set, favorite creator sets use their own notification
 func SendNotification(
 	fileIssues FileIssues,
 	mediaItem models.MediaItem,
 	posterSet models.DBPosterSetDetail,
 	tmdbPoster string,
 	tmdbBackdrop string,
+	source string,
 ) {
 	// If notifications are disabled, skip
 	if !config.Current.Notifications.Enabled {
@@ -31,19 +32,19 @@ func SendNotification(
 		return
 	}
 
-	// If download queue notification is disabled, skip
-	if !config.Current.Notifications.NotificationTemplate.DownloadQueue.Enabled {
-		logging.LOGGER.Debug().Timestamp().Msg("Download queue notification is disabled, skipping app start notification")
-		return
+	fromFavoriteCreator := source == models.SourceFavoriteCreatorsNewItem || source == models.SourceFavoriteCreatorsAllItems
+	template := config.Current.Notifications.NotificationTemplate.DownloadQueue
+	switch {
+	case fromFavoriteCreator:
+		template = config.Current.Notifications.NotificationTemplate.NewItemAutoDownload
+	case source == models.SourceSiloPlugin:
+		template = config.Current.Notifications.NotificationTemplate.SiloPlugin
 	}
 
-	var result Status
-	if len(fileIssues.Errors) > 0 {
-		result = LAST_STATUS_ERROR
-	} else if len(fileIssues.Warnings) > 0 {
-		result = LAST_STATUS_WARNING
-	} else {
-		result = LAST_STATUS_SUCCESS
+	// If this notification is disabled, skip
+	if !template.Enabled {
+		logging.LOGGER.Debug().Timestamp().Msg("Download queue notification is disabled, skipping the notification")
+		return
 	}
 
 	if posterSet.ID == "" {
@@ -66,21 +67,18 @@ func SendNotification(
 	}
 
 	vars := utils.TemplateVars_DownloadQueue(mediaItem, posterSet, fileIssues.Errors, fileIssues.Warnings)
-	title := utils.RenderTemplate(config.Current.Notifications.NotificationTemplate.DownloadQueue.Title, vars)
-	message := utils.RenderTemplate(config.Current.Notifications.NotificationTemplate.DownloadQueue.Message, vars)
+	switch {
+	case fromFavoriteCreator:
+		vars = utils.TemplateVars_NewItemAutoDownload(mediaItem, posterSet, fileIssues.Errors, fileIssues.Warnings, source == models.SourceFavoriteCreatorsNewItem)
+	case source == models.SourceSiloPlugin:
+		vars = utils.TemplateVars_SiloPlugin(mediaItem, posterSet, fileIssues.Errors, fileIssues.Warnings)
+	}
+	title := utils.RenderTemplate(template.Title, vars)
+	message := utils.RenderTemplate(template.Message, vars)
 	imageURL := ""
-	if config.Current.Notifications.NotificationTemplate.DownloadQueue.IncludeImage {
+	if template.IncludeImage {
 		imageURL = getImageURLFromPosterSet(posterSet, tmdbPoster, tmdbBackdrop)
 	}
-
-	// Update the Global LatestInfo
-	UpdateLatestInfo(func(info *LatestInfo) {
-		info.Time = time.Now()
-		info.Status = result
-		info.Message = fmt.Sprintf("%s (Set: %s)", mediaItem.Title, posterSet.ID)
-		info.Errors = fileIssues.Errors
-		info.Warnings = fileIssues.Warnings
-	})
 
 	ctx, ld := logging.CreateLoggingContext(context.Background(), "Notification - Send Download Queue Update")
 	logAction := ld.AddAction("Sending Download Queue Notification", logging.LevelInfo)

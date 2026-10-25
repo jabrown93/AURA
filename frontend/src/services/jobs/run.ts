@@ -9,18 +9,18 @@ export interface RunJob_Response {
   message: string;
 }
 
-export const RunJob = async (jobName: string, jobId: string): Promise<APIResponse<RunJob_Response>> => {
-  log("INFO", "API - Jobs", "Trigger", `Triggering job: ${jobName} (ID: ${jobId})`);
+export const RunJob = async (jobId: string): Promise<APIResponse<RunJob_Response>> => {
+  log("INFO", "API - Jobs", "Trigger", `Triggering job: ${jobId}`);
 
   try {
-    const params = { job_name: jobName, job_id: jobId };
+    const params = { job_id: jobId };
     const response = await apiClient.post<APIResponse<RunJob_Response>>(`/jobs/`, null, { params });
 
     if (response.data.status === "error") {
       throw new Error(response.data.error?.message || "Unknown error triggering job");
     }
 
-    log("INFO", "API - Jobs", "Trigger", `Job triggered successfully: ${jobName} (ID: ${jobId})`);
+    log("INFO", "API - Jobs", "Trigger", `Job triggered successfully: ${jobId}`);
     return response.data;
   } catch (error) {
     log(

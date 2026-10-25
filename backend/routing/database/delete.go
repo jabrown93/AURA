@@ -19,7 +19,9 @@ type DeleteItemFromDB_Response struct {
 // @Produce      json
 // @Param        tmdb_id       query     string  true  "TMDB ID of the Media Item"
 // @Param        library_title  query     string  true  "Library Title of the Media Item"
-// @Security 	 BearerAuth
+// @Param        edition        query     string  false "Edition of the Media Item (e.g. Director's Cut), empty for the standard edition"
+// @Security     SessionCookie
+// @Security     ApiKeyAuth
 // @Failure      401  {object}  httpx.UnauthorizedResponse "Unauthorized (only when Auth.Enabled=true)"
 // @Success      200            {object}  httpx.JSONResponse{data=DeleteItemFromDB_Response}
 // @Failure      500  {object}  httpx.JSONResponse "Internal Server Error"
@@ -33,6 +35,7 @@ func DeleteItemFromDB(w http.ResponseWriter, r *http.Request) {
 	// Get the query parameters
 	tmdbID := r.URL.Query().Get("tmdb_id")
 	libraryTitle := r.URL.Query().Get("library_title")
+	edition := r.URL.Query().Get("edition")
 
 	// Validate the parameters
 	if tmdbID == "" || libraryTitle == "" {
@@ -42,7 +45,7 @@ func DeleteItemFromDB(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Delete the item
-	Err := database.DeleteAllPosterSetsForMediaItem(ctx, tmdbID, libraryTitle)
+	Err := database.DeleteAllPosterSetsForMediaItem(ctx, tmdbID, libraryTitle, edition)
 	if Err.Message != "" {
 		httpx.SendResponse(w, ld, response)
 		return

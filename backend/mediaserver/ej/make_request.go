@@ -10,12 +10,19 @@ import (
 	"strings"
 )
 
-func makeRequest(ctx context.Context, msConfig config.Config_MediaServer, url string, method string, body []byte) (resp *http.Response, respBody []byte, Err logging.LogErrorInfo) {
+// contentType is optional and only relevant for image upload requests (POST to
+// .../Primary or .../Backdrop). When omitted, it defaults to "image/jpeg" for
+// those requests to preserve prior behavior.
+func makeRequest(ctx context.Context, msConfig config.Config_MediaServer, url string, method string, body []byte, contentType ...string) (resp *http.Response, respBody []byte, Err logging.LogErrorInfo) {
 	// Make the HTTP Headers for this request
 	headers := make(map[string]string)
 
 	if (strings.HasSuffix(url, "Primary") || strings.HasSuffix(url, "Backdrop")) && method == "POST" {
-		headers["Content-Type"] = "image/jpeg"
+		if len(contentType) > 0 && contentType[0] != "" {
+			headers["Content-Type"] = contentType[0]
+		} else {
+			headers["Content-Type"] = "image/jpeg"
+		}
 	}
 	headers = AddEJAuthHeaders(msConfig, headers)
 
@@ -39,6 +46,9 @@ func makeRequest(ctx context.Context, msConfig config.Config_MediaServer, url st
 
 func AddEJAuthHeaders(msConfig config.Config_MediaServer, headers map[string]string) map[string]string {
 	headers["X-Emby-Token"] = msConfig.ApiToken
+	if msConfig.Type == "Jellyfin" {
+		headers["Authorization"] = fmt.Sprintf(`MediaBrowser Token="%s"`, msConfig.ApiToken)
+	}
 	headers["Accept"] = "application/json"
 	headers["X-Emby-Client"] = "aura"
 	headers["X-Emby-Device"] = "aura"
