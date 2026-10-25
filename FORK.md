@@ -82,9 +82,12 @@ Dated so a later sync can revisit them.
     `Jobs.KometaImport` job; the AniDB refresh is `Jobs.AnidbRefresh`.
   - Download queue: upstream's database queue. Dropped the fork's file-based collection queue
     (upstream queues collection images) and per-entry bulk selection (upstream has Clear Failed and
-    automatic retries; the fork adds Retry All).
+    automatic retries; the fork adds Retry All). Pending `download-queue/*.json` jobs are imported
+    into the database queue once at startup (`download/queue/fork_legacy_import.go`).
   - Schema: the fork's old v5→v6 (`force_preload_missing`) is rewound to v5 on first start so
     upstream's v6–v14 run, then the column is re-added and its values restored.
+  - A legacy top-level `AutoDownload` block is carried into `Jobs.AutoDownload` on import when the
+    file doesn't set the new key (`config/fork_import.go`).
   - Versioning stays semantic-release; upstream's `VERSION.txt` and changelog are not taken.
   - Docs: upstream's Starlight site, published by `docs.yml`; Jekyll removed.
   - Image caching: artwork versioning (#152/#165/#174) dropped; library images are `private, no-store`.

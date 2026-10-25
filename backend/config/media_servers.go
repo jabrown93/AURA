@@ -228,6 +228,7 @@ func ParseConfigYAML(data []byte) (cfg Config, err error) {
 			} `yaml:"OIDC"`
 		} `yaml:"Auth"`
 	}
+	migrateLegacyAutoDownload(data, &cfg) // Fork
 	if yaml.Unmarshal(data, &olderAuth) == nil {
 		if olderAuth.Auth.PasswordEnabled == nil {
 			cfg.Auth.PasswordEnabled = true
@@ -256,15 +257,22 @@ func ParseConfigYAML(data []byte) (cfg Config, err error) {
 
 // RestoreMediaServerTokens keeps the current API token of each media server sent back masked
 func RestoreMediaServerTokens(current, updated []Config_MediaServer) {
-	tokens := map[string]string{}
+	saved := map[string]Config_MediaServer{}
 	for _, server := range current {
-		tokens[server.ID] = server.ApiToken
+		saved[server.ID] = server
 	}
 	for i := range updated {
-		token, ok := tokens[updated[i].ID]
-		if ok && updated[i].ApiToken != token && strings.HasPrefix(updated[i].ApiToken, "***") {
-			updated[i].ApiToken = token
+		server, ok := saved[updated[i].ID]
+		if !ok || updated[i].ApiToken == server.ApiToken || !strings.HasPrefix(updated[i].ApiToken, "***") {
+			continue
 		}
+		// Fork: only for the URL the token was saved with, or the connection test would send the
+		// real token to a caller-supplied URL. Cleared, a new token is required.
+		if updated[i].URL != server.URL {
+			updated[i].ApiToken = ""
+			continue
+		}
+		updated[i].ApiToken = server.ApiToken
 	}
 }
 

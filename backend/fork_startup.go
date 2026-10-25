@@ -3,6 +3,7 @@ package main
 import (
 	"aura/anidb"
 	"aura/config"
+	downloadqueue "aura/download/queue"
 	"aura/jobs"
 	"aura/logging"
 	"aura/mediaserver"
@@ -107,6 +108,7 @@ func retryPreFlightUntilReady(activate func(), activated <-chan struct{}) {
 // forkWarmup runs the fork's warmup steps. Called before the media-server library loads, since the
 // Plex library path needs the AniDB mapping for HAMA items.
 func forkWarmup(ctx context.Context) {
+	downloadqueue.ImportLegacyQueueFiles(ctx)
 	if config.Current.MediaServer.Type == "Plex" {
 		config.SetAppLoadingStep("Preloading AniDB Mappings into Cache")
 		anidb.PreloadAnidbMappings(ctx)

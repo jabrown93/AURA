@@ -24,3 +24,24 @@ func keepStoredUserPreferences(ctx context.Context, data []byte, cfg *Config) bo
 	cfg.UserPreferences = storedCfg.UserPreferences
 	return true
 }
+
+// migrateLegacyAutoDownload carries an older config's top-level AutoDownload into Jobs.AutoDownload
+// when the file doesn't set the new key. Fork: otherwise a disabled or rescheduled auto-download
+// silently comes back on at the default schedule after the upgrade.
+func migrateLegacyAutoDownload(data []byte, cfg *Config) {
+	var older struct {
+		AutoDownload *struct {
+			Enabled *bool  `yaml:"Enabled"`
+			Cron    string `yaml:"Cron"`
+		} `yaml:"AutoDownload"`
+	}
+	if yaml.Unmarshal(data, &older) != nil || older.AutoDownload == nil {
+		return
+	}
+	job := &cfg.Jobs.AutoDownload
+	if job.Enabled != nil || job.Cron != "" {
+		return
+	}
+	job.Enabled = older.AutoDownload.Enabled
+	job.Cron = older.AutoDownload.Cron
+}
