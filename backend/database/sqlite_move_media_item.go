@@ -42,7 +42,13 @@ func (s *SQliteDB) MoveMediaItems(ctx context.Context, moves []MediaItemMove) (E
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	for _, move := range moves {
+	// Fork: stage every source first, so a destination can't become a later move's source.
+	staged, err := stageMediaItemMoves(ctx, tx, moves)
+	if err != nil {
+		logAction.SetError("Failed to stage the media item moves", err.Error(), map[string]any{"error": err.Error()})
+		return *logAction.Error
+	}
+	for _, move := range staged {
 		if Err := moveMediaItem(ctx, tx, move); Err.Message != "" {
 			logAction.SetErrorFromInfo(Err)
 			return Err
@@ -61,12 +67,7 @@ func moveMediaItem(ctx context.Context, tx *sql.Tx, move MediaItemMove) (Err log
 	defer logAction.Complete()
 
 	newItem := move.NewItem
-	newLibrary, newEdition := newItem.LibraryTitle, newItem.Edition
-	if newLibrary == "" {
-		newLibrary, newEdition = move.OldLibrary, move.OldEdition
-	} else if !move.Found {
-		newEdition = move.OldEdition
-	}
+	newLibrary, newEdition := moveTarget(move)
 
 	if newLibrary != move.OldLibrary || newEdition != move.OldEdition {
 		if err := moveMediaItemKey(ctx, tx, move.TMDB_ID, move.OldLibrary, move.OldEdition, newLibrary, newEdition); err != nil {
