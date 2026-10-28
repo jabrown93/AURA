@@ -85,7 +85,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 24.22.1
+          node-version: 26.12.1
           cache: npm
           # Pin the cache key to the root (CI-tooling) lockfile. Left unset, setup-node
           # would also hash frontend/package-lock.json and needlessly bust this cache on
