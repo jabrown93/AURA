@@ -61,7 +61,7 @@
     "@eslint-react/eslint-plugin": "5.28.8",
     "@tailwindcss/postcss": "4.3.3",
     "@trivago/prettier-plugin-sort-imports": "6.0.2",
-    "@types/node": "26.6.5",
+    "@types/node": "26.6.6",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "baseline-browser-mapping": "2.11.34",
