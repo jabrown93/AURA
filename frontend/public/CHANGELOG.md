@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.30](https://github.com/jabrown93/AURA/compare/v2.1.29...v2.1.30) (2026-10-31)
+
+
+### Bug Fixes
+
+* **auth:** retry OIDC discovery lazily when the IdP was unreachable at startup ([#213](https://github.com/jabrown93/AURA/issues/213)) ([187c702](https://github.com/jabrown93/AURA/commit/187c702f6cff9e5e4d5d22c12b27a8bd9f8e5a2a)), closes [#211](https://github.com/jabrown93/AURA/issues/211)
+
 ## [2.1.29](https://github.com/jabrown93/AURA/compare/v2.1.28...v2.1.29) (2026-10-26)
 
 ## [2.1.28](https://github.com/jabrown93/AURA/compare/v2.1.27...v2.1.28) (2026-10-22)
