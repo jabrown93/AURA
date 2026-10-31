@@ -34,6 +34,12 @@ const oidcRetryTimeout = 5 * time.Second
 // Minimum time between lazy retries, so a down IdP doesn't turn every login page load into a discovery call
 const oidcRetryInterval = 30 * time.Second
 
+// How long a successful discovery is trusted. After this a login page visit re-fetches the
+// document in the background of the request, so an IdP change (new signing key algorithm, moved
+// endpoints, provider re-pointed at this client) is picked up without a restart. The old
+// snapshot keeps serving until the new one is published.
+const oidcRefreshInterval = 10 * time.Minute
+
 // oidcClient is what a successful discovery produced. Handlers take one snapshot, so a concurrent
 // re-init (config save, lazy retry) can't swap part of it out under them.
 type oidcClient struct {
@@ -47,7 +53,8 @@ var (
 
 	// Serializes discovery attempts, so concurrent login page loads don't stampede the IdP
 	oidcInitMu      sync.Mutex
-	oidcLastAttempt time.Time // guarded by oidcInitMu
+	oidcLastAttempt time.Time    // guarded by oidcInitMu
+	oidcLastSuccess atomic.Int64 // unix nanos; read without the lock on the login page fast path
 )
 
 // InitOIDC performs OIDC discovery against the configured issuer and, on success, makes OIDC
@@ -61,19 +68,29 @@ func InitOIDC(ctx context.Context) logging.LogErrorInfo {
 	return initOIDC(ctx)
 }
 
-// initOIDC is InitOIDC for a caller already holding oidcInitMu
+// initOIDC is InitOIDC for a caller already holding oidcInitMu. The outcome replaces the current
+// snapshot either way: this runs at startup and after a config save, when whatever was published
+// before may describe a different IdP.
 func initOIDC(ctx context.Context) logging.LogErrorInfo {
-	oidcCurrent.Store(nil)
+	client, errInfo := discoverOIDC(ctx)
+	oidcCurrent.Store(client)
+	return errInfo
+}
+
+// discoverOIDC validates the OIDC config and runs discovery, returning the client to publish
+// (nil when OIDC is disabled or discovery failed). It never touches oidcCurrent, so a caller can
+// decide whether a failure should unpublish the existing snapshot. Caller holds oidcInitMu.
+func discoverOIDC(ctx context.Context) (*oidcClient, logging.LogErrorInfo) {
 	oidcLastAttempt = time.Now()
 
 	cfg := config.Current.Auth.OIDC
 	if !cfg.Enabled {
-		return logging.LogErrorInfo{}
+		return nil, logging.LogErrorInfo{}
 	}
 
 	// Each Redirect URL must point to aura's OIDC callback, otherwise the login can never complete
 	if len(cfg.RedirectURLs) == 0 {
-		return logging.LogErrorInfo{
+		return nil, logging.LogErrorInfo{
 			Message: "OIDC needs at least one Redirect URL",
 			Help:    "Add your aura URL followed by /api/auth/oidc/callback (e.g. https://aura.example.com/api/auth/oidc/callback), and register the same URL with your identity provider",
 		}
@@ -82,7 +99,7 @@ func initOIDC(ctx context.Context) logging.LogErrorInfo {
 		redirectURL, err := url.Parse(redirect)
 		if err != nil || !strings.HasSuffix(strings.TrimRight(redirectURL.Path, "/"), config.OIDCCallbackPath) {
 			logging.LOGGER.Error().Timestamp().Str("redirect_url", redirect).Msg("OIDC Redirect URL does not point to aura's OIDC callback - OIDC login will be unavailable until this is fixed")
-			return logging.LogErrorInfo{
+			return nil, logging.LogErrorInfo{
 				Message: "OIDC Redirect URL must point to aura's OIDC callback",
 				Help:    "Set it to your aura URL followed by /api/auth/oidc/callback (e.g. https://aura.example.com/api/auth/oidc/callback), and register the same URL with your identity provider",
 				Detail:  map[string]any{"redirect_url": redirect},
@@ -93,14 +110,16 @@ func initOIDC(ctx context.Context) logging.LogErrorInfo {
 	provider, err := oidc.NewProvider(ctx, cfg.IssuerURL)
 	if err != nil {
 		logging.LOGGER.Error().Timestamp().Str("issuer_url", cfg.IssuerURL).Err(err).Msg("OIDC discovery failed - OIDC login will be unavailable until the identity provider can be reached, discovery is retried on the next login page visit")
-		return logging.LogErrorInfo{
+		return nil, logging.LogErrorInfo{
 			Message: "OIDC discovery failed",
 			Help:    "Ensure the Issuer URL is the base URL of your identity provider (e.g. https://idp.example.com) and that aura can reach it",
 			Detail:  map[string]any{"issuer_url": cfg.IssuerURL, "error": err.Error()},
 		}
 	}
 
-	oidcCurrent.Store(&oidcClient{
+	oidcLastSuccess.Store(time.Now().UnixNano())
+	logging.LOGGER.Info().Timestamp().Str("issuer_url", cfg.IssuerURL).Msg("OIDC initialized successfully")
+	return &oidcClient{
 		oauth2Cfg: &oauth2.Config{
 			ClientID:     cfg.ClientID,
 			ClientSecret: cfg.ClientSecret,
@@ -109,29 +128,35 @@ func initOIDC(ctx context.Context) logging.LogErrorInfo {
 			Scopes:       []string{oidc.ScopeOpenID, "profile", "email"},
 		},
 		idVerifier: provider.Verifier(&oidc.Config{ClientID: cfg.ClientID}),
-	})
-
-	logging.LOGGER.Info().Timestamp().Str("issuer_url", cfg.IssuerURL).Msg("OIDC initialized successfully")
-	return logging.LogErrorInfo{}
+	}, logging.LogErrorInfo{}
 }
 
-// ensureOIDC re-runs discovery when OIDC is enabled but not initialized - typically because the
-// identity provider was unreachable while aura booted. Without this an SSO-only deployment would
-// be locked out until a restart. Attempts are serialized and throttled, so a down IdP is hit at
-// most once per oidcRetryInterval however often the login page is loaded.
+// ensureOIDC keeps the published snapshot usable from a login page request. When OIDC is enabled
+// but not initialized - typically because the identity provider was unreachable while aura
+// booted - it retries discovery, so an SSO-only deployment isn't locked out until a restart. When
+// the snapshot is older than oidcRefreshInterval it re-fetches the document so IdP-side changes
+// are picked up; the current snapshot stays published throughout and is only replaced by a
+// successful discovery, so in-flight logins never see a half-initialized or missing client.
+// Attempts are serialized and throttled, so a down IdP is hit at most once per oidcRetryInterval
+// however often the login page is loaded.
 func ensureOIDC() {
-	if !config.AuthEnabled() || !config.Current.Auth.OIDC.Enabled || oidcCurrent.Load() != nil {
+	if !config.AuthEnabled() || !config.Current.Auth.OIDC.Enabled {
+		return
+	}
+	if oidcCurrent.Load() != nil && time.Since(time.Unix(0, oidcLastSuccess.Load())) < oidcRefreshInterval {
 		return
 	}
 	oidcInitMu.Lock()
 	defer oidcInitMu.Unlock()
-	// The request that held the lock may have just retried
-	if oidcCurrent.Load() != nil || time.Since(oidcLastAttempt) < oidcRetryInterval {
+	// The request that held the lock may have just retried or refreshed
+	if time.Since(oidcLastAttempt) < oidcRetryInterval {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), oidcRetryTimeout)
 	defer cancel()
-	_ = initOIDC(ctx)
+	if client, _ := discoverOIDC(ctx); client != nil {
+		oidcCurrent.Store(client)
+	}
 }
 
 // loadOIDC returns the initialized OIDC client, or nil when OIDC login is unavailable
