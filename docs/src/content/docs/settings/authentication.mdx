@@ -86,6 +86,8 @@ Other websites allowed to call the aura API with your login, for example a dashb
 
 ## Locked Out?
 
+If your identity provider was unreachable when aura started, or you changed something on its side afterwards (new signing key, moved endpoints), aura re-reads the provider's discovery document from the login page — on the next visit when it had never succeeded, otherwise once it is more than 10 minutes old — so there is nothing to restart.
+
 If you forget your password or your identity provider breaks, set the `AURA_DISABLE_AUTH=true` environment variable and restart aura. Log in, fix your authentication settings, then remove the variable and restart aura again. While it's set, anyone who can reach aura can use it.
 
 ## In the Config File
