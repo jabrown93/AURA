@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.2.1](https://github.com/jabrown93/AURA/compare/v2.2.0...v2.2.1) (2026-10-31)
+
+
+### Bug Fixes
+
+* **auth:** refresh a stale OIDC discovery snapshot from the login page ([#215](https://github.com/jabrown93/AURA/issues/215)) ([1892921](https://github.com/jabrown93/AURA/commit/18929210d6d08409aa7f2afc1fdd1b645f02e795)), closes [#213](https://github.com/jabrown93/AURA/issues/213)
+
 # [2.2.0](https://github.com/jabrown93/AURA/compare/v2.1.30...v2.2.0) (2026-10-31)
 
 
