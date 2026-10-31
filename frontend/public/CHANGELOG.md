@@ -1,5 +1,12 @@
 # Changelog
 
+# [2.2.0](https://github.com/jabrown93/AURA/compare/v2.1.30...v2.2.0) (2026-10-31)
+
+
+### Features
+
+* **auth:** send SSO-only logins straight to the identity provider ([#214](https://github.com/jabrown93/AURA/issues/214)) ([3b3d82e](https://github.com/jabrown93/AURA/commit/3b3d82e5685ab5469fa3bf49a90367d6623db0d7))
+
 ## [2.1.30](https://github.com/jabrown93/AURA/compare/v2.1.29...v2.1.30) (2026-10-31)
 
 
