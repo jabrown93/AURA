@@ -23,7 +23,7 @@ Turn on to require a login before anyone can use aura. You need a way to log in 
 
 ## Password Enabled
 
-Allow logging in with a password. On by default. Turn it off to only log in with [Single Sign-On](#single-sign-on-oidc): the password field is removed from the login page, and aura turns away password logins. Single Sign-On must be on to turn the password off.
+Allow logging in with a password. On by default. Turn it off to only log in with [Single Sign-On](#single-sign-on-oidc): the login page sends you straight to your identity provider, and aura turns away password logins. After logging out, or when a Single Sign-On login fails, the login page shows a **Sign in with SSO** button instead, so you choose when to go back. Single Sign-On must be on to turn the password off.
 
 ## Argon2id Password Hash
 
