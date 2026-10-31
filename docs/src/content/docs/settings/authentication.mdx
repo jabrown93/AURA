@@ -56,6 +56,8 @@ aura uses PKCE for every login, so a login code that's intercepted can't be used
 - **Allowed Emails** and **Allowed Domains**: who may log in. Separate entries with commas. An email only counts when the identity provider marks it verified (`email_verified`).
 - **Allowed Groups** (this fork): when set, the user must also be in one of these groups. aura reads the `groups` claim, or the claim named in `Auth.OIDC.GroupsClaim`. With Authentik, add the `groups` scope mapping to the provider.
 
+If your identity provider can't be reached when aura starts, for example because it starts later than aura, Single Sign-On is unavailable until the next time the login page is opened after the identity provider is back. aura retries at most every 30 seconds, so it doesn't need a restart.
+
 <Aside type="danger" title="Set an allowlist">
   If both Allowed Emails and Allowed Domains are empty, **anyone** who can log in to your identity provider gets full
   access to aura. aura has no separate user accounts, so this is the same as giving them the password. Settings shows a

@@ -11,6 +11,9 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
@@ -25,20 +28,43 @@ const oidcRedirectCookieName = "aura_oidc_redirect"
 const oidcVerifierCookieName = "aura_oidc_verifier"
 const oidcStateTTLSeconds = 5 * 60
 
+// A lazy retry runs inside a login page request, so it gets less time than the startup attempt
+const oidcRetryTimeout = 5 * time.Second
+
+// Minimum time between lazy retries, so a down IdP doesn't turn every login page load into a discovery call
+const oidcRetryInterval = 30 * time.Second
+
+// oidcClient is what a successful discovery produced. Handlers take one snapshot, so a concurrent
+// re-init (config save, lazy retry) can't swap part of it out under them.
+type oidcClient struct {
+	oauth2Cfg  *oauth2.Config
+	idVerifier *oidc.IDTokenVerifier
+}
+
 var (
-	oidcProvider   *oidc.Provider
-	oidcOAuth2Cfg  *oauth2.Config
-	oidcIDVerifier *oidc.IDTokenVerifier
+	// nil until discovery succeeds
+	oidcCurrent atomic.Pointer[oidcClient]
+
+	// Serializes discovery attempts, so concurrent login page loads don't stampede the IdP
+	oidcInitMu      sync.Mutex
+	oidcLastAttempt time.Time // guarded by oidcInitMu
 )
 
 // InitOIDC performs OIDC discovery against the configured issuer and, on success, makes OIDC
-// login available. If discovery fails (unreachable/misconfigured IdP), OIDC is simply left
-// unavailable - the rest of the app must keep working, since a broken IdP shouldn't take down
-// the whole server. The error is returned so callers can show why OIDC is unavailable.
-func InitOIDC(ctx context.Context) (Err logging.LogErrorInfo) {
-	oidcProvider = nil
-	oidcOAuth2Cfg = nil
-	oidcIDVerifier = nil
+// login available. If discovery fails (unreachable/misconfigured IdP), OIDC is left unavailable
+// until a login page visit retries it (see ensureOIDC) - the rest of the app must keep working,
+// since a broken IdP shouldn't take down the whole server. The error is returned so callers can
+// show why OIDC is unavailable.
+func InitOIDC(ctx context.Context) logging.LogErrorInfo {
+	oidcInitMu.Lock()
+	defer oidcInitMu.Unlock()
+	return initOIDC(ctx)
+}
+
+// initOIDC is InitOIDC for a caller already holding oidcInitMu
+func initOIDC(ctx context.Context) logging.LogErrorInfo {
+	oidcCurrent.Store(nil)
+	oidcLastAttempt = time.Now()
 
 	cfg := config.Current.Auth.OIDC
 	if !cfg.Enabled {
@@ -66,7 +92,7 @@ func InitOIDC(ctx context.Context) (Err logging.LogErrorInfo) {
 
 	provider, err := oidc.NewProvider(ctx, cfg.IssuerURL)
 	if err != nil {
-		logging.LOGGER.Error().Timestamp().Str("issuer_url", cfg.IssuerURL).Err(err).Msg("OIDC discovery failed - OIDC login will be unavailable until this is fixed and the config is reloaded")
+		logging.LOGGER.Error().Timestamp().Str("issuer_url", cfg.IssuerURL).Err(err).Msg("OIDC discovery failed - OIDC login will be unavailable until the identity provider can be reached, discovery is retried on the next login page visit")
 		return logging.LogErrorInfo{
 			Message: "OIDC discovery failed",
 			Help:    "Ensure the Issuer URL is the base URL of your identity provider (e.g. https://idp.example.com) and that aura can reach it",
@@ -74,23 +100,51 @@ func InitOIDC(ctx context.Context) (Err logging.LogErrorInfo) {
 		}
 	}
 
-	oidcProvider = provider
-	oidcOAuth2Cfg = &oauth2.Config{
-		ClientID:     cfg.ClientID,
-		ClientSecret: cfg.ClientSecret,
-		RedirectURL:  cfg.RedirectURLs[0],
-		Endpoint:     provider.Endpoint(),
-		Scopes:       []string{oidc.ScopeOpenID, "profile", "email"},
-	}
-	oidcIDVerifier = provider.Verifier(&oidc.Config{ClientID: cfg.ClientID})
+	oidcCurrent.Store(&oidcClient{
+		oauth2Cfg: &oauth2.Config{
+			ClientID:     cfg.ClientID,
+			ClientSecret: cfg.ClientSecret,
+			RedirectURL:  cfg.RedirectURLs[0],
+			Endpoint:     provider.Endpoint(),
+			Scopes:       []string{oidc.ScopeOpenID, "profile", "email"},
+		},
+		idVerifier: provider.Verifier(&oidc.Config{ClientID: cfg.ClientID}),
+	})
 
 	logging.LOGGER.Info().Timestamp().Str("issuer_url", cfg.IssuerURL).Msg("OIDC initialized successfully")
 	return logging.LogErrorInfo{}
 }
 
+// ensureOIDC re-runs discovery when OIDC is enabled but not initialized - typically because the
+// identity provider was unreachable while aura booted. Without this an SSO-only deployment would
+// be locked out until a restart. Attempts are serialized and throttled, so a down IdP is hit at
+// most once per oidcRetryInterval however often the login page is loaded.
+func ensureOIDC() {
+	if !config.AuthEnabled() || !config.Current.Auth.OIDC.Enabled || oidcCurrent.Load() != nil {
+		return
+	}
+	oidcInitMu.Lock()
+	defer oidcInitMu.Unlock()
+	// The request that held the lock may have just retried
+	if oidcCurrent.Load() != nil || time.Since(oidcLastAttempt) < oidcRetryInterval {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), oidcRetryTimeout)
+	defer cancel()
+	_ = initOIDC(ctx)
+}
+
+// loadOIDC returns the initialized OIDC client, or nil when OIDC login is unavailable
+func loadOIDC() *oidcClient {
+	if !config.AuthEnabled() || !config.Current.Auth.OIDC.Enabled {
+		return nil
+	}
+	return oidcCurrent.Load()
+}
+
 // OIDCAvailable reports whether OIDC login is configured, enabled, and successfully initialized.
 func OIDCAvailable() bool {
-	return config.AuthEnabled() && config.Current.Auth.OIDC.Enabled && oidcProvider != nil && oidcOAuth2Cfg != nil && oidcIDVerifier != nil
+	return loadOIDC() != nil
 }
 
 // OIDCLoginRedirect godoc
@@ -100,7 +154,9 @@ func OIDCAvailable() bool {
 // @Success      302
 // @Router       /api/auth/oidc/login [get]
 func OIDCLoginRedirect(w http.ResponseWriter, r *http.Request) {
-	if !OIDCAvailable() {
+	ensureOIDC()
+	client := loadOIDC()
+	if client == nil {
 		http.Redirect(w, r, "/login?error=oidc_unavailable", http.StatusFound)
 		return
 	}
@@ -121,7 +177,7 @@ func OIDCLoginRedirect(w http.ResponseWriter, r *http.Request) {
 	setOIDCLoginCookie(w, r, oidcVerifierCookieName, verifier)
 
 	redirectURL := config.Current.Auth.OIDC.RedirectURLs[redirectIndex]
-	http.Redirect(w, r, oidcOAuth2Cfg.AuthCodeURL(state,
+	http.Redirect(w, r, client.oauth2Cfg.AuthCodeURL(state,
 		oauth2.SetAuthURLParam("redirect_uri", redirectURL),
 		oauth2.S256ChallengeOption(verifier),
 	), http.StatusFound)
@@ -181,7 +237,8 @@ func OIDCCallback(w http.ResponseWriter, r *http.Request) {
 
 	clearOIDCStateCookie(w, r)
 
-	if !OIDCAvailable() {
+	client := loadOIDC()
+	if client == nil {
 		http.Redirect(w, r, "/login?error=oidc_unavailable", http.StatusFound)
 		return
 	}
@@ -207,7 +264,7 @@ func OIDCCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	oauth2Token, err := oidcOAuth2Cfg.Exchange(ctx, code,
+	oauth2Token, err := client.oauth2Cfg.Exchange(ctx, code,
 		oauth2.SetAuthURLParam("redirect_uri", redirectURLFromCookie(r)),
 		oauth2.VerifierOption(verifierCookie.Value),
 	)
@@ -224,7 +281,7 @@ func OIDCCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	idToken, err := oidcIDVerifier.Verify(ctx, rawIDToken)
+	idToken, err := client.idVerifier.Verify(ctx, rawIDToken)
 	if err != nil {
 		logAction.SetError("OIDC ID token verification failed", err.Error(), nil)
 		http.Redirect(w, r, "/login?error=oidc_failed", http.StatusFound)
@@ -333,6 +390,7 @@ type authMethodsResponse struct {
 // @Router       /api/config/auth-methods [get]
 func GetAuthMethods(w http.ResponseWriter, r *http.Request) {
 	_, ld := logging.CreateLoggingContext(r.Context(), r.URL.Path)
+	ensureOIDC()
 	httpx.SendResponse(w, ld, authMethodsResponse{
 		PasswordEnabled: config.AuthEnabled() && config.Current.Auth.PasswordEnabled,
 		OIDCEnabled:     OIDCAvailable(),
