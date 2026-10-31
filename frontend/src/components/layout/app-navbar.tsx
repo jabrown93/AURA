@@ -214,7 +214,8 @@ export function Navbar({ version = "dev" }: AppNavbarProps) {
   const handleLogout = async () => {
     await Logout(); // clears the HttpOnly session cookie server-side
     await DeepResetAllStores();
-    window.location.href = "/login";
+    // Tells the login page not to bounce straight back to the identity provider
+    window.location.href = "/login?logged_out=1";
   };
 
   return (

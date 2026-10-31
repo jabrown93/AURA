@@ -33,6 +33,7 @@ function LoginForm() {
   const [passwordEnabled, setPasswordEnabled] = useState(true);
   const [oidcEnabled, setOidcEnabled] = useState(false);
   const [oidcLoginURL, setOidcLoginURL] = useState("/api/auth/oidc/login");
+  const [redirectingToSSO, setRedirectingToSSO] = useState(false);
 
   // Get Onboarding Status
   const status = useOnboardingStore((state) => state.status);
@@ -46,16 +47,25 @@ function LoginForm() {
   }, [hasHydrated, router, status]);
 
   // Which login methods are available (password / OIDC SSO) - public endpoint, safe pre-login.
+  // With SSO as the only method, go straight to the identity provider - unless the user was just
+  // sent back with an error (a failing IdP would loop) or just logged out (a live IdP session
+  // would log them straight back in).
+  const stayOnLoginPage = searchParams.has("error") || searchParams.has("logged_out");
   useEffect(() => {
     // Send the address aura is open at, so the identity provider returns to the same one
-    setOidcLoginURL(`/api/auth/oidc/login?origin=${encodeURIComponent(window.location.origin)}`);
+    const loginURL = `/api/auth/oidc/login?origin=${encodeURIComponent(window.location.origin)}`;
+    setOidcLoginURL(loginURL);
     void GetAuthMethods().then((resp) => {
       if (resp.status !== "error" && resp.data) {
         setPasswordEnabled(resp.data.password_enabled);
         setOidcEnabled(resp.data.oidc_enabled);
+        if (resp.data.oidc_enabled && !resp.data.password_enabled && !stayOnLoginPage) {
+          setRedirectingToSSO(true);
+          window.location.replace(loginURL);
+        }
       }
     });
-  }, []);
+  }, [stayOnLoginPage]);
 
   // Surface any error redirected back from the OIDC callback.
   useEffect(() => {
@@ -98,6 +108,13 @@ function LoginForm() {
           <CardDescription>Sign in to access aura.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          {redirectingToSSO && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Redirecting to single sign-on...
+            </div>
+          )}
+
           {errorMsg && (
             <Alert variant="destructive">
               <AlertTitle>Error</AlertTitle>
