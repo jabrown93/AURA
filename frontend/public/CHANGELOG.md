@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.2.2](https://github.com/jabrown93/AURA/compare/v2.2.1...v2.2.2) (2026-11-02)
+
+
+### Bug Fixes
+
+* **sync:** harden sync-upstream.sh (marker source, aborted/unstarted merges, parent, staging) ([#218](https://github.com/jabrown93/AURA/issues/218)) ([910ff9e](https://github.com/jabrown93/AURA/commit/910ff9e9bd94c8b908ee726e05b22702d9901de6))
+
 ## [2.2.1](https://github.com/jabrown93/AURA/compare/v2.2.0...v2.2.1) (2026-10-31)
 
 
