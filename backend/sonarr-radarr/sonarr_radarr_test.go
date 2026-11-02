@@ -163,3 +163,140 @@ func TestHandleTags(t *testing.T) {
 		t.Error("an episode should fail")
 	}
 }
+
+// fakeRadarr is a Radarr v7 server with one movie, TMDB ID 10, and the tags "keep" and "remove-me".
+// Response shapes follow the official v7 API (TagResource, MovieResource):
+// https://raw.githubusercontent.com/Radarr/Radarr/v7.0.0.10815/src/Radarr.Api.V3/openapi.json
+type fakeRadarr struct {
+	mu      sync.Mutex
+	tags    []SonarrRadarrTag
+	putTags []int64
+	apiKeys []string
+}
+
+func newFakeRadarr(t *testing.T) (*fakeRadarr, *httptest.Server) {
+	t.Helper()
+	f := &fakeRadarr{tags: []SonarrRadarrTag{{Label: "keep", ID: 1}, {Label: "remove-me", ID: 2}}}
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v3/system/status", func(w http.ResponseWriter, r *http.Request) {
+		f.record(r)
+		_, _ = w.Write([]byte(`{"appName":"Radarr","version":"7.0.0.10815"}`))
+	})
+	mux.HandleFunc("GET /api/v3/tag", func(w http.ResponseWriter, r *http.Request) {
+		f.record(r)
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		_ = json.NewEncoder(w).Encode(f.tags)
+	})
+	mux.HandleFunc("POST /api/v3/tag", func(w http.ResponseWriter, r *http.Request) {
+		f.record(r)
+		var tag SonarrRadarrTag
+		_ = json.NewDecoder(r.Body).Decode(&tag)
+		f.mu.Lock()
+		tag.ID = len(f.tags) + 1
+		f.tags = append(f.tags, tag)
+		f.mu.Unlock()
+		_ = json.NewEncoder(w).Encode(tag)
+	})
+	mux.HandleFunc("GET /api/v3/movie/lookup", func(w http.ResponseWriter, r *http.Request) {
+		f.record(r)
+		if r.URL.Query().Get("term") != "tmdb:10" {
+			_, _ = w.Write([]byte(`[]`))
+			return
+		}
+		_, _ = w.Write([]byte(`[{"id":7,"tmdbId":10}]`))
+	})
+	mux.HandleFunc("GET /api/v3/movie/7", func(w http.ResponseWriter, r *http.Request) {
+		f.record(r)
+		_, _ = w.Write([]byte(`{"id":7,"title":"Movie","tmdbId":10,"tags":[1,2]}`))
+	})
+	mux.HandleFunc("PUT /api/v3/movie/7", func(w http.ResponseWriter, r *http.Request) {
+		f.record(r)
+		var item SR_RadarrItem
+		_ = json.NewDecoder(r.Body).Decode(&item)
+		f.mu.Lock()
+		f.putTags = item.Tags
+		f.mu.Unlock()
+		_ = json.NewEncoder(w).Encode(item)
+	})
+	server := httptest.NewServer(mux)
+	t.Cleanup(server.Close)
+	return f, server
+}
+
+func (f *fakeRadarr) record(r *http.Request) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.apiKeys = append(f.apiKeys, r.Header.Get("X-Api-Key"))
+}
+
+// TestRadarrV7Requests exercises AURA's client against the v7 system/status, tag,
+// movie/lookup, and movie/{id} endpoints (GET and PUT), proving the request paths,
+// query semantics, and X-Api-Key header still match the Radarr v7.0.0.10815 API v3
+// contract: https://raw.githubusercontent.com/Radarr/Radarr/v7.0.0.10815/src/Radarr.Api.V3/openapi.json
+func TestRadarrV7Requests(t *testing.T) {
+	fake, server := newFakeRadarr(t)
+	app := config.Config_SonarrRadarrApp{Type: "Radarr", Library: "Movies", URL: server.URL, ApiToken: "key"}
+
+	if valid, Err := TestConnection(testContext(), app); !valid || Err.Message != "" {
+		t.Errorf("TestConnection = %v, %s", valid, Err.Message)
+	}
+	tags, Err := GetAllTags(testContext(), app)
+	if Err.Message != "" || len(tags) != 2 {
+		t.Errorf("GetAllTags = %v, %s", tags, Err.Message)
+	}
+	added, Err := AddNewTags(testContext(), app, []string{"new"})
+	if Err.Message != "" || len(added) != 1 || added[0].Label != "new" || added[0].ID != 3 {
+		t.Errorf("AddNewTags = %v, %s", added, Err.Message)
+	}
+	item, Err := GetItemInfoFromTMDBID(testContext(), app, 10)
+	movie, ok := item.(SR_RadarrItem)
+	if Err.Message != "" || !ok || movie.ID != 7 {
+		t.Errorf("GetItemInfoFromTMDBID = %+v, %s", item, Err.Message)
+	}
+	if _, Err := GetItemInfoFromTMDBID(testContext(), app, 99); Err.Message == "" {
+		t.Error("a movie that isn't in Radarr should fail")
+	}
+
+	// Exercise the movie PUT path used to persist tag updates
+	movie.Tags = []int64{1, 3}
+	if Err := UpdateItemInfo(testContext(), app, movie); Err.Message != "" {
+		t.Fatalf("UpdateItemInfo: %s", Err.Message)
+	}
+	slices.Sort(fake.putTags)
+	if !slices.Equal(fake.putTags, []int64{1, 3}) {
+		t.Errorf("tags sent to Radarr = %v, want [1 3]", fake.putTags)
+	}
+
+	for _, key := range fake.apiKeys {
+		if key != "key" {
+			t.Fatalf("every request should send the API key, got %q", key)
+		}
+	}
+}
+
+// TestHandleTagsRadarrV7 proves the HandleTags tag-reconciliation workflow (lookup,
+// list tags, create missing tags, PUT updated tags) works end to end against the
+// Radarr v7 movie endpoints.
+func TestHandleTagsRadarrV7(t *testing.T) {
+	fake, server := newFakeRadarr(t)
+	previous := config.Current
+	t.Cleanup(func() { config.Current = previous })
+	config.Current.SonarrRadarr.Applications = []config.Config_SonarrRadarrApp{
+		{Type: "Radarr", Library: "Movies", URL: server.URL, ApiToken: "key"},
+	}
+	config.Current.LabelsAndTags.Applications = []config.Config_LabelsAndTagsProvider{
+		{Application: "Radarr", Enabled: true, Add: []string{"aura"}, Remove: []string{"remove-me"}, AddLabelTagForSelectedTypes: true},
+	}
+
+	item := models.MediaItem{Type: "movie", TMDB_ID: "10", LibraryTitle: "Movies", Title: "Movie"}
+	if Err := HandleTags(testContext(), item, models.SelectedTypes{Poster: true}); Err.Message != "" {
+		t.Fatalf("HandleTags: %s", Err.Message)
+	}
+
+	// "keep" stays, "remove-me" is removed, and the new "aura" and "aura-poster" tags are created and added
+	slices.Sort(fake.putTags)
+	if !slices.Equal(fake.putTags, []int64{1, 3, 4}) {
+		t.Errorf("tags sent to Radarr = %v, want [1 3 4]", fake.putTags)
+	}
+}
