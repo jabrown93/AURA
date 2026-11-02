@@ -18,6 +18,12 @@ Connecting Sonarr and Radarr is optional. aura uses them to add or remove **tags
 
 Add an instance with **Add**, choose **Sonarr** or **Radarr**, fill in its details, and click **Test & Save**.
 
+<Aside>
+  aura supports [Radarr v7](https://github.com/Radarr/Radarr/releases/tag/v7.0.0.10815) through its API v3 integration.
+  See the official [Radarr API v3 reference](https://radarr.video/docs/api/) and
+  [source](https://github.com/Radarr/Radarr/blob/v7.0.0.10815/src/Radarr.Api.V3/openapi.json) for details.
+</Aside>
+
 ## Library
 
 The main media server library this instance manages. aura uses it to know which Sonarr or Radarr instance to tag an item in. If you have separate instances for HD and 4K, add each one with its own library.
