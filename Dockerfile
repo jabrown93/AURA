@@ -1,7 +1,7 @@
 ############################################################################
 ##### Stage 1: Build the backend application
 ############################################################################
-FROM dhi.io/golang:1.27.3-alpine-dev@sha256:2ceb813d69b9c82501323484e0c0ae612efde281f5dffce2a3d83a79a9c87304 AS backend-builder
+FROM dhi.io/golang:1.27.3-alpine-dev@sha256:d8099d992fae99616f09a95645a628de87e6d7883a2042a1f3200c536db8d091 AS backend-builder
 
 # cgo build deps (gcc, musl-dev) plus ca-certificates + tzdata, which are copied
 # into the shellless runtime image (which has no package manager of its own).
@@ -32,7 +32,7 @@ RUN go build -ldflags="-s -w -X main.APP_VERSION=$APP_VERSION -X main.APP_COMMIT
 ############################################################################
 ##### Stage 2: Build the frontend application
 ############################################################################
-FROM dhi.io/node:26.13.0-alpine-dev@sha256:4f971dcdc1fdf59f9d3e84dbd529690c2d15f75ae898fb310acad9c12d7bbdf9 AS frontend-builder
+FROM dhi.io/node:26.13.0-alpine-dev@sha256:55a43de6cf72eae6fa3059eb8d0007e2d8ed2b18679f25d70de751fdff8736d5 AS frontend-builder
 
 # Set the working directory
 WORKDIR /frontend
@@ -74,7 +74,7 @@ RUN find /frontend/public -type d -exec chmod 755 {} + \
 ############################################################################
 ##### Stage 3: Build the final image
 ############################################################################
-FROM dhi.io/node:26.13.0-alpine@sha256:016ab5fb31bc219dc1e73a0dcab4ace4e400ce1cbaf5d36fb93cca9e9fb8c26b AS final
+FROM dhi.io/node:26.13.0-alpine@sha256:d6b419c001edd198d77cb03157912183a767e45d9eadaf2ad2cfa7c6e50bb40e AS final
 
 # Set the working directory
 WORKDIR /app
