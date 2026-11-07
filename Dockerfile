@@ -32,7 +32,7 @@ RUN go build -ldflags="-s -w -X main.APP_VERSION=$APP_VERSION -X main.APP_COMMIT
 ############################################################################
 ##### Stage 2: Build the frontend application
 ############################################################################
-FROM dhi.io/node:26.13.0-alpine-dev@sha256:e6cd8d32b43a3a6c1682f34b446e9792c58cf6a3383496c49f0ea80b499fd70f AS frontend-builder
+FROM dhi.io/node:26.13.0-alpine-dev@sha256:d17376f42ae43fae1792e91f7e8490c9696a5c5309c99befd99648d03769db57 AS frontend-builder
 
 # Set the working directory
 WORKDIR /frontend
