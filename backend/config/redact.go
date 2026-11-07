@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"go.yaml.in/yaml/v3"
+	"go.yaml.in/yaml/v4"
 )
 
 // RedactedConfigMarker starts a redacted config file, so it can't be imported by mistake
