@@ -18,7 +18,7 @@ import (
 	"sync"
 	"time"
 
-	"go.yaml.in/yaml/v3"
+	"go.yaml.in/yaml/v4"
 )
 
 // Log files are added newest first until they reach this size, the newest is always added

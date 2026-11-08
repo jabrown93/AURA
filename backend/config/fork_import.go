@@ -3,7 +3,7 @@ package config
 import (
 	"context"
 
-	"go.yaml.in/yaml/v3"
+	"go.yaml.in/yaml/v4"
 )
 
 // Fork: a deployment that re-imports a Git-owned config.yaml on every start (AURA_IMPORT_CONFIG)
