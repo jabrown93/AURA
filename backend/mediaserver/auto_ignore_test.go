@@ -17,9 +17,10 @@ import (
 
 type autoIgnoreTestDB struct {
 	database.DB
-	mode     string
-	checkErr logging.LogErrorInfo
-	ignored  int
+	mode       string
+	checkErr   logging.LogErrorInfo
+	ignored    int
+	ignoredIDs []string
 }
 
 func (db *autoIgnoreTestDB) GetTempIgnoredItems(context.Context) ([]models.MediaItem, logging.LogErrorInfo) {
@@ -30,10 +31,71 @@ func (db *autoIgnoreTestDB) CheckIfMediaItemExists(context.Context, string, stri
 	return db.mode != "", db.mode, nil, db.checkErr
 }
 
-func (db *autoIgnoreTestDB) AutoIgnoreMediaItem(context.Context, string, string, string) logging.LogErrorInfo {
+func (db *autoIgnoreTestDB) AutoIgnoreMediaItem(_ context.Context, tmdbID, _, _ string) logging.LogErrorInfo {
 	db.ignored++
+	db.ignoredIDs = append(db.ignoredIDs, tmdbID)
 	db.mode = "until-set-available"
 	return logging.LogErrorInfo{}
+}
+
+func TestAutoIgnoreContinuesAfterLookupFailure(t *testing.T) {
+	for _, failure := range []string{"movie", "show", "collection", "cancelled"} {
+		t.Run(failure, func(t *testing.T) {
+			oldConfig, oldDB, oldURL, oldCache := config.Current, database.Client, mediux.MediuxApiURL, cache.LibraryStore
+			t.Cleanup(func() {
+				config.Current, database.Client, mediux.MediuxApiURL, cache.LibraryStore = oldConfig, oldDB, oldURL, oldCache
+			})
+			db := &autoIgnoreTestDB{}
+			database.Client = db
+			config.Current.UserPreferences.AutoIgnoreItemsWithoutSets = true
+			ctx, ld := logging.CreateLoggingContext(context.Background(), "test")
+			ctx = logging.WithCurrentAction(ctx, ld.AddAction("test", logging.LevelInfo))
+			ctx, cancel := context.WithCancel(ctx)
+			defer cancel()
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var query mediux.MediuxGraphQLQueryBody
+				if err := json.NewDecoder(r.Body).Decode(&query); err != nil {
+					t.Error(err)
+					return
+				}
+				if query.Variables["tmdb_id"] == "1" && (failure != "collection" || query.QueryName == "getMovieItemCollectionSetsByTMDBID") {
+					if failure == "cancelled" {
+						cancel()
+					}
+					fmt.Fprint(w, `{"errors":[{"message":"item unavailable"}]}`)
+					return
+				}
+				fmt.Fprint(w, `{"data":{}}`)
+			}))
+			defer server.Close()
+			mediux.MediuxApiURL = server.URL
+			itemType := "movie"
+			if failure == "show" {
+				itemType = "show"
+			}
+			cache.LibraryStore = cache.Cache_NewLibraryCache()
+			cache.LibraryStore.UpdateSection(&models.LibrarySection{
+				LibrarySectionBase: models.LibrarySectionBase{ID: "1", Title: "Library", Type: "movie"},
+				MediaItems: []models.MediaItem{
+					{TMDB_ID: "1", Type: itemType, LibraryTitle: "Library"},
+					{TMDB_ID: "2", Type: "show", LibraryTitle: "Library"},
+				},
+			})
+			err := HandleTempIgnoredItems(ctx)
+			if err.Message == "" {
+				t.Fatal("lookup error was not reported")
+			}
+			if failure == "cancelled" {
+				if db.ignored != 0 || err.Message != "Auto-ignore scan cancelled" {
+					t.Fatalf("cancelled scan ignored %v, error=%q", db.ignoredIDs, err.Message)
+				}
+				return
+			}
+			if len(db.ignoredIDs) != 1 || db.ignoredIDs[0] != "2" {
+				t.Fatalf("ignored %v, want only healthy item 2", db.ignoredIDs)
+			}
+		})
+	}
 }
 
 func TestAutoIgnoreItemsWithoutSets(t *testing.T) {

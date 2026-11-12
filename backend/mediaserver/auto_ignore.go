@@ -16,6 +16,7 @@ func autoIgnoreItemsWithoutSets(ctx context.Context) logging.LogErrorInfo {
 	if !config.Current.UserPreferences.AutoIgnoreItemsWithoutSets {
 		return logging.LogErrorInfo{}
 	}
+	var scanErr logging.LogErrorInfo
 	for _, item := range cache.LibraryStore.GetAllMediaItems() {
 		if err := ctx.Err(); err != nil {
 			return logging.LogErrorInfo{Message: "Auto-ignore scan cancelled", Detail: map[string]any{"error": err.Error()}}
@@ -42,7 +43,14 @@ func autoIgnoreItemsWithoutSets(ctx context.Context) logging.LogErrorInfo {
 			}
 		}
 		if lookupErr.Message != "" {
-			return lookupErr
+			logging.LOGGER.Warn().Timestamp().
+				Str("tmdb_id", item.TMDB_ID).
+				Str("library_title", item.LibraryTitle).
+				Str("edition", item.Edition).
+				Str("error", lookupErr.Message).
+				Msg("Skipping auto-ignore item after failed MediUX lookup")
+			scanErr = lookupErr
+			continue
 		}
 		if len(sets) == 0 {
 			if dbErr = database.AutoIgnoreMediaItem(ctx, item.TMDB_ID, item.LibraryTitle, item.Edition); dbErr.Message != "" {
@@ -50,5 +58,5 @@ func autoIgnoreItemsWithoutSets(ctx context.Context) logging.LogErrorInfo {
 			}
 		}
 	}
-	return logging.LogErrorInfo{}
+	return scanErr
 }
