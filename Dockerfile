@@ -1,7 +1,7 @@
 ############################################################################
 ##### Stage 1: Build the backend application
 ############################################################################
-FROM dhi.io/golang:1.27.4-alpine-dev@sha256:54b3a7cc4877c83aaf9b9272bd588f334cf3740fc394d35fbcf55308bd7af083 AS backend-builder
+FROM dhi.io/golang:1.27.4-alpine-dev@sha256:3a59964d354e653b3ed899403fe8d374472fe12815c13d78bb37366cf89aa206 AS backend-builder
 
 # cgo build deps (gcc, musl-dev) plus ca-certificates + tzdata, which are copied
 # into the shellless runtime image (which has no package manager of its own).
@@ -74,7 +74,7 @@ RUN find /frontend/public -type d -exec chmod 755 {} + \
 ############################################################################
 ##### Stage 3: Build the final image
 ############################################################################
-FROM dhi.io/node:26.13.0-alpine@sha256:732b7f53f1a10df0c4e8ded0af55fadb6c0c778c987d2c855755b72a1cc85a86 AS final
+FROM dhi.io/node:26.13.0-alpine@sha256:7f45884a95becfbdb38a8c4bd938569d2e4cbbd6c0094c99a6238128081deb10 AS final
 
 # Set the working directory
 WORKDIR /app
