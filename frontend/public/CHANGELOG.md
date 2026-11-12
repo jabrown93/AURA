@@ -1,5 +1,12 @@
 # Changelog
 
+# [2.3.0](https://github.com/jabrown93/AURA/compare/v2.2.3...v2.3.0) (2026-11-12)
+
+
+### Features
+
+* automatically ignore movies and series without sets ([#225](https://github.com/jabrown93/AURA/issues/225)) ([7ad2500](https://github.com/jabrown93/AURA/commit/7ad25009515b2ef865e37483d35f82e63e1d9bdf))
+
 ## [2.2.3](https://github.com/jabrown93/AURA/compare/v2.2.2...v2.2.3) (2026-11-09)
 
 ## [2.2.2](https://github.com/jabrown93/AURA/compare/v2.2.1...v2.2.2) (2026-11-02)
