@@ -223,7 +223,7 @@ SELECT
 		  'force_preload_missing', CASE WHEN si.force_preload_missing = 1 THEN json('true') ELSE json('false') END,
 		  'no_auto_upgrade', CASE WHEN si.no_auto_upgrade = 1 THEN json('true') ELSE json('false') END,
 
-          'images', COALESCE(
+          'images', json(COALESCE(
             (
               SELECT json_group_array(
                 json_object(
@@ -239,7 +239,7 @@ SELECT
                 AND im.item_tmdb_id = mi.tmdb_id
             ),
             json('[]')
-          )
+          ))
         )
       )
       FROM SavedItems si
