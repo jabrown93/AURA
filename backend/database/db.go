@@ -467,7 +467,11 @@ func AutoIgnoreMediaItem(ctx context.Context, tmdbID, libraryTitle, edition stri
 	if Client == nil {
 		return logging.Error_DBClientNotInitialized()
 	}
-	return Client.AutoIgnoreMediaItem(ctx, tmdbID, libraryTitle, edition)
+	if Err := Client.AutoIgnoreMediaItem(ctx, tmdbID, libraryTitle, edition); Err.Message != "" {
+		return Err
+	}
+	syncLibraryCache(ctx, tmdbID, edition, libraryTitle)
+	return logging.LogErrorInfo{}
 }
 
 func StopIgnoringMediaItem(ctx context.Context, TMDB_ID, libraryTitle, edition string) (Err logging.LogErrorInfo) {
