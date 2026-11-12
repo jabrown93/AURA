@@ -379,6 +379,14 @@ export const SETTINGS_SEARCH_ENTRIES: SettingsSearchEntry[] = [
   {
     sectionId: "user-preferences",
     sectionLabel: "User Preferences",
+    label: "Automatically ignore items with no sets",
+    description: "Ignore movies and series until a MediUX set becomes available",
+    keywords: ["ignore", "no sets", "automatic", "movies", "series"],
+    configPath: "auto_ignore_items_without_sets",
+  },
+  {
+    sectionId: "user-preferences",
+    sectionLabel: "User Preferences",
     label: "Your Favorite Creators",
     description: "List of your favorite MediUX creators",
     keywords: ["favorite", "creators", "mediux"],

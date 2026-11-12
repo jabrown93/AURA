@@ -99,6 +99,7 @@ type DB interface {
 
 	// Ignore Media Item
 	IgnoreMediaItem(ctx context.Context, tmdbID, libraryTitle, edition, mode, currentSets string) (Err logging.LogErrorInfo)
+	AutoIgnoreMediaItem(ctx context.Context, tmdbID, libraryTitle, edition string) logging.LogErrorInfo
 
 	// Stop Ignoring Media Item
 	StopIgnoringMediaItem(ctx context.Context, TMDB_ID, libraryTitle, edition string) (Err logging.LogErrorInfo)
@@ -458,6 +459,18 @@ func IgnoreMediaItem(ctx context.Context, tmdbID, libraryTitle, edition, mode, c
 	applyToSharedLibraries(ctx, tmdbID, libraryTitle, edition, func(otherLibraryTitle string) logging.LogErrorInfo {
 		return Client.IgnoreMediaItem(ctx, tmdbID, otherLibraryTitle, edition, mode, currentSets)
 	})
+	return logging.LogErrorInfo{}
+}
+
+// AutoIgnoreMediaItem preserves existing ignores, including concurrent manual changes.
+func AutoIgnoreMediaItem(ctx context.Context, tmdbID, libraryTitle, edition string) logging.LogErrorInfo {
+	if Client == nil {
+		return logging.Error_DBClientNotInitialized()
+	}
+	if Err := Client.AutoIgnoreMediaItem(ctx, tmdbID, libraryTitle, edition); Err.Message != "" {
+		return Err
+	}
+	syncLibraryCache(ctx, tmdbID, edition, libraryTitle)
 	return logging.LogErrorInfo{}
 }
 

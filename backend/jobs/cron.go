@@ -67,7 +67,7 @@ var jobDefinitions = []jobDefinition{
 	{
 		Key:         JobKeyHandleTempIgnoredItems,
 		Name:        "Handle Temp Ignored Items Job",
-		Description: "Rechecks temporarily ignored media items to see if a matching set has since become available on MediUX.",
+		Description: "Rechecks temporarily ignored items for available MediUX sets and, when enabled in User Preferences, ignores movies and series with no sets.",
 		Setting:     func() config.Config_JobSetting { return config.Current.Jobs.HandleTempIgnoredItems },
 		Default:     config.JobDefaults.HandleTempIgnoredItems,
 		Start:       StartHandleTempIgnoredItemsJob,

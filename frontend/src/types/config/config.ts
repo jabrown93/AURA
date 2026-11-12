@@ -222,6 +222,7 @@ export interface AppConfigUserPreferences {
   default_add_to_db_only: boolean; // Whether "Add to Database Only" is checked by default in the Download Modal
   auto_download_new_items: boolean; // Whether new items get images from the favorite creators automatically
   auto_upgrade_sets: boolean; // Whether to automatically upgrade sets to a better version when available
+  auto_ignore_items_without_sets: boolean;
   favorite_creators: string[]; // MediUX usernames ranked best first
   page_views?: Record<string, PageView>; // Each page's sort and filter options, so they're the same on every device
 }

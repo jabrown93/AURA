@@ -339,6 +339,7 @@ type Config_UserPreferences struct {
 	DefaultAutoAddNewCollectionItems bool                      `json:"default_auto_add_new_collection_items" yaml:"DefaultAutoAddNewCollectionItems"` // Whether "Auto Add New Collection Items" is checked by default in the Download Modal.
 	AutoDownloadNewItems             bool                      `json:"auto_download_new_items" yaml:"AutoDownloadNewItems"`                           // Whether images are downloaded automatically for new items, from the favorite creators.
 	AutoUpgradeSets                  bool                      `json:"auto_upgrade_sets" yaml:"AutoUpgradeSets"`                                      // Whether to automatically upgrade sets when available.
+	AutoIgnoreItemsWithoutSets       bool                      `json:"auto_ignore_items_without_sets" yaml:"AutoIgnoreItemsWithoutSets"`              // Ignore items until artwork becomes available.
 	FavoriteCreators                 []string                  `json:"favorite_creators" yaml:"FavoriteCreators"`                                     // MediUX usernames ranked best first, the first is rank 1.
 	PageViews                        map[string]map[string]any `json:"page_views" yaml:"PageViews,omitempty"`                                         // Each page's sort and filter options, by page, so they're the same on every device.
 }

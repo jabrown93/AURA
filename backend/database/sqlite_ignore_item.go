@@ -64,6 +64,26 @@ func (s *SQliteDB) GetTempIgnoredItems(ctx context.Context) (items []models.Medi
 	return items, Err
 }
 
+// AutoIgnoreMediaItem never replaces a user's existing ignore choice.
+func (s *SQliteDB) AutoIgnoreMediaItem(ctx context.Context, tmdbID, libraryTitle, edition string) logging.LogErrorInfo {
+	if s == nil || s.conn == nil {
+		return logging.LogErrorInfo{Message: "Database connection is nil"}
+	}
+	tmdbID, libraryTitle, edition = strings.TrimSpace(tmdbID), strings.TrimSpace(libraryTitle), strings.TrimSpace(edition)
+	if tmdbID == "" || libraryTitle == "" {
+		return logging.LogErrorInfo{Message: "tmdb_id and library_title are required"}
+	}
+	_, err := s.conn.ExecContext(ctx, `
+		INSERT INTO IgnoredItems (tmdb_id, library_title, edition, mode, current_sets)
+		VALUES (?, ?, ?, 'until-set-available', '')
+		ON CONFLICT(tmdb_id, library_title, edition) DO NOTHING;
+	`, tmdbID, libraryTitle, edition)
+	if err != nil {
+		return logging.LogErrorInfo{Message: "Failed to auto-ignore media item", Detail: map[string]any{"error": err.Error()}}
+	}
+	return logging.LogErrorInfo{}
+}
+
 func (s *SQliteDB) IgnoreMediaItem(ctx context.Context, tmdbID, libraryTitle, edition, mode, currentSets string) (Err logging.LogErrorInfo) {
 	Err = logging.LogErrorInfo{}
 

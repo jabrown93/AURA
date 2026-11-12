@@ -84,6 +84,7 @@ export const defaultAppConfig = (): AppConfig =>
       default_add_to_db_only: false,
       auto_download_new_items: false,
       auto_upgrade_sets: false,
+      auto_ignore_items_without_sets: false,
       favorite_creators: [],
       page_views: {},
     },
