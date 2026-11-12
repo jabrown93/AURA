@@ -133,6 +133,7 @@ SonarrRadarr.Applications[].Type: string
 SonarrRadarr.Applications[].URL: string
 TMDB.ApiToken: string
 UserPreferences.AutoDownloadNewItems: bool
+UserPreferences.AutoIgnoreItemsWithoutSets: bool
 UserPreferences.AutoUpgradeSets: bool
 UserPreferences.DefaultAddToDBOnly: bool
 UserPreferences.DefaultAddToQueue: bool

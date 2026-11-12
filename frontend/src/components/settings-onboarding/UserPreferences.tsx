@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import { FavoriteCreatorsCard } from "@/components/settings-onboarding/FavoriteCreators";
 import { PopoverHelp } from "@/components/shared/popover-help";
 import { useViewDensity } from "@/components/shared/view-density-context";
@@ -27,6 +29,9 @@ export function UserPreferencesCard() {
   const setDefaultAutoAddNewCollectionItems = useUserPreferencesStore(
     (state) => state.setDefaultAutoAddNewCollectionItems
   );
+
+  const autoIgnoreItemsWithoutSets = useUserPreferencesStore((state) => state.autoIgnoreItemsWithoutSets);
+  const setAutoIgnoreItemsWithoutSets = useUserPreferencesStore((state) => state.setAutoIgnoreItemsWithoutSets);
 
   // View Density
   const { densityStep, setDensityStep } = useViewDensity();
@@ -206,6 +211,29 @@ export function UserPreferencesCard() {
             </PopoverHelp>
           </div>
         </div>
+      </Card>
+
+      <Card className="gap-4 border-muted p-4 sm:p-5">
+        <h2 className="text-xl font-semibold text-blue-500">Automatic Ignore</h2>
+        <div className="flex items-center justify-between gap-4">
+          <Label htmlFor="auto-ignore-items-without-sets">Automatically ignore items with no sets</Label>
+          <Switch
+            id="auto-ignore-items-without-sets"
+            checked={autoIgnoreItemsWithoutSets}
+            onCheckedChange={setAutoIgnoreItemsWithoutSets}
+          />
+        </div>
+        <p className="text-sm text-muted-foreground">
+          Applies “Ignore Until Set Available” to existing and new movies and series with no MediUX sets. Existing
+          ignores are kept. Turning this off does not clear existing ignores.
+        </p>
+        <p className="text-sm text-muted-foreground">
+          Requires the temporary ignored items job to be enabled. Change its check schedule on the{" "}
+          <Link href="/jobs" className="text-primary underline">
+            Jobs page
+          </Link>
+          .
+        </p>
       </Card>
 
       {/* Favorite Creators */}

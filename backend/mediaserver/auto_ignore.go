@@ -1,0 +1,54 @@
+package mediaserver
+
+import (
+	"aura/cache"
+	"aura/config"
+	"aura/database"
+	"aura/logging"
+	"aura/mediux"
+	"aura/models"
+	"context"
+	"strings"
+)
+
+// autoIgnoreItemsWithoutSets shares the temporary-ignore job's schedule and recovery path.
+func autoIgnoreItemsWithoutSets(ctx context.Context) logging.LogErrorInfo {
+	if !config.Current.UserPreferences.AutoIgnoreItemsWithoutSets {
+		return logging.LogErrorInfo{}
+	}
+	for _, item := range cache.LibraryStore.GetAllMediaItems() {
+		if err := ctx.Err(); err != nil {
+			return logging.LogErrorInfo{Message: "Auto-ignore scan cancelled", Detail: map[string]any{"error": err.Error()}}
+		}
+		if strings.TrimSpace(item.TMDB_ID) == "" || (item.Type != "movie" && item.Type != "show") {
+			continue
+		}
+		ignored, _, _, dbErr := database.CheckIfMediaItemExists(ctx, item.TMDB_ID, item.LibraryTitle, item.Edition)
+		if dbErr.Message != "" {
+			return dbErr
+		}
+		if ignored {
+			continue
+		}
+		var sets []models.SetRef
+		var lookupErr logging.LogErrorInfo
+		if item.Type == "show" {
+			sets, _, lookupErr = mediux.GetShowItemSets(ctx, item.TMDB_ID, item.LibraryTitle, item.Edition)
+		} else {
+			included := map[string]models.IncludedItem{}
+			sets, lookupErr = mediux.GetMovieItemSets(ctx, item.TMDB_ID, item.LibraryTitle, item.Edition, &included)
+			if lookupErr.Message == "" && len(sets) == 0 {
+				sets, lookupErr = mediux.GetMovieItemCollectionSets(ctx, item.TMDB_ID, item.LibraryTitle, item.Edition, &included)
+			}
+		}
+		if lookupErr.Message != "" {
+			return lookupErr
+		}
+		if len(sets) == 0 {
+			if dbErr = database.AutoIgnoreMediaItem(ctx, item.TMDB_ID, item.LibraryTitle, item.Edition); dbErr.Message != "" {
+				return dbErr
+			}
+		}
+	}
+	return logging.LogErrorInfo{}
+}

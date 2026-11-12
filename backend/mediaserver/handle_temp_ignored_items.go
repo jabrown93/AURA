@@ -72,7 +72,7 @@ func HandleTempIgnoredItems(ctx context.Context) (Err logging.LogErrorInfo) {
 		}
 	}
 
-	return Err
+	return autoIgnoreItemsWithoutSets(ctx)
 }
 
 func sendNotification(mediaItem models.MediaItem, setCount int, mainImage models.ImageFile) {

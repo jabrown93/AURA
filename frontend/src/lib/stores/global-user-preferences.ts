@@ -21,6 +21,7 @@ interface UserPreferences {
   defaultAddToDBOnly: boolean;
   autoDownloadNewItems: boolean;
   autoUpgradeSets: boolean;
+  autoIgnoreItemsWithoutSets: boolean;
   favoriteCreators: string[]; // MediUX usernames ranked best first
   pageViews: Record<string, PageView>; // Each page's sort and filter options, by page
 }
@@ -44,6 +45,7 @@ interface UserPreferencesStore extends UserPreferences {
   setDefaultAddToDBOnly: (defaultAddToDBOnly: boolean) => void;
   setAutoDownloadNewItems: (autoDownloadNewItems: boolean) => void;
   setAutoUpgradeSets: (autoUpgradeSets: boolean) => void;
+  setAutoIgnoreItemsWithoutSets: (enabled: boolean) => void;
   setFavoriteCreators: (favoriteCreators: string[]) => void;
   setPageView: (page: PageViewPage, view: PageView) => void;
   // Apply the preferences from the aura config, without saving them again
@@ -62,6 +64,7 @@ const defaultPreferences = (): UserPreferences => ({
   defaultAddToDBOnly: false,
   autoDownloadNewItems: false,
   autoUpgradeSets: false,
+  autoIgnoreItemsWithoutSets: false,
   favoriteCreators: [],
   pageViews: {},
 });
@@ -75,6 +78,7 @@ const toServerPreferences = (preferences: UserPreferences): AppConfigUserPrefere
   default_add_to_db_only: preferences.defaultAddToDBOnly,
   auto_download_new_items: preferences.autoDownloadNewItems,
   auto_upgrade_sets: preferences.autoUpgradeSets,
+  auto_ignore_items_without_sets: preferences.autoIgnoreItemsWithoutSets,
   favorite_creators: preferences.favoriteCreators,
   page_views: preferences.pageViews,
 });
@@ -88,6 +92,7 @@ const fromServerPreferences = (preferences: AppConfigUserPreferences): UserPrefe
   defaultAddToDBOnly: preferences.default_add_to_db_only ?? false,
   autoDownloadNewItems: preferences.auto_download_new_items ?? false,
   autoUpgradeSets: preferences.auto_upgrade_sets ?? false,
+  autoIgnoreItemsWithoutSets: preferences.auto_ignore_items_without_sets ?? false,
   favoriteCreators: preferences.favorite_creators ?? [],
   pageViews: preferences.page_views ?? {},
 });
@@ -173,6 +178,10 @@ export const useUserPreferencesStore = create<UserPreferencesStore>()(
         set({ autoUpgradeSets });
         queueServerSave();
       },
+      setAutoIgnoreItemsWithoutSets: (autoIgnoreItemsWithoutSets: boolean) => {
+        set({ autoIgnoreItemsWithoutSets });
+        queueServerSave();
+      },
       setFavoriteCreators: (favoriteCreators: string[]) => {
         set({ favoriteCreators });
         queueServerSave();
@@ -202,6 +211,7 @@ export const useUserPreferencesStore = create<UserPreferencesStore>()(
         defaultAddToDBOnly: state.defaultAddToDBOnly,
         autoDownloadNewItems: state.autoDownloadNewItems,
         autoUpgradeSets: state.autoUpgradeSets,
+        autoIgnoreItemsWithoutSets: state.autoIgnoreItemsWithoutSets,
         favoriteCreators: state.favoriteCreators,
         pageViews: state.pageViews,
       }),
@@ -235,6 +245,7 @@ const syncFromServer = () => {
     defaultAddToDBOnly: store.defaultAddToDBOnly,
     autoDownloadNewItems: store.autoDownloadNewItems ?? false,
     autoUpgradeSets: store.autoUpgradeSets ?? false,
+    autoIgnoreItemsWithoutSets: store.autoIgnoreItemsWithoutSets ?? false,
     favoriteCreators: store.favoriteCreators ?? [],
     pageViews: store.pageViews ?? {},
   };

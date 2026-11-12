@@ -5731,6 +5731,10 @@ const docTemplate = `{
                     "description": "Whether images are downloaded automatically for new items, from the favorite creators.",
                     "type": "boolean"
                 },
+                "auto_ignore_items_without_sets": {
+                    "description": "Ignore items until artwork becomes available.",
+                    "type": "boolean"
+                },
                 "auto_upgrade_sets": {
                     "description": "Whether to automatically upgrade sets when available.",
                     "type": "boolean"

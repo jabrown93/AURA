@@ -78,6 +78,14 @@ The **play button** runs the upgrade now. You can also upgrade chosen sets from 
   Turn on at least one of the automatic options to choose your favorite creators.
 </Aside>
 
+## Automatically Ignore Items With No Sets
+
+Enable **Automatically ignore items with no sets** to apply **Ignore Until Set Available** to existing and newly discovered movies and series without MediUX sets. Movie collection sets count as available. Failed lookups never create ignores, and existing ignore choices are preserved.
+
+The **Handle Temp Ignored Items Job** performs the scan and clears temporary ignores when sets appear. Enable it and change its cron schedule on the [Jobs page](/AURA/how-to-use/jobs/); the default is every six hours (`0 */6 * * *`). You can also run it manually there. More frequent scans make more MediUX requests.
+
+This option defaults to off. Turning it off stops new automatic ignores but does not clear existing ignores. Disabling the job stops both scanning and checking for available sets.
+
 ## In the Config File
 
 ```yaml
@@ -97,6 +105,7 @@ UserPreferences:
   DefaultAutoAddNewCollectionItems: false
   AutoDownloadNewItems: false
   AutoUpgradeSets: false
+  AutoIgnoreItemsWithoutSets: false
   FavoriteCreators:
     - creator-one
     - creator-two

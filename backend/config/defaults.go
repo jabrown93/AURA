@@ -110,6 +110,7 @@ func DefaultUserPreferences() Config_UserPreferences {
 		DefaultAddToDBOnly:               false,
 		AutoDownloadNewItems:             false,
 		AutoUpgradeSets:                  false,
+		AutoIgnoreItemsWithoutSets:       false,
 		FavoriteCreators:                 []string{},
 		PageViews:                        map[string]map[string]any{},
 	}
