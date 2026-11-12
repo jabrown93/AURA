@@ -130,6 +130,34 @@ func RunMigrations() (migrationsPerformed int, Err logging.LogErrorInfo) {
 				return migrationsPerformed, migrateErr
 			}
 			migrationsPerformed++
+		case 14:
+			// Fork: statistics backfill reads saved sets through the fork's column projection.
+			if migrateErr = applyForkSchema(ctx); migrateErr.Message != "" {
+				return migrationsPerformed, migrateErr
+			}
+			migrateErr = migrate_14_to_15(ctx)
+			if migrateErr.Message != "" {
+				return migrationsPerformed, migrateErr
+			}
+			migrationsPerformed++
+		case 15:
+			migrateErr = migrate_15_to_16(ctx)
+			if migrateErr.Message != "" {
+				return migrationsPerformed, migrateErr
+			}
+			migrationsPerformed++
+		case 16:
+			migrateErr = migrate_16_to_17(ctx)
+			if migrateErr.Message != "" {
+				return migrationsPerformed, migrateErr
+			}
+			migrationsPerformed++
+		case 17:
+			migrateErr = migrate_17_to_18(ctx)
+			if migrateErr.Message != "" {
+				return migrationsPerformed, migrateErr
+			}
+			migrationsPerformed++
 		default:
 			logging.LOGGER.Error().Msgf("No migration path for database version %d", v)
 			return migrationsPerformed, logging.LogErrorInfo{Message: "No migration path for database version %d"}

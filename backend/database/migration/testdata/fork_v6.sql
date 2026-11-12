@@ -75,8 +75,8 @@ CREATE TABLE PosterSets (
     date_created DATETIME,
     date_updated DATETIME
 );
-INSERT INTO PosterSets VALUES(1,'s1','show','GoT set','alice','2026-01-01','2026-01-02');
-INSERT INTO PosterSets VALUES(2,'s2','show','BB set','bob','2026-01-01','2026-01-02');
+INSERT INTO PosterSets VALUES(1,'s1','show','GoT set','alice','2026-01-01 00:00:00+00:00','2026-01-02 00:00:00+00:00');
+INSERT INTO PosterSets VALUES(2,'s2','show','BB set','bob','2026-01-01 00:00:00+00:00','2026-01-02 00:00:00+00:00');
 CREATE TABLE ImageFiles (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     poster_set_id INTEGER NOT NULL,
@@ -124,8 +124,8 @@ CREATE TABLE SavedItems (
         ON DELETE CASCADE
         ON UPDATE CASCADE
 ) WITHOUT ROWID;
-INSERT INTO SavedItems VALUES('1396','TV Shows',2,1,0,0,0,0,0,0,0,'2026-02-01 00:00:00');
-INSERT INTO SavedItems VALUES('1399','TV Shows',1,1,0,1,0,1,1,0,1,'2026-02-01 00:00:00');
+INSERT INTO SavedItems VALUES('1396','TV Shows',2,1,0,0,0,0,0,0,0,'2026-02-01 00:00:00+00:00');
+INSERT INTO SavedItems VALUES('1399','TV Shows',1,1,0,1,0,1,1,0,1,'2026-02-01 00:00:00+00:00');
 CREATE TABLE IgnoredItems (
     tmdb_id TEXT NOT NULL,
     library_title TEXT NOT NULL,

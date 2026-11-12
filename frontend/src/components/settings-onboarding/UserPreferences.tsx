@@ -21,14 +21,14 @@ export function UserPreferencesCard() {
   const setShowOnlyDownloadDefaults = useUserPreferencesStore((state) => state.setShowOnlyDownloadDefaults);
   const showDateModified = useUserPreferencesStore((state) => state.showDateModified);
   const setShowDateModified = useUserPreferencesStore((state) => state.setShowDateModified);
-  const defaultAddToQueue = useUserPreferencesStore((state) => state.defaultAddToQueue);
-  const setDefaultAddToQueue = useUserPreferencesStore((state) => state.setDefaultAddToQueue);
   const defaultAddToDBOnly = useUserPreferencesStore((state) => state.defaultAddToDBOnly);
   const setDefaultAddToDBOnly = useUserPreferencesStore((state) => state.setDefaultAddToDBOnly);
   const defaultAutoAddNewCollectionItems = useUserPreferencesStore((state) => state.defaultAutoAddNewCollectionItems);
   const setDefaultAutoAddNewCollectionItems = useUserPreferencesStore(
     (state) => state.setDefaultAutoAddNewCollectionItems
   );
+  const defaultAutoUpgrade = useUserPreferencesStore((state) => state.defaultAutoUpgrade);
+  const setDefaultAutoUpgrade = useUserPreferencesStore((state) => state.setDefaultAutoUpgrade);
 
   const autoIgnoreItemsWithoutSets = useUserPreferencesStore((state) => state.autoIgnoreItemsWithoutSets);
   const setAutoIgnoreItemsWithoutSets = useUserPreferencesStore((state) => state.setAutoIgnoreItemsWithoutSets);
@@ -150,18 +150,6 @@ export function UserPreferencesCard() {
           </div>
         </div>
         <div className="flex items-center justify-between gap-4">
-          <Label>Add to Queue by Default</Label>
-          <div className="flex items-center gap-2">
-            <Switch checked={defaultAddToQueue} onCheckedChange={() => setDefaultAddToQueue(!defaultAddToQueue)} />
-            <PopoverHelp ariaLabel="help-default-add-to-queue">
-              <p className="mb-2">If checked, 'Add to Queue' will be selected when opening the download modal.</p>
-              <p className="text-muted-foreground">
-                You can still uncheck it in the download modal to download straight away.
-              </p>
-            </PopoverHelp>
-          </div>
-        </div>
-        <div className="flex items-center justify-between gap-4">
           <Label>Add to Database Only by Default</Label>
           <div className="flex items-center gap-2">
             <Switch checked={defaultAddToDBOnly} onCheckedChange={() => setDefaultAddToDBOnly(!defaultAddToDBOnly)} />
@@ -189,6 +177,22 @@ export function UserPreferencesCard() {
                 collection set. Movies added to the collection later then get their images from the set automatically.
               </p>
               <p className="text-muted-foreground">You can still uncheck it in the download modal.</p>
+            </PopoverHelp>
+          </div>
+        </div>
+        <div className="flex items-center justify-between gap-4">
+          <Label>Auto Upgrade by Default</Label>
+          <div className="flex items-center gap-2">
+            <Switch checked={defaultAutoUpgrade} onCheckedChange={() => setDefaultAutoUpgrade(!defaultAutoUpgrade)} />
+            <PopoverHelp ariaLabel="help-default-auto-upgrade">
+              <p className="mb-2">
+                If checked, 'Auto Upgrade' will be selected for each item when opening the download modal, so a higher
+                ranked favorite creator can replace the set's images later. Turn it off to keep the sets you download.
+              </p>
+              <p className="text-muted-foreground">
+                Upgrades only happen while Automatically Upgrade Sets is on. You can still change it in the download
+                modal.
+              </p>
             </PopoverHelp>
           </div>
         </div>

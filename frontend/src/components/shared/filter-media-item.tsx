@@ -57,14 +57,14 @@ function MediaItemFilterContent({
   const setShowOnlyDownloadDefaults = useUserPreferencesStore((state) => state.setShowOnlyDownloadDefaults);
   const showDateModified = useUserPreferencesStore((state) => state.showDateModified);
   const setShowDateModified = useUserPreferencesStore((state) => state.setShowDateModified);
-  const defaultAddToQueue = useUserPreferencesStore((state) => state.defaultAddToQueue);
-  const setDefaultAddToQueue = useUserPreferencesStore((state) => state.setDefaultAddToQueue);
   const defaultAddToDBOnly = useUserPreferencesStore((state) => state.defaultAddToDBOnly);
   const setDefaultAddToDBOnly = useUserPreferencesStore((state) => state.setDefaultAddToDBOnly);
   const defaultAutoAddNewCollectionItems = useUserPreferencesStore((state) => state.defaultAutoAddNewCollectionItems);
   const setDefaultAutoAddNewCollectionItems = useUserPreferencesStore(
     (state) => state.setDefaultAutoAddNewCollectionItems
   );
+  const defaultAutoUpgrade = useUserPreferencesStore((state) => state.defaultAutoUpgrade);
+  const setDefaultAutoUpgrade = useUserPreferencesStore((state) => state.setDefaultAutoUpgrade);
 
   return (
     <div className="flex-grow space-y-4 overflow-y-auto px-4 py-2">
@@ -149,28 +149,6 @@ function MediaItemFilterContent({
           <div className="flex items-center space-x-2">
             <Switch
               className="ml-0"
-              checked={defaultAddToQueue}
-              onCheckedChange={() => setDefaultAddToQueue(!defaultAddToQueue)}
-            />{" "}
-            <Label>Add to Queue by default</Label>
-          </div>
-
-          <PopoverHelp ariaLabel="help-default-add-to-queue">
-            <p className="mb-2">If checked, 'Add to Queue' will be selected when opening the download modal.</p>
-            <p className="text-muted-foreground">
-              This is global setting that will be applied to all downloads. You can always change this setting in this
-              filter, or in the Settings Page{" "}
-              <Link href="/settings#preferences-section" className="underline">
-                User Preferences
-              </Link>{" "}
-              Section.
-            </p>
-          </PopoverHelp>
-        </div>
-        <div className="flex items-center space-x-2 justify-between mt-4">
-          <div className="flex items-center space-x-2">
-            <Switch
-              className="ml-0"
               checked={defaultAddToDBOnly}
               onCheckedChange={() => setDefaultAddToDBOnly(!defaultAddToDBOnly)}
             />{" "}
@@ -205,6 +183,30 @@ function MediaItemFilterContent({
             <p className="mb-2">
               If checked, 'Auto Add New Collection Items' will be selected when opening the download modal for a
               collection set. Movies added to the collection later then get their images from the set automatically.
+            </p>
+            <p className="text-muted-foreground">
+              You can always change this setting in this filter, or in the Settings Page{" "}
+              <Link href="/settings#preferences-section" className="underline">
+                User Preferences
+              </Link>{" "}
+              Section.
+            </p>
+          </PopoverHelp>
+        </div>
+        <div className="flex items-center space-x-2 justify-between mt-4">
+          <div className="flex items-center space-x-2">
+            <Switch
+              className="ml-0"
+              checked={defaultAutoUpgrade}
+              onCheckedChange={() => setDefaultAutoUpgrade(!defaultAutoUpgrade)}
+            />{" "}
+            <Label>Auto Upgrade by default</Label>
+          </div>
+
+          <PopoverHelp ariaLabel="help-default-auto-upgrade">
+            <p className="mb-2">
+              If checked, 'Auto Upgrade' will be selected for each item when opening the download modal, so a higher
+              ranked favorite creator can replace the set's images later. Turn it off to keep the sets you download.
             </p>
             <p className="text-muted-foreground">
               You can always change this setting in this filter, or in the Settings Page{" "}

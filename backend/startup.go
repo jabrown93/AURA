@@ -11,6 +11,8 @@ import (
 	"aura/mediaserver"
 	"aura/mediux"
 	"aura/models"
+	"aura/sandbox"
+	"aura/statistics"
 	"aura/utils"
 	"aura/utils/httpx"
 	"context"
@@ -198,6 +200,17 @@ func runWarmup() (success bool) {
 	}
 
 	forkWarmup(ctx) // Fork
+	// The test sandbox, only in dev builds
+	if sandbox.Enabled() {
+		mediaserver.BeforeApplyImage = sandbox.BeforeApplyImage
+		logging.LOGGER.Info().Timestamp().Msg("The test sandbox is on, as this is a dev build")
+	}
+
+	// Sets saved for a Silo item in its other libraries use the item's file in each library
+	database.GetMediaItemDetails = func(ctx context.Context, item *models.MediaItem) bool {
+		found, Err := mediaserver.GetMediaItemDetails(ctx, item)
+		return found && Err.Message == ""
+	}
 
 	// Cache: Load the library saved by the last load
 	config.SetAppLoadingStep("Loading Media Server Data from the Database")
@@ -229,7 +242,9 @@ func runWarmup() (success bool) {
 			ctx, ld := logging.CreateLoggingContext(context.Background(), "Warmup")
 			ctx = logging.WithCurrentAction(ctx, ld.AddAction("Loading Media Server Data in the Background", logging.LevelInfo))
 			defer ld.Log()
-			_ = mediaserver.GetAllLibrarySectionsAndItems(ctx, false)
+			if mediaserver.GetAllLibrarySectionsAndItems(ctx, false) {
+				statistics.RecordLibrarySnapshot(ctx)
+			}
 			logMediaServerCache()
 		}()
 	}

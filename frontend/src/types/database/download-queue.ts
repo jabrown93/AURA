@@ -20,17 +20,33 @@ export interface DownloadQueueJob {
 }
 
 export type DownloadQueueEventType =
-  "snapshot" | "job_added" | "job_started" | "job_progress" | "job_finished" | "job_removed" | "queue_cleared";
+  | "snapshot"
+  | "job_added"
+  | "job_started"
+  | "job_progress"
+  | "job_finished"
+  | "job_removed"
+  | "queue_cleared"
+  | "queue_reordered";
+
+// An image of a job, and where it is
+export interface DownloadQueueProgressImage {
+  id: string;
+  image_type: string;
+  season_number?: number;
+  episode_number?: number;
+  status?: "waiting" | "downloading" | "done" | "failed";
+}
 
 export interface DownloadQueueProgress {
   job_id: number;
   media_item_title: string;
-  image_type: string;
-  season_number?: number;
-  episode_number?: number;
+  active: DownloadQueueProgressImage[]; // Images being downloaded
   done: number; // Images of the job already downloaded
   failed: number; // Images of the job that couldn't be downloaded
   total: number; // Images the job downloads
+  images?: DownloadQueueProgressImage[]; // Every image of the job, sent when it starts
+  changed?: DownloadQueueProgressImage; // The image an update is for
 }
 
 export interface DownloadQueueEvent {
@@ -70,4 +86,5 @@ export interface DownloadHistoryEntry {
   next_retry_at: string | null; // When it's retried automatically, null when it isn't
   created_at: string;
   rating_key?: string;
+  source?: string; // What added the download that failed, empty for failures from before it was saved
 }

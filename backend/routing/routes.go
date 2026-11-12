@@ -17,10 +17,13 @@ import (
 	routes_plex "aura/routing/mediaserver/plex"
 	routes_mediux "aura/routing/mediux"
 	"aura/routing/middleware"
+	routes_sandbox "aura/routing/sandbox"
 	routes_search "aura/routing/search"
 	routes_silo_plugin "aura/routing/siloplugin"
 	routes_sonarr_radarr "aura/routing/sonarr-radarr"
+	routes_statistics "aura/routing/statistics"
 	routes_validation "aura/routing/validation"
+	"aura/sandbox"
 	"aura/utils/httpx"
 	"net/http"
 
@@ -126,6 +129,7 @@ func AddRoutes(r *chi.Mux) {
 				r.Get("/item", routes_download.GetAllDownloadQueueItems)
 				r.Post("/item", routes_download.AddItemToDownloadQueue)
 				r.Delete("/item", routes_download.RemoveItemFromDownloadQueue)
+				r.Post("/item/top", routes_download.MoveDownloadQueueItemToTop)
 			})
 
 			// Download History Routes
@@ -158,6 +162,9 @@ func AddRoutes(r *chi.Mux) {
 			r.Get("/", routes_jobs.GetAllJobs)
 			r.Post("/", routes_jobs.RunJob)
 		})
+
+		// Statistics Route
+		r.Get("/statistics", routes_statistics.GetStatistics)
 
 		// Labels & Tags Route
 		r.Post("/labels-tags", routes_labels_tags.ApplyLabelsAndTagsToItem)
@@ -205,6 +212,18 @@ func AddRoutes(r *chi.Mux) {
 			r.Get("/images", routes_silo_plugin.GetImages)
 			r.Get("/download/{token}", routes_silo_plugin.Download)
 		})
+
+		// Test Sandbox Routes, only in dev builds
+		if sandbox.Enabled() {
+			r.Route("/dev/sandbox", func(r chi.Router) {
+				r.Get("/", routes_sandbox.GetState)
+				r.Put("/delay", routes_sandbox.SetDelay)
+				r.Post("/failures", routes_sandbox.AddFailure)
+				r.Delete("/failures", routes_sandbox.ClearFailures)
+				r.Post("/simulate", routes_sandbox.Simulate)
+				r.Post("/recheck", routes_sandbox.Recheck)
+			})
+		}
 
 		// Validation Routes
 		r.Route("/validate", func(r chi.Router) {

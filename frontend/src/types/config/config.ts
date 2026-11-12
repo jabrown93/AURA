@@ -71,6 +71,7 @@ export interface AppConfigMediaServerLibrary {
 export interface AppConfigMediux {
   api_token: string; // Authentication token for accessing MediUX services
   download_quality: string; // Preferred download quality (e.g., "original", "optimized")
+  simultaneous_downloads?: number; // How many images are downloaded at once, from 1 to 5
 }
 
 export interface AppConfigJobs {
@@ -217,8 +218,8 @@ export interface AppConfigUserPreferences {
   download_defaults: TYPE_DOWNLOAD_DEFAULT_TYPE_OPTIONS[]; // Image types selected by default in the Download Modal
   show_only_download_defaults: boolean; // Whether to only show the default image types in the Download Modal
   show_date_modified: boolean; // Whether to show the date modified on poster sets
-  default_add_to_queue: boolean; // Whether "Add to Queue" is checked by default in the Download Modal
   default_auto_add_new_collection_items?: boolean; // Whether "Auto Add New Collection Items" is checked by default in the Download Modal
+  default_auto_upgrade?: boolean; // Whether "Auto Upgrade" is checked by default in the Download Modal
   default_add_to_db_only: boolean; // Whether "Add to Database Only" is checked by default in the Download Modal
   auto_download_new_items: boolean; // Whether new items get images from the favorite creators automatically
   auto_upgrade_sets: boolean; // Whether to automatically upgrade sets to a better version when available

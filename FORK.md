@@ -70,6 +70,19 @@ the target upstream commit and compare.
 
 Dated so a later sync can revisit them.
 
+- **2026-11 sync (upstream v0.9.115 `273b6dab` → v0.9.120 `8114b204`)**
+  - Downloads, auto-download updates, Sonarr webhooks and Plex refreshes use upstream's queue;
+    retain upstream's batching, partial-image retries, source tracking and progress notifications.
+  - Kometa missing-target preload wraps the shared batch apply path: assets only for absent
+    seasons/episodes, normal server applies for present targets. Plex refreshes do not preload.
+    Keep fork retryable-set history and preserve old sets when a replacement fails.
+  - Upstream's lossless `SR_Item` replaces Sonarr/Radarr response structs; the fork's asset-folder
+    lookup reads its preserved `path` field. Keep Radarr v7 tag handling.
+  - Upstream owns schema v15–v18. Fork schema hooks still preserve `force_preload_missing`;
+    keep upstream's explicit JSON wrappers required by newer SQLite versions.
+  - Keep fork dependency versions/replacements; add upstream's Recharts and docs lint tooling.
+    Explicit frontend ambient types preserve TypeScript 6 checks.
+
 - **2026-10 sync (upstream v0.9.100 `a2b98890` → v0.9.115 `273b6dab`)**
   - Sync mechanism: `.upstream-sync` marker plus `scripts/sync-upstream.sh`, as in jabrown93/CrossWatch.
   - Auth: upstream's OIDC (PKCE, several redirect URLs), API keys, optional password and setup code

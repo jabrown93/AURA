@@ -1,5 +1,6 @@
 "use client";
 
+import { downloadSource, sourceLabel } from "@/helper/format-download-source";
 import { GetDownloadHistory } from "@/services/downloads/history-get";
 import { RemoveAllDownloadHistory } from "@/services/downloads/history-remove";
 import { GetAllDownloadQueueItems } from "@/services/downloads/queue-get";
@@ -50,6 +51,48 @@ const PerPageSelect: React.FC<{ value: number; onChange: (value: number) => void
   </div>
 );
 
+// SourceSelect picks which source's jobs the queue shows
+const SourceSelect: React.FC<{ value: string; sources: string[]; onChange: (value: string) => void }> = ({
+  value,
+  sources,
+  onChange,
+}) => (
+  <div className="flex items-center gap-2">
+    <Label className="text-sm text-muted-foreground whitespace-nowrap">Source</Label>
+    <Select value={value} onValueChange={onChange}>
+      <SelectTrigger className="h-8 w-40">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="all">All</SelectItem>
+        {sources.map((source) => (
+          <SelectItem key={source} value={source}>
+            {sourceLabel(source)}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  </div>
+);
+
+// withImageStatuses is the job's latest progress with every image, as an update only has the image that changed
+const withImageStatuses = (previous: DownloadQueueProgress | undefined, update: DownloadQueueProgress) => {
+  if (update.images) return update;
+  const changed = update.changed;
+  const images = (previous?.images ?? []).map((image) =>
+    changed && image.id === changed.id && image.image_type === changed.image_type ? changed : image
+  );
+  return { ...update, images };
+};
+
+// withoutJob is the progress without the job's
+const withoutJob = (progress: Record<number, DownloadQueueProgress>, jobId: number) => {
+  if (!(jobId in progress)) return progress;
+  const rest = { ...progress };
+  delete rest[jobId];
+  return rest;
+};
+
 // pageOf returns one page of the list, and the number of pages
 const pageOf = <T,>(list: T[], page: number, perPage: number) => ({
   items: list.slice((page - 1) * perPage, page * perPage),
@@ -59,7 +102,7 @@ const pageOf = <T,>(list: T[], page: number, perPage: number) => ({
 const DownloadQueuePage: React.FC = () => {
   // States - Queue
   const [jobs, setJobs] = useState<DownloadQueueJob[]>([]);
-  const [progress, setProgress] = useState<DownloadQueueProgress | null>(null);
+  const [progress, setProgress] = useState<Record<number, DownloadQueueProgress>>({}); // By job ID
   const [queueLoading, setQueueLoading] = useState(true);
   const [queueError, setQueueError] = useState<APIResponse<unknown> | null>(null);
 
@@ -71,6 +114,7 @@ const DownloadQueuePage: React.FC = () => {
 
   // States - Pages, each tab has its own
   const [queuePage, setQueuePage] = useState(1);
+  const [sourceFilter, setSourceFilter] = useState("all");
   const queuePerPage = useDownloadQueuePageStore((state) => state.queuePerPage);
   const setQueuePerPage = useDownloadQueuePageStore((state) => state.setQueuePerPage);
   const [historyPage, setHistoryPage] = useState(1);
@@ -126,7 +170,7 @@ const DownloadQueuePage: React.FC = () => {
     const unsubscribe = subscribeToDownloadQueue({
       onSnapshot: (snapshotJobs) => {
         setJobs(snapshotJobs ?? []);
-        setProgress(null);
+        setProgress({});
         setQueueLoading(false);
         setQueueError(null);
       },
@@ -138,7 +182,7 @@ const DownloadQueuePage: React.FC = () => {
         fetchHistory(true);
       },
       onJobStarted: (job) => {
-        setProgress(null);
+        setProgress((prev) => withoutJob(prev, job.id));
         // The started job is processing, and is added if it was missing
         const started: DownloadQueueJob = { ...job, status: "processing" };
         setJobs((prev) =>
@@ -146,21 +190,28 @@ const DownloadQueuePage: React.FC = () => {
         );
       },
       onJobProgress: (jobProgress) => {
-        setProgress(jobProgress);
+        setProgress((prev) => ({
+          ...prev,
+          [jobProgress.job_id]: withImageStatuses(prev[jobProgress.job_id], jobProgress),
+        }));
       },
       onJobFinished: (job) => {
         // Server always clears the job on finish, so drop it here too.
-        setProgress((prev) => (prev?.job_id === job.id ? null : prev));
+        setProgress((prev) => withoutJob(prev, job.id));
         setJobs((prev) => prev.filter((j) => j.id !== job.id));
         // A job finishing means a new history entry may exist.
         fetchHistory(true);
       },
       onJobRemoved: (job) => {
+        setProgress((prev) => withoutJob(prev, job.id));
         setJobs((prev) => prev.filter((j) => j.id !== job.id));
       },
       onQueueCleared: () => {
         setJobs([]);
-        setProgress(null);
+        setProgress({});
+      },
+      onQueueReordered: (reorderedJobs) => {
+        setJobs(reorderedJobs ?? []);
       },
     });
 
@@ -191,9 +242,19 @@ const DownloadQueuePage: React.FC = () => {
     .filter((j) => j.status === "pending" || j.status === "processing")
     .sort((a, b) => (a.status === b.status ? 0 : a.status === "processing" ? -1 : 1));
 
-  const processingJob = activeJobs.find((j) => j.status === "processing");
+  const processingJobs = activeJobs.filter((j) => j.status === "processing");
+  const firstWaitingJob = activeJobs.find((j) => j.status === "pending");
 
-  const queuePageItems = pageOf(activeJobs, queuePage, queuePerPage);
+  // The sources of the jobs in the queue, and the jobs from the chosen one
+  const sources = [...new Set(activeJobs.map((job) => downloadSource(job.item.source)))].sort((a, b) =>
+    sourceLabel(a).localeCompare(sourceLabel(b))
+  );
+  // A source without jobs left shows them all
+  const shownSource = sources.includes(sourceFilter) ? sourceFilter : "all";
+  const shownJobs =
+    shownSource === "all" ? activeJobs : activeJobs.filter((job) => downloadSource(job.item.source) === shownSource);
+
+  const queuePageItems = pageOf(shownJobs, queuePage, queuePerPage);
   const historyPageItems = pageOf(historyEntries, historyPage, historyPerPage);
 
   // A page that's gone, after jobs finish or entries are removed, shows the last page
@@ -223,7 +284,17 @@ const DownloadQueuePage: React.FC = () => {
             </div>
           ) : (
             <>
-              <div className="w-full flex items-center justify-end gap-2 mb-2">
+              <div className="w-full flex flex-wrap items-center justify-end gap-2 mb-2">
+                {activeJobs.length > 0 && (
+                  <SourceSelect
+                    value={shownSource}
+                    sources={sources}
+                    onChange={(value) => {
+                      setSourceFilter(value);
+                      setQueuePage(1);
+                    }}
+                  />
+                )}
                 {activeJobs.length > 0 && (
                   <PerPageSelect
                     value={queuePerPage}
@@ -238,7 +309,7 @@ const DownloadQueuePage: React.FC = () => {
                   className="text-destructive border-1 shadow-none hover:text-red-500 cursor-pointer"
                   confirmText="Clear Queue"
                   title="Clear Download Queue?"
-                  description="Are you sure you want to remove all items from the download queue? Items currently downloading will not be interrupted. This action cannot be undone."
+                  description="Are you sure you want to remove all items from the download queue? Items downloading now are stopped once the images already downloading finish. This action cannot be undone."
                   onConfirm={onClearQueue}
                   disabled={jobs.length === 0}
                 >
@@ -246,12 +317,17 @@ const DownloadQueuePage: React.FC = () => {
                 </ConfirmDestructiveDialogActionButton>
               </div>
 
-              {processingJob && (
-                <DownloadQueueProgressPanel
-                  progress={progress?.job_id === processingJob.id ? progress : null}
-                  processingTitle={processingJob.media_item_title}
-                  waiting={activeJobs.length - 1}
-                />
+              {processingJobs.length > 0 && (
+                <div className="grid w-full gap-3 mb-4 lg:grid-cols-2">
+                  {processingJobs.map((job, index) => (
+                    <DownloadQueueProgressPanel
+                      key={job.id}
+                      progress={progress[job.id] ?? null}
+                      processingTitle={job.media_item_title}
+                      waiting={index === 0 ? activeJobs.length - processingJobs.length : 0}
+                    />
+                  ))}
+                </div>
               )}
 
               {activeJobs.length === 0 ? (
@@ -262,7 +338,13 @@ const DownloadQueuePage: React.FC = () => {
                 <>
                   <ResponsiveGrid size="larger">
                     {queuePageItems.items.map((job) => (
-                      <DownloadEntryCard key={job.id} mode="queue" job={job} fetchQueueEntries={fetchQueueEntries} />
+                      <DownloadEntryCard
+                        key={job.id}
+                        mode="queue"
+                        job={job}
+                        fetchQueueEntries={fetchQueueEntries}
+                        canMoveToTop={job.status === "pending" && job.id !== firstWaitingJob?.id}
+                      />
                     ))}
                   </ResponsiveGrid>
                   <CustomPagination
@@ -270,7 +352,7 @@ const DownloadQueuePage: React.FC = () => {
                     totalPages={queuePageItems.totalPages}
                     setCurrentPage={setQueuePage}
                     scrollToTop={true}
-                    filterItemsLength={activeJobs.length}
+                    filterItemsLength={shownJobs.length}
                     itemsPerPage={queuePerPage}
                   />
                 </>

@@ -13,10 +13,10 @@ import (
 
 // Fork: Kometa-mode additions to the queue processor.
 
-// preloadMissingImage reports whether an image that ImageIsSelected skipped should still be written
+// PreloadMissingImage reports whether an image that ImageIsSelected skipped should still be written
 // as a Kometa asset: its type is selected, the set asks to preload missing seasons and episodes,
 // and the show is on the server with at least one episode.
-func preloadMissingImage(item models.MediaItem, set models.DBPosterSetDetail, image models.ImageFile) bool {
+func PreloadMissingImage(item models.MediaItem, set models.DBPosterSetDetail, image models.ImageFile) bool {
 	if !set.ForcePreloadMissing || !config.Current.Images.Kometa.Enabled || !showHasAnyEpisode(item.Series) {
 		return false
 	}

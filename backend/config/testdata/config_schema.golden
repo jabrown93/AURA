@@ -75,6 +75,7 @@ MediaServers[].Type: string
 MediaServers[].URL: string
 Mediux.ApiToken: string
 Mediux.DownloadQuality: string
+Mediux.SimultaneousDownloads: int
 Notifications.Enabled: bool
 Notifications.NotificationTemplate.AppStartup.Enabled: bool
 Notifications.NotificationTemplate.AppStartup.IncludeImage: bool
@@ -136,8 +137,8 @@ UserPreferences.AutoDownloadNewItems: bool
 UserPreferences.AutoIgnoreItemsWithoutSets: bool
 UserPreferences.AutoUpgradeSets: bool
 UserPreferences.DefaultAddToDBOnly: bool
-UserPreferences.DefaultAddToQueue: bool
 UserPreferences.DefaultAutoAddNewCollectionItems: bool
+UserPreferences.DefaultAutoUpgrade: bool
 UserPreferences.DownloadDefaults: []string
 UserPreferences.FavoriteCreators: []string
 UserPreferences.PageViews: map[string]map[string]interface {}

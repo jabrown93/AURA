@@ -4,6 +4,7 @@ import (
 	"aura/config"
 	"aura/logging"
 	"context"
+	"encoding/json"
 	"path"
 	"strconv"
 	"strings"
@@ -92,17 +93,17 @@ func GetItemFolderName(ctx context.Context, tmdbID, itemType, libraryTitle strin
 	return "", false, logging.LogErrorInfo{}
 }
 
-// itemPath extracts the item's on-disk folder path from a Sonarr/Radarr item response. Both item
-// types embed SR_ItemInfoBase, whose Path is the full path to the item's own folder on disk.
+// itemPath reads the path without changing upstream's lossless response model.
 func itemPath(srItem any) string {
-	switch v := srItem.(type) {
-	case SR_SonarrItem:
-		return v.Path
-	case SR_RadarrItem:
-		return v.Path
-	default:
+	item, ok := srItem.(SR_Item)
+	if !ok {
 		return ""
 	}
+	var diskPath string
+	if err := json.Unmarshal(item.fields["path"], &diskPath); err != nil {
+		return ""
+	}
+	return diskPath
 }
 
 // folderNameFromPath returns the leaf directory name of a path, tolerating both Windows and POSIX
