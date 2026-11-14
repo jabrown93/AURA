@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 )
 
 // The changes the sandbox can make to an item's saved data
@@ -36,6 +37,14 @@ const (
 	seasonRowSQL = `(SELECT s.id FROM Seasons s JOIN Series sr ON sr.id = s.series_id WHERE sr.media_item_id = ` + itemRowSQL + ` AND s.season_number = ?)`
 )
 
+// postgresSimulationSQL binds the sandbox's fixed SQL statements using PostgreSQL parameter syntax.
+func postgresSimulationSQL(query string) string {
+	for i := 1; strings.Contains(query, "?"); i++ {
+		query = strings.Replace(query, "?", fmt.Sprintf("$%d", i), 1)
+	}
+	return query
+}
+
 // Simulate changes the item's saved data, so the next Auto Download check sees the change
 func Simulate(ctx context.Context, change Change) (Err logging.LogErrorInfo) {
 	ctx, logAction := logging.AddSubActionToContext(ctx, fmt.Sprintf("Sandbox: simulate %s", change.Change), logging.LevelInfo)
@@ -53,6 +62,9 @@ func Simulate(ctx context.Context, change Change) (Err logging.LogErrorInfo) {
 		args  []any
 	}
 	add := func(query string, args ...any) {
+		if database.IsPostgres() {
+			query = postgresSimulationSQL(query)
+		}
 		queries = append(queries, struct {
 			query string
 			args  []any
