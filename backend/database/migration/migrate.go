@@ -7,6 +7,10 @@ import (
 )
 
 func RunMigrations() (migrationsPerformed int, Err logging.LogErrorInfo) {
+	// Fork: PostgreSQL migrations already ran during Init, before configuration loads.
+	if database.IsPostgres() {
+		return 0, logging.LogErrorInfo{}
+	}
 	ctx, ld := logging.CreateLoggingContext(context.Background(), "Database Migration")
 	defer ld.Log()
 	logAction := ld.AddAction("Running Database Migrations", logging.LevelInfo)

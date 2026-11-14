@@ -1,0 +1,63 @@
+---
+title: PostgreSQL
+description: Optional PostgreSQL storage and offline migration from SQLite.
+sidebar:
+  order: 5
+---
+
+SQLite remains the default. This fork also supports **PostgreSQL 18**, tested against a real server in CI. Use one AURA instance per database; this is not an HA or multi-worker deployment mode. Upstream AURA does not provide this adapter.
+
+## Configuration
+
+Provision a dedicated, empty database and an application role that owns its schema. AURA creates its tables and runs transactional PostgreSQL migrations before loading configuration. It refuses unsupported schema versions and never falls back to SQLite after a PostgreSQL failure.
+
+Set these environment variables on the AURA service:
+
+```yaml
+environment:
+  AURA_DB_DRIVER: postgres
+  AURA_POSTGRES_DSN: ${AURA_POSTGRES_DSN:?Set the PostgreSQL connection string}
+```
+
+Keep the connection string out of Git, command-line arguments, and support logs. Supply it through your deployment's environment/secret management. It accepts pgx/PostgreSQL connection-string options, including TLS certificates. Use `sslmode=verify-full` with a trusted server certificate for remote production connections; `sslmode=disable` is only appropriate for isolated local tests. See [pgx connection configuration](https://pkg.go.dev/github.com/jackc/pgx/v5/pgconn#ParseConfig).
+
+`AURA_DB_DRIVER=sqlite` or an unset driver retains SQLite and the existing `DATABASE_PATH` behavior. Database selection and PostgreSQL credentials are environment-only, not settings stored in either database. Keep existing `/config`, image, and Kometa mounts: PostgreSQL replaces database storage, not filesystem assets.
+
+## Offline SQLite import
+
+This is a **one-way, offline copy**, not replication. Import into an empty target only. It preserves settings, auth secrets/API keys, media identities and editions, sets/images, ignore rules, collections, Silo IDs, queue/history, and statistics. Interrupted processing jobs become pending so they can retry after restart.
+
+1. Back up SQLite and provision the PostgreSQL database. Retain the old application image and SQLite backup.
+2. Stop **all** AURA instances. Do not restart them until import completes. The confirmation flag records your assertion; the command cannot prove that another process is stopped.
+3. Configure the PostgreSQL environment variables above, using an image that includes this fork's PostgreSQL support.
+4. Run the import with the same mounts and configuration as the stopped service:
+
+   ```sh
+   docker compose stop aura
+   docker compose run --rm --no-deps --entrypoint /app/main aura \
+     db import-sqlite --source /config/AURA.db --confirm-app-stopped
+   ```
+
+   For a standalone backend binary, use `aura db import-sqlite --source /path/to/AURA.db --confirm-app-stopped` with the same environment variables.
+
+5. Confirm the command exits successfully, then start AURA and verify settings, saved sets, queue/history, and media-server access:
+
+   ```sh
+   docker compose up -d aura
+   ```
+
+The command opens the source read-only and makes a private, WAL-consistent SQLite snapshot. Older supported SQLite schemas are upgraded **only in that temporary snapshot**. Unknown tables/columns, invalid relationships/JSON, and nonempty targets fail closed. Target rows import in one transaction, with count checks, foreign-key validation, saved-item application reads, and identity-sequence resets before commit. Failure leaves no partially imported data; a newly initialized, empty PostgreSQL schema may remain. Temporary snapshots are removed on normal exit.
+
+**Rollback warning:** no PostgreSQL-to-SQLite import exists. Switching back to the retained SQLite file loses every write made after cutover. Stop AURA before switching back, and preserve PostgreSQL for recovery. Never run both instances against diverging copies.
+
+## Backups and maintenance
+
+PostgreSQL backups, retention, restores, vacuuming, and server upgrades belong to the operator. AURA disables SQLite backup jobs and file-backup controls for PostgreSQL; manual backup API requests return HTTP 501. Use [`pg_dump`/`pg_restore`](https://www.postgresql.org/docs/current/backup-dump.html) or your database platform's backup tooling and test restores. Database dumps do not include filesystem image assets or cluster-wide roles.
+
+PostgreSQL statistics buckets use UTC, with Monday-start weeks. SQLite uses its existing local-time bucketing, so displayed day/week boundaries can differ after cutover; stored event instants are preserved.
+
+## Development and upstream syncs
+
+Set `AURA_TEST_POSTGRES_DSN` to a disposable PostgreSQL 18 database before `go test ./...`. PostgreSQL tests create isolated random schemas and remove them afterward. Without that variable, PostgreSQL integration tests skip; CI always supplies it. Run SQLite and PostgreSQL contracts together.
+
+PostgreSQL implementation lives in `backend/database/fork_postgres_*`, with independent schema/version tracking. Upstream SQLite SQL and migration numbering remain intact. `scripts/check-postgres-compat.sh` blocks CI and sync completion when upstream-facing database, migration, model, or config sources change. Review and port affected behavior, extend shared tests/import support, run both engines, then explicitly refresh the baseline with `scripts/check-postgres-compat.sh --record`. Updating the hash is a review acknowledgement, not proof of compatibility.

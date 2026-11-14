@@ -107,6 +107,8 @@ finish() {
   [[ "$(git rev-parse -q --verify MERGE_HEAD || true)" == "$target" ]] \
     || die "no merge of $(git rev-parse --short "$target") in progress (aborted?); re-run the sync"
   [[ -z "$(git diff --name-only --diff-filter=U)" ]] || die "unresolved conflicts remain"
+  # Fork: compilation alone cannot detect changed SQLite semantics or newly added state.
+  ./scripts/check-postgres-compat.sh
   # HEAD is the grafted base; its first parent is the origin/main this sync started
   # from. origin/main may have moved since, and parenting on the newer commit with a
   # tree built from the older one would silently revert whatever landed in between.

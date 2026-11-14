@@ -190,7 +190,12 @@ func runWarmup() (success bool) {
 	// The database is initialized in runBootstrap
 	if !databaseIsNew {
 		config.SetAppLoadingStep("Running Database Migrations")
-		migrationsCompleted, _ := migration.RunMigrations()
+		migrationsCompleted, migrationErr := migration.RunMigrations()
+		// Fork: never start workers against a partially migrated database.
+		if migrationErr.Message != "" {
+			logging.LOGGER.Error().Timestamp().Msg(migrationErr.Message)
+			return false
+		}
 		logging.LOGGER.Info().Timestamp().Msgf("%d database migrations performed", migrationsCompleted)
 	}
 
@@ -224,12 +229,14 @@ func runWarmup() (success bool) {
 		logMediaServerCache()
 	}
 
-	// Database: Vacuum
-	config.SetAppLoadingStep("Optimizing Database")
-	vacuumErr := database.Vacuum(ctx)
-	if vacuumErr.Message != "" {
-		logging.LOGGER.Error().Timestamp().Msgf("Database VACUUM failed: %s", vacuumErr.Message)
-		return false
+	// Fork: PostgreSQL maintenance belongs to its operator, not SQLite startup.
+	if !database.IsPostgres() {
+		config.SetAppLoadingStep("Optimizing Database")
+		vacuumErr := database.Vacuum(ctx)
+		if vacuumErr.Message != "" {
+			logging.LOGGER.Error().Timestamp().Msgf("Database VACUUM failed: %s", vacuumErr.Message)
+			return false
+		}
 	}
 
 	action.Complete()
