@@ -2,6 +2,7 @@ package autodownload
 
 import (
 	"aura/cache"
+	"aura/config"
 	"aura/database"
 	"aura/logging"
 	"aura/mediaserver"
@@ -50,7 +51,19 @@ func CheckAllItems(ctx context.Context) (Err logging.LogErrorInfo) {
 	warningCount := 0
 	successCount := 0
 	skippedCount := 0
+	// Silo has one item for every library it is in, and saving its sets saves them in the other libraries,
+	// so an item checked in one library isn't checked again in the others
+	checkedSiloItems := map[string]bool{}
 	for _, item := range out.Items {
+		if config.Current.MediaServer.Type == "Silo" && item.MediaItem.RatingKey != "" {
+			key := item.MediaItem.RatingKey + "|" + item.MediaItem.Edition
+			if checkedSiloItems[key] {
+				skippedCount++
+				continue
+			}
+			checkedSiloItems[key] = true
+		}
+
 		itemCtx, ld := logging.CreateLoggingContext(context.Background(), "AutoDownload - Check For Updates")
 		itemAction := ld.AddAction(fmt.Sprintf("Checking Item %s", utils.MediaItemInfo(item.MediaItem)), logging.LevelInfo)
 		itemCtx = logging.WithCurrentAction(itemCtx, itemAction)
@@ -97,6 +110,27 @@ func CheckItem(ctx context.Context, dbItem models.DBSavedItem) (result AutoDownl
 		}
 	}()
 
+	// The saved sets may have changed since the check started, so use them as they are now
+	latest, found, Err := latestSavedItem(ctx, dbItem.MediaItem)
+	if Err.Message != "" {
+		result.OverallResult = "error"
+		result.OverallMessage = "Failed to get the item's saved sets"
+		return result
+	}
+	if !found {
+		result.OverallResult = "skipped"
+		result.OverallMessage = "The item has no saved sets anymore"
+		return result
+	}
+	dbItem = latest
+
+	// A job already waiting or running for the item downloads what it needs, so it's checked again next time
+	if queuedItems(ctx)[dbItem.MediaItem.TMDB_ID+"|"+dbItem.MediaItem.LibraryTitle+"|"+dbItem.MediaItem.Edition] {
+		result.OverallResult = "skipped"
+		result.OverallMessage = "The item is in the Download Queue, it's checked again next time"
+		return result
+	}
+
 	// If there are no Poster Sets in the database for this item, we will skip the check process as there is no existing data to compare against, and just return the result
 	if len(dbItem.PosterSets) == 0 {
 		result.OverallResult = "skipped"
@@ -130,7 +164,7 @@ func CheckItem(ctx context.Context, dbItem models.DBSavedItem) (result AutoDownl
 	actionGetFromCache.Complete()
 
 	// Get the latest Show Media Item from the media server
-	found, Err := mediaserver.GetMediaItemDetails(ctx, mediaItem)
+	found, Err = mediaserver.GetMediaItemDetails(ctx, mediaItem)
 	if Err.Message != "" {
 		result.OverallResult = "error"
 		result.OverallMessage = "Failed to get latest Media Item details from media server"
@@ -142,16 +176,55 @@ func CheckItem(ctx context.Context, dbItem models.DBSavedItem) (result AutoDownl
 		return result
 	}
 
+	var updates []models.DBPosterSetDetail
 	switch dbItem.MediaItem.Type {
 	case "movie":
-		result = handleMovie(ctx, *mediaItem, dbItem)
+		result, updates = handleMovie(ctx, *mediaItem, dbItem)
 	case "show":
-		result = handleShow(ctx, *mediaItem, dbItem)
+		result, updates = handleShow(ctx, *mediaItem, dbItem)
 	default:
 		result.OverallResult = "error"
 		result.OverallMessage = "Unknown media type"
 	}
+
+	// One job downloads the changed images of every set
+	if len(updates) > 0 {
+		if Err := addToQueue(ctx, models.DBSavedItem{MediaItem: *mediaItem, PosterSets: updates, Source: models.SourceAutoDownload}); Err.Message != "" {
+			result.OverallResult = "error"
+			result.OverallMessage = fmt.Sprintf("Failed to add the changed images to the Download Queue: %s", Err.Message)
+		}
+	}
 	return result
+}
+
+// queuedUpdate is the set as a Download Queue job saves it, downloading only the images that changed, with why
+func queuedUpdate(dbSet models.DBPosterSetDetail, latest models.PosterSet, images []ImageFileWithReason) models.DBPosterSetDetail {
+	update := dbSet
+	update.PosterSet = latest
+	update.OnlyImages = make([]models.QueuedImage, 0, len(images))
+	for _, image := range images {
+		update.OnlyImages = append(update.OnlyImages, models.QueuedImage{
+			ID:          image.ID,
+			Type:        image.Type,
+			ReasonTitle: image.ReasonTitle,
+			Reason:      image.Reason,
+		})
+	}
+	return update
+}
+
+// latestSavedItem is the item's saved sets as they are in the database now
+func latestSavedItem(ctx context.Context, item models.MediaItem) (saved models.DBSavedItem, found bool, Err logging.LogErrorInfo) {
+	out, Err := getSavedSets(ctx, models.DBFilter{ItemTMDB_ID: item.TMDB_ID, ItemLibraryTitle: item.LibraryTitle, ItemsPerPage: -1})
+	if Err.Message != "" {
+		return saved, false, Err
+	}
+	for _, savedItem := range out.Items {
+		if savedItem.MediaItem.Edition == item.Edition {
+			return savedItem, true, logging.LogErrorInfo{}
+		}
+	}
+	return saved, false, logging.LogErrorInfo{}
 }
 
 // Only mark size as changed if the size differs by at least 256KB to avoid minor Media Server metadata/container drift.
@@ -238,46 +311,6 @@ func sortImagesSliceByType(images []models.ImageFile) {
 	})
 }
 
-func insertRedownloadedSetIntoDB(ctx context.Context, newMediaItem models.MediaItem, newMediuxSet models.PosterSet, dbItem models.DBSavedItem, dbSet models.DBPosterSetDetail) (Err logging.LogErrorInfo) {
-	_, insertRedownloadAction := logging.AddSubActionToContext(ctx, fmt.Sprintf("Inserting redownloaded set %s into database for item %s", newMediuxSet.Title, utils.MediaItemInfo(newMediaItem)), logging.LevelInfo)
-	defer insertRedownloadAction.Complete()
-
-	dbItem.MediaItem = newMediaItem
-	newSetInfo := models.DBPosterSetDetail{
-		PosterSet: models.PosterSet{
-			BaseSetInfo: models.BaseSetInfo{
-				ID:          newMediuxSet.ID,
-				Type:        newMediuxSet.Type,
-				Title:       newMediuxSet.Title,
-				UserCreated: newMediuxSet.UserCreated,
-				DateCreated: newMediuxSet.DateCreated,
-				DateUpdated: newMediuxSet.DateUpdated,
-			},
-			Images: newMediuxSet.Images,
-		},
-		LastDownloaded:            time.Now(),
-		SelectedTypes:             dbSet.SelectedTypes,
-		AutoDownload:              dbSet.AutoDownload,
-		AutoAddNewCollectionItems: dbSet.AutoAddNewCollectionItems,
-		NoAutoUpgrade:             dbSet.NoAutoUpgrade,
-		ForcePreloadMissing:       dbSet.ForcePreloadMissing, // Fork: Kometa preload
-		ToDelete:                  false,
-	}
-	var found bool
-	found, dbItem.PosterSets = utils.UpdatePosterSetInDBItem(dbItem.PosterSets, newSetInfo)
-	if !found {
-		logging.LOGGER.Error().Timestamp().Str("item", utils.MediaItemInfo(newMediaItem)).Str("set_id", dbSet.ID).Msg("Failed to update set info in DB item after redownloading images for AutoDownload Check, set not found in DB item")
-	} else {
-		// Update the set info in the database for this item
-		Err = database.UpsertSavedItem(ctx, dbItem)
-		if Err.Message != "" {
-			logging.LOGGER.Error().Timestamp().Str("item", utils.MediaItemInfo(newMediaItem)).Str("set_id", dbSet.ID).Str("error", Err.Message).Msg("Failed to update DB item after redownloading images for AutoDownload Check")
-			return Err
-		}
-	}
-	return logging.LogErrorInfo{}
-}
-
 func getOverallResults(result *AutoDownloadResult) {
 	if len(result.Sets) == 0 {
 		result.OverallResult = "skipped"
@@ -316,6 +349,11 @@ func getOverallResults(result *AutoDownloadResult) {
 	}
 }
 
+// formatReasonDate is a date for a reason, in the server's time zone with the zone, as MediUX dates are in UTC
+func formatReasonDate(t time.Time) string {
+	return t.Local().Format("2006-01-02 15:04:05 MST")
+}
+
 func checkImageDates(
 	image models.ImageFile,
 	dbSet *models.DBPosterSetDetail,
@@ -330,12 +368,12 @@ func checkImageDates(
 		check.Outcome = "redownload"
 		check.Reason = fmt.Sprintf(
 			"New image added to set since last download\nImage Updated New: %s\nLast Downloaded: %s",
-			image.Modified.Format("2006-01-02 15:04:05"),
-			dbSet.LastDownloaded.Format("2006-01-02 15:04:05"),
+			formatReasonDate(image.Modified),
+			formatReasonDate(dbSet.LastDownloaded),
 		)
 		check.Details = map[string]any{
-			"image_modified_new": image.Modified.Format("2006-01-02 15:04:05"),
-			"last_downloaded":    dbSet.LastDownloaded.Format("2006-01-02 15:04:05"),
+			"image_modified_new": formatReasonDate(image.Modified),
+			"last_downloaded":    formatReasonDate(dbSet.LastDownloaded),
 		}
 		*imagesToRedownload = append(*imagesToRedownload, ImageFileWithReason{
 			ImageFile:   image,
@@ -346,17 +384,17 @@ func checkImageDates(
 	}
 
 	check.Details = map[string]any{
-		"image_modified_new": image.Modified.Format("2006-01-02 15:04:05"),
-		"image_modified_old": matchingOldImage.Modified.Format("2006-01-02 15:04:05"),
-		"last_downloaded":    dbSet.LastDownloaded.Format("2006-01-02 15:04:05"),
+		"image_modified_new": formatReasonDate(image.Modified),
+		"image_modified_old": formatReasonDate(matchingOldImage.Modified),
+		"last_downloaded":    formatReasonDate(dbSet.LastDownloaded),
 	}
 
 	if !image.Modified.Equal(matchingOldImage.Modified) && image.Modified.After(matchingOldImage.Modified) {
 		check.Outcome = "redownload"
 		check.Reason = fmt.Sprintf(
 			"Image modified date is newer than previous image\nImage Updated New: %s\nImage Updated Old: %s",
-			image.Modified.Format("2006-01-02 15:04:05"),
-			matchingOldImage.Modified.Format("2006-01-02 15:04:05"),
+			formatReasonDate(image.Modified),
+			formatReasonDate(matchingOldImage.Modified),
 		)
 		*imagesToRedownload = append(*imagesToRedownload, ImageFileWithReason{
 			ImageFile:   image,
@@ -368,8 +406,8 @@ func checkImageDates(
 		check.Outcome = "redownload"
 		check.Reason = fmt.Sprintf(
 			"Image modified date is newer than last downloaded date\nImage Updated New: %s\nLast Downloaded: %s",
-			image.Modified.Format("2006-01-02 15:04:05"),
-			dbSet.LastDownloaded.Format("2006-01-02 15:04:05"),
+			formatReasonDate(image.Modified),
+			formatReasonDate(dbSet.LastDownloaded),
 		)
 
 		*imagesToRedownload = append(*imagesToRedownload, ImageFileWithReason{

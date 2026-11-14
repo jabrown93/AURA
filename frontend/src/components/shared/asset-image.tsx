@@ -111,7 +111,7 @@ export function AssetImage({
     return decodeBlurhashToDataURL(blurhash);
   }, [image]);
 
-  let imageSrc: string;
+  let imageSrc = "";
   if (imageType === "url") {
     imageSrc = image as string;
   } else if (imageType === "mediux") {
@@ -124,8 +124,6 @@ export function AssetImage({
     imageSrc = `/api/images/media/item?rating_key=${(image as MediaItem).rating_key}&image_type=${aspect}`;
   } else if (imageType === "collection") {
     imageSrc = `/api/images/media/collection?rating_key=${(image as CollectionItem).rating_key}&image_type=${aspect}&index=${(image as CollectionItem).index}`;
-  } else {
-    imageSrc = "";
   }
 
   const handleDoubleClick = () => {
@@ -191,10 +189,10 @@ export function AssetImage({
             imageClassName
           )}
           unoptimized
-          loading="lazy"
+          loading={priority ? "eager" : "lazy"}
+          fetchPriority={priority ? "high" : undefined}
           draggable={false}
           style={{ userSelect: "none" }}
-          priority={priority}
           placeholder={blurDataURL ? "blur" : undefined}
           blurDataURL={blurDataURL}
           onLoad={() => setImageLoaded(true)}

@@ -27,6 +27,8 @@ func (s *SQliteDB) CreateTables(ctx context.Context) (Err logging.LogErrorInfo) 
 		v7_CreateDownloadHistoryTable,
 		v8_CreateSiloItemIDsTable,
 		v14_CreateCollectionsTables,
+		v15_CreateStatisticsTables,
+		v16_AddSiloItemCountColumns,
 	}
 
 	for _, step := range steps {
@@ -411,7 +413,8 @@ CREATE TABLE DownloadHistory (
     failed_images TEXT NOT NULL DEFAULT '[]',
     retry_count INTEGER NOT NULL DEFAULT 0,
     next_retry_at DATETIME,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    source TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX idx_downloadhistory_status_created ON DownloadHistory(status, created_at);
 	`

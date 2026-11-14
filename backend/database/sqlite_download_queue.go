@@ -69,6 +69,7 @@ RETURNING id;
 	return jobID, logging.LogErrorInfo{}
 }
 
+// ClaimNextDownloadQueueJob claims the first waiting job, skipping items that already have a job running
 func (s *SQliteDB) ClaimNextDownloadQueueJob(ctx context.Context, workerID string) (job DownloadQueueJob, found bool, Err logging.LogErrorInfo) {
 	ctx, logAction := logging.AddSubActionToContext(ctx, "Claim Next Download Queue Job", logging.LevelDebug)
 	defer logAction.Complete()
@@ -82,7 +83,16 @@ func (s *SQliteDB) ClaimNextDownloadQueueJob(ctx context.Context, workerID strin
 UPDATE DownloadQueueJobs
 SET status = 'processing', started_at = CURRENT_TIMESTAMP, worker_id = ?
 WHERE id = (
-    SELECT id FROM DownloadQueueJobs WHERE status = 'pending' ORDER BY created_at ASC LIMIT 1
+    SELECT id FROM DownloadQueueJobs AS waiting
+    WHERE status = 'pending'
+      AND NOT EXISTS (
+          SELECT 1 FROM DownloadQueueJobs AS running
+          WHERE running.status = 'processing'
+            AND running.tmdb_id = waiting.tmdb_id
+            AND running.library_title = waiting.library_title
+            AND running.edition = waiting.edition
+      )
+    ORDER BY created_at ASC, id ASC LIMIT 1
 )
 RETURNING id, tmdb_id, library_title, edition, media_item_title, payload, status, created_at, started_at;
 `
@@ -164,7 +174,7 @@ func (s *SQliteDB) GetAllDownloadQueueJobs(ctx context.Context) (jobs []Download
 SELECT id, tmdb_id, library_title, edition, media_item_title, payload, status,
        result_message, result_errors, result_warnings, created_at, started_at, finished_at
 FROM DownloadQueueJobs
-ORDER BY created_at ASC;
+ORDER BY created_at ASC, id ASC;
 `
 	rows, err := s.conn.QueryContext(ctx, q)
 	if err != nil {
@@ -238,6 +248,60 @@ func (s *SQliteDB) DeleteAllDownloadQueueJobs(ctx context.Context) (Err logging.
 	}
 
 	return logging.LogErrorInfo{}
+}
+
+// MoveDownloadQueueJobToTop makes a waiting job the next one to run, and returns whether it was waiting
+func (s *SQliteDB) MoveDownloadQueueJobToTop(ctx context.Context, jobID int64) (moved bool, Err logging.LogErrorInfo) {
+	ctx, logAction := logging.AddSubActionToContext(ctx, fmt.Sprintf("Move Download Queue Job %d to the Top", jobID), logging.LevelDebug)
+	defer logAction.Complete()
+
+	if s == nil || s.conn == nil {
+		logAction.SetError("DB: connection is nil", "", map[string]any{})
+		return false, *logAction.Error
+	}
+
+	// Jobs run in the order they were added, so it's added a second before the first waiting job
+	result, err := s.conn.ExecContext(ctx, `
+UPDATE DownloadQueueJobs
+SET created_at = datetime((SELECT MIN(created_at) FROM DownloadQueueJobs WHERE status = 'pending'), '-1 second')
+WHERE id = ? AND status = 'pending';
+`, jobID)
+	if err != nil {
+		logAction.SetError("DB: move DownloadQueueJobs to the top failed", err.Error(), map[string]any{"error": err.Error(), "job_id": jobID})
+		return false, *logAction.Error
+	}
+	count, _ := result.RowsAffected()
+	return count > 0, logging.LogErrorInfo{}
+}
+
+// MoveDownloadQueueJobAheadOfOthers puts a waiting job before the waiting jobs that weren't added from the download window
+func (s *SQliteDB) MoveDownloadQueueJobAheadOfOthers(ctx context.Context, jobID int64) (moved bool, Err logging.LogErrorInfo) {
+	ctx, logAction := logging.AddSubActionToContext(ctx, fmt.Sprintf("Move Download Queue Job %d ahead of the other jobs", jobID), logging.LevelDebug)
+	defer logAction.Complete()
+
+	if s == nil || s.conn == nil {
+		logAction.SetError("DB: connection is nil", "", map[string]any{})
+		return false, *logAction.Error
+	}
+
+	// A second before the first waiting job from anywhere else, so jobs from the download window keep their order
+	result, err := s.conn.ExecContext(ctx, `
+UPDATE DownloadQueueJobs
+SET created_at = datetime((
+    SELECT MIN(created_at) FROM DownloadQueueJobs
+    WHERE status = 'pending' AND id != ? AND COALESCE(json_extract(payload, '$.source'), '') != 'download_window'
+), '-1 second')
+WHERE id = ? AND status = 'pending' AND EXISTS (
+    SELECT 1 FROM DownloadQueueJobs
+    WHERE status = 'pending' AND id != ? AND COALESCE(json_extract(payload, '$.source'), '') != 'download_window'
+);
+`, jobID, jobID, jobID)
+	if err != nil {
+		logAction.SetError("DB: move DownloadQueueJobs ahead failed", err.Error(), map[string]any{"error": err.Error(), "job_id": jobID})
+		return false, *logAction.Error
+	}
+	count, _ := result.RowsAffected()
+	return count > 0, logging.LogErrorInfo{}
 }
 
 // ResetInterruptedDownloadQueueJobs puts jobs another worker was processing back in the queue.

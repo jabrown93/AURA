@@ -1,5 +1,7 @@
 package models
 
+import "slices"
+
 type MediaItem struct {
 	TMDB_ID      string           `json:"tmdb_id"`          // TMDB ID of the media item
 	LibraryTitle string           `json:"library_title"`    // Title of the library/section the item belongs to
@@ -25,6 +27,10 @@ type MediaItem struct {
 
 	// Used in MediaItem Details Page - For ratings
 	Guids []MediaItemGuid `json:"guids"` // List of GUIDs from different providers
+
+	// Used in the Statistics Page - Series is only loaded with the details, so the library listing fills these in
+	SeasonCount  int `json:"season_count,omitempty"`  // Number of seasons of a show
+	EpisodeCount int `json:"episode_count,omitempty"` // Number of episodes of a show
 
 	// Used in MediaItem Details Page - For more information about the item
 	ContentRating string `json:"content_rating"` // Content rating (e.g., "PG-13")
@@ -102,4 +108,26 @@ type CollectionItem struct {
 	ChildCount   int         `json:"child_count"`
 	MediaItems   []MediaItem `json:"media_items"`
 	LibraryTitle string      `json:"library_title,omitempty"`
+}
+
+// Clone is a copy of the item that can be changed without changing the item
+func (m MediaItem) Clone() MediaItem {
+	clone := m
+	if m.Movie != nil {
+		movie := *m.Movie
+		clone.Movie = &movie
+	}
+	if m.Series != nil {
+		series := *m.Series
+		series.Seasons = make([]MediaItemSeason, len(m.Series.Seasons))
+		for i, season := range m.Series.Seasons {
+			season.Episodes = slices.Clone(season.Episodes)
+			series.Seasons[i] = season
+		}
+		clone.Series = &series
+	}
+	clone.DBSavedSets = slices.Clone(m.DBSavedSets)
+	clone.IgnoredSets = slices.Clone(m.IgnoredSets)
+	clone.Guids = slices.Clone(m.Guids)
+	return clone
 }

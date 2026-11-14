@@ -1,10 +1,9 @@
 package autodownload
 
 import (
-	"aura/config"
+	downloadqueue "aura/download/queue"
 	"aura/kometa"
 	"aura/logging"
-	"aura/mediaserver"
 	"aura/mediux"
 	"aura/models"
 	"aura/utils"
@@ -14,7 +13,8 @@ import (
 	"strings"
 )
 
-func handleShow(ctx context.Context, mediaItem models.MediaItem, dbItem models.DBSavedItem) (result AutoDownloadResult) {
+// handleShow checks the show's sets for changes, and returns each set with the images to download again
+func handleShow(ctx context.Context, mediaItem models.MediaItem, dbItem models.DBSavedItem) (result AutoDownloadResult, updates []models.DBPosterSetDetail) {
 	result = AutoDownloadResult{}
 	result.Item = utils.MediaItemInfo(dbItem.MediaItem)
 
@@ -202,13 +202,6 @@ func handleShow(ctx context.Context, mediaItem models.MediaItem, dbItem models.D
 		imagesToRedownload := []ImageFileWithReason{}
 
 		// Build fast lookup maps once (before looping images)
-		allSeasonsInMediaItem := make(map[int]struct{})
-		if mediaItem.Series != nil {
-			for _, s := range mediaItem.Series.Seasons {
-				allSeasonsInMediaItem[s.SeasonNumber] = struct{}{}
-			}
-		}
-
 		addedSeasonSet := make(map[int]struct{}, len(changes.AddedSeasons))
 		for _, s := range changes.AddedSeasons {
 			addedSeasonSet[s] = struct{}{}
@@ -216,15 +209,6 @@ func handleShow(ctx context.Context, mediaItem models.MediaItem, dbItem models.D
 
 		episodeKey := func(season, episode int) string {
 			return fmt.Sprintf("%d:%d", season, episode)
-		}
-
-		allEpisodesInMediaItem := make(map[string]struct{})
-		if mediaItem.Series != nil {
-			for _, s := range mediaItem.Series.Seasons {
-				for _, e := range s.Episodes {
-					allEpisodesInMediaItem[episodeKey(s.SeasonNumber, e.EpisodeNumber)] = struct{}{}
-				}
-			}
 		}
 
 		addedEpisodeSet := make(map[string]struct{}, len(changes.AddedEpisodes))
@@ -236,14 +220,6 @@ func handleShow(ctx context.Context, mediaItem models.MediaItem, dbItem models.D
 		for _, ep := range changes.ChangedEpisodes {
 			changedEpisodeSet[episodeKey(ep.SeasonNumber, ep.EpisodeNumber)] = struct{}{}
 		}
-
-		// When the set is flagged to force-preload missing seasons/episodes, Kometa asset mode
-		// is enabled, and the show exists with at least one episode, season-poster/titlecard
-		// images whose season/episode is missing on the server are pre-staged as Kometa assets
-		// (via checkImageDates below and the apply branch) instead of being skipped.
-		preloadEligible := dbSet.ForcePreloadMissing &&
-			config.Current.Images.Kometa.Enabled &&
-			len(allEpisodesInMediaItem) > 0
 
 		// Create a map of the old images for easy lookup when checking if we need to redownload an image
 		oldImageByKey := make(map[string]models.ImageFile, len(dbSet.Images))
@@ -265,20 +241,9 @@ func handleShow(ctx context.Context, mediaItem models.MediaItem, dbItem models.D
 				Reason:  "",
 			}
 
-			if image.Type == "poster" && !dbSet.SelectedTypes.Poster {
-				check.Reason = "Poster not selected for this set"
-				actionImageChecks.AppendResult(imageName, check)
-				continue
-			} else if image.Type == "backdrop" && !dbSet.SelectedTypes.Backdrop {
-				check.Reason = "Backdrop not selected for this set"
-				actionImageChecks.AppendResult(imageName, check)
-				continue
-			} else if image.Type == "season_poster" && !seasonPosterSelected(dbSet.SelectedTypes, image) {
-				check.Reason = "Season Poster not selected for this set"
-				actionImageChecks.AppendResult(imageName, check)
-				continue
-			} else if image.Type == "titlecard" && !dbSet.SelectedTypes.Titlecard {
-				check.Reason = "Titlecard not selected for this set"
+			// Only posters, backdrops, season posters and title cards are downloaded
+			if !models.IsKnownImageType(image.Type) {
+				check.Reason = "Unsupported image type"
 				actionImageChecks.AppendResult(imageName, check)
 				continue
 			}
@@ -290,32 +255,11 @@ func handleShow(ctx context.Context, mediaItem models.MediaItem, dbItem models.D
 				continue
 			}
 
-			// Skip any season posters if the season they are for does not exist in the Media Item
-			// (unless force-preload is eligible, in which case we pre-stage it as a Kometa asset)
-			if image.Type == "season_poster" {
-				if _, seasonExists := allSeasonsInMediaItem[*image.SeasonNumber]; !seasonExists && !preloadEligible {
-					check.Reason = fmt.Sprintf("Season %d does not exist in the Media Item, skipping", *image.SeasonNumber)
-					actionImageChecks.AppendResult(imageName, check)
-					continue
-
-				}
-			}
-
-			// Skip any titlecards if the season/episode they are for does not exist in the Media Item
-			// (unless force-preload is eligible, in which case we pre-stage it as a Kometa asset)
-			if image.Type == "titlecard" {
-				sn := *image.SeasonNumber
-				en := *image.EpisodeNumber
-				if _, seasonExists := allSeasonsInMediaItem[sn]; !seasonExists && !preloadEligible {
-					check.Reason = fmt.Sprintf("Titlecard for Season %d Episode %d but Season %d does not exist in the Media Item, skipping", sn, en, sn)
-					actionImageChecks.AppendResult(imageName, check)
-					continue
-				}
-				if _, episodeExists := allEpisodesInMediaItem[episodeKey(sn, en)]; !episodeExists && !preloadEligible {
-					check.Reason = fmt.Sprintf("Titlecard for Season %d Episode %d but Episode %d does not exist in the Media Item, skipping", sn, en, en)
-					actionImageChecks.AppendResult(imageName, check)
-					continue
-				}
+			// Only the selected types, with season posters and the special season poster selected on their own, for seasons and episodes the item has
+			if !models.ImageIsSelected(mediaItem, dbSet.SelectedTypes, image) && !downloadqueue.PreloadMissingImage(mediaItem, dbSet, image) {
+				check.Reason = "Image type isn't selected for this set, or the Media Item doesn't have its season or episode"
+				actionImageChecks.AppendResult(imageName, check)
+				continue
 			}
 
 			// If we got here, it means the image type is selected for this set, so we check if the image needs to be re-downloaded based on the changes we detected earlier
@@ -396,8 +340,6 @@ func handleShow(ctx context.Context, mediaItem models.MediaItem, dbItem models.D
 					check.Reason = reason
 					handled = true
 				}
-			default:
-				check.Reason = "Unsupported image type"
 			}
 
 			if !handled {
@@ -419,86 +361,16 @@ func handleShow(ctx context.Context, mediaItem models.MediaItem, dbItem models.D
 			Int("images_to_redownload", len(imagesToRedownload)).
 			Msgf("Image check results for set %s", dbSet.ID)
 
-		_, imageRedownloadsAction := logging.AddSubActionToContext(ctx, fmt.Sprintf("Downloading %d updated images for set %s (ID: %s)", len(imagesToRedownload), dbSet.Title, dbSet.ID), logging.LevelInfo)
-		for idx, image := range imagesToRedownload {
-			// Redownload the image
-			imageRedownloadResult := make(map[string]any)
-			imageRedownloadResult["image"] = utils.GetFileDownloadName(mediaItem.Title, image.ImageFile)
-			imageRedownloadResult["image_type"] = image.Type
-			imageRedownloadResult["redownload_reason"] = image.Reason
-
-			// If the target season/episode is missing on the server, pre-stage the image as a
-			// Kometa asset only (no server apply). preloadEligible already gated whether these
-			// missing-target images were collected at all.
-			preloadOnly := false
-			if preloadEligible {
-				switch image.Type {
-				case "season_poster":
-					if image.SeasonNumber != nil {
-						if _, ok := allSeasonsInMediaItem[*image.SeasonNumber]; !ok {
-							preloadOnly = true
-						}
-					}
-				case "titlecard":
-					if image.SeasonNumber != nil && image.EpisodeNumber != nil {
-						if _, ok := allEpisodesInMediaItem[episodeKey(*image.SeasonNumber, *image.EpisodeNumber)]; !ok {
-							preloadOnly = true
-						}
-					}
-				}
-			}
-
-			// Reuse the set-scoped Err from above; reset it fully before each apply.
-			Err = logging.LogErrorInfo{}
-			if preloadOnly {
-				Err = mediaserver.SaveImageAsKometaAssetOnly(ctx, &mediaItem, image.ImageFile)
-			} else {
-				Err = mediaserver.DownloadApplyImageToMediaItem(ctx, &mediaItem, image.ImageFile)
-			}
-			if Err.Message != "" {
-				imageRedownloadResult["redownload_result"] = "error"
-				imageRedownloadResult["redownload_error"] = Err.Message
-				imageRedownloadsAction.AppendResult(fmt.Sprintf("image_redownload_%d", idx+1), imageRedownloadResult)
-				setResult.Result = "error"
-				setResult.Reason = fmt.Sprintf("Failed to redownload image %s: %s", utils.GetFileDownloadName(mediaItem.Title, image.ImageFile), Err.Message)
-				result.Sets = append(result.Sets, setResult)
-				logging.LOGGER.Error().Timestamp().Str("item", utils.MediaItemInfo(mediaItem)).Str("set_id", dbSet.ID).Str("image", utils.GetFileDownloadName(mediaItem.Title, image.ImageFile)).Str("error", Err.Message).Msg("Failed to redownload image for AutoDownload Check")
-				continue
-			} else {
-				// Send a notification to all configured notification services
-				// We do this asynchronously and don't wait for the result
-				go func(image ImageFileWithReason) {
-					defer logging.RecoverPanic("Auto Download Notification")
-					sendFileDownloadNotification(mediaItem, dbSet, image)
-				}(image)
-			}
-		}
-		imageRedownloadsAction.Complete()
-
-		// Reinsert the set into the DB item with the updated image info and download date so that it is up to date for the next check
-		Err = insertRedownloadedSetIntoDB(ctx, mediaItem, mediuxSet.PosterSet, dbItem, dbSet)
+		// Only the images that changed are downloaded
+		updates = append(updates, queuedUpdate(dbSet, mediuxSet.PosterSet, imagesToRedownload))
 
 		setResult.Result = "success"
-		setResult.Reason = fmt.Sprintf("%d images need to be redownloaded", len(imagesToRedownload))
+		setResult.Reason = fmt.Sprintf("%d images queued to download", len(imagesToRedownload))
 		result.Sets = append(result.Sets, setResult)
 	}
 
 	getOverallResults(&result)
-	return result
-}
-
-// seasonPosterSelected reports whether a season_poster image is selected by the set's types.
-// Season 0 is a special season and requires SpecialSeasonPoster; every other season requires
-// SeasonPoster. Checking only that one of the two is set lets a set download the season kind
-// the user did not select.
-func seasonPosterSelected(selectedTypes models.SelectedTypes, image models.ImageFile) bool {
-	if image.SeasonNumber == nil {
-		return false
-	}
-	if *image.SeasonNumber == 0 {
-		return selectedTypes.SpecialSeasonPoster
-	}
-	return selectedTypes.SeasonPoster
+	return result, updates
 }
 
 func getShowInfoChangeReason(changes ShowChangeDetails) string {

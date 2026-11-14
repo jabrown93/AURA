@@ -18,6 +18,7 @@ type DBSavedItem struct {
 type QueuedCollectionImages struct {
 	Collection CollectionItem `json:"collection"`
 	Images     []ImageFile    `json:"images"`
+	Set        *BaseSetInfo   `json:"set,omitempty"` // The set the images are from, for the statistics
 }
 
 // HasCollectionImages reports whether the item has collection images to apply
@@ -67,11 +68,37 @@ type DBPosterSetDetail struct {
 	AutoDownload              bool          `json:"auto_download"`
 	AutoAddNewCollectionItems bool          `json:"auto_add_new_collection_items"`
 	NoAutoUpgrade             bool          `json:"no_auto_upgrade"` // Keep this set, Automatically Upgrade Sets doesn't replace it
-	// Fork: pre-stage season-poster/titlecard images for seasons and episodes not yet on the
-	// media server by writing them to the Kometa asset directory. Needs Kometa mode and the show
-	// on the server with at least one episode; no effect otherwise.
-	ForcePreloadMissing bool `json:"force_preload_missing"`
-	ToDelete            bool `json:"to_delete"` // Flag to indicate if the poster set should be deleted (Not used in DB)
+	ToDelete                  bool          `json:"to_delete"`       // Flag to indicate if the poster set should be deleted (Not used in DB)
+	// Fork: pre-stage missing seasons and episodes in Kometa assets.
+	ForcePreloadMissing bool          `json:"force_preload_missing"`
+	OnlyImages          []QueuedImage `json:"only_images,omitempty"` // The images a Download Queue job downloads, when it updates only some of the set (Not used in DB)
+}
+
+// QueuedImage is one of a set's images for a Download Queue job to download, and why
+type QueuedImage struct {
+	ID          string `json:"id"`
+	Type        string `json:"type"`
+	ReasonTitle string `json:"reason_title,omitempty"`
+	Reason      string `json:"reason,omitempty"`
+}
+
+// Downloads reports whether a Download Queue job downloads the image, which is every image unless OnlyImages lists some
+func (d DBPosterSetDetail) Downloads(image ImageFile) bool {
+	if len(d.OnlyImages) == 0 {
+		return true
+	}
+	_, ok := d.QueuedImage(image)
+	return ok
+}
+
+// QueuedImage is the image as OnlyImages lists it, with why it's downloaded
+func (d DBPosterSetDetail) QueuedImage(image ImageFile) (QueuedImage, bool) {
+	for _, queued := range d.OnlyImages {
+		if queued.ID == image.ID && queued.Type == image.Type {
+			return queued, true
+		}
+	}
+	return QueuedImage{}, false
 }
 
 type PosterSet struct {

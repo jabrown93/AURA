@@ -10,7 +10,7 @@ import (
 	"errors"
 )
 
-const LATEST_DB_VERSION = 14
+const LATEST_DB_VERSION = 18
 
 var Client DB
 
@@ -66,6 +66,9 @@ type DB interface {
 
 	// Upsert Converted Saved Item
 	UpsertSavedItem(ctx context.Context, newItem models.DBSavedItem) (Err logging.LogErrorInfo)
+
+	// Save an image that downloaded to the item's saved set
+	SaveDownloadedImage(ctx context.Context, item models.MediaItem, setID string, image models.ImageFile) (saved bool, Err logging.LogErrorInfo)
 
 	// Check Media Item Exists
 	CheckIfMediaItemExists(ctx context.Context, TMDB_ID, libraryTitle, edition string) (ignored bool, ignoredMode string, sets []models.DBSavedSet, logErr logging.LogErrorInfo)
@@ -156,8 +159,17 @@ type DB interface {
 	// Delete all Download Queue Jobs (except those currently processing)
 	DeleteAllDownloadQueueJobs(ctx context.Context) (Err logging.LogErrorInfo)
 
+	// Make a waiting Download Queue Job the next one to run
+	MoveDownloadQueueJobToTop(ctx context.Context, jobID int64) (moved bool, Err logging.LogErrorInfo)
+
+	// Put a waiting Download Queue Job before the waiting jobs that weren't added from the download window
+	MoveDownloadQueueJobAheadOfOthers(ctx context.Context, jobID int64) (moved bool, Err logging.LogErrorInfo)
+
 	// Insert a Download History entry, or update the one for the same item and set
 	InsertDownloadHistoryEntry(ctx context.Context, entry DownloadHistoryEntry) (Err logging.LogErrorInfo)
+
+	// Record a set downloaded, updated or applied again, for the statistics
+	InsertDownloadEvent(ctx context.Context, event models.DownloadEvent) (Err logging.LogErrorInfo)
 
 	// Get Download History entries
 	GetDownloadHistory(ctx context.Context, limit, offset int) (entries []DownloadHistoryEntry, total int, Err logging.LogErrorInfo)
@@ -322,6 +334,9 @@ func Backup(ctx context.Context, currentVersion, newVersion int) (Err logging.Lo
 	return Client.Backup(ctx, currentVersion, newVersion)
 }
 
+// GetMediaItemDetails gets an item's details from the main media server, for the item's library. Set at startup.
+var GetMediaItemDetails func(ctx context.Context, item *models.MediaItem) (found bool)
+
 func UpsertSavedItem(ctx context.Context, newItem models.DBSavedItem) (Err logging.LogErrorInfo) {
 	if Client == nil {
 		return logging.Error_DBClientNotInitialized()
@@ -338,15 +353,20 @@ func UpsertSavedItem(ctx context.Context, newItem models.DBSavedItem) (Err loggi
 			if otherItem.LibraryTitle == newItem.MediaItem.LibraryTitle {
 				continue
 			}
+			// The item's file in the other library, as the file in this library would show as changed there
+			otherMediaItem := otherItem.Clone()
+			if GetMediaItemDetails == nil || !GetMediaItemDetails(ctx, &otherMediaItem) {
+				otherMediaItem = otherItem.Clone()
+			}
+			if (newItem.MediaItem.Type == "movie" && otherMediaItem.Movie == nil) || (newItem.MediaItem.Type == "show" && otherMediaItem.Series == nil) {
+				logSharedLibraryError(logging.LogErrorInfo{Message: "The item's file in this library isn't known, so its sets weren't saved here"},
+					newItem.MediaItem.TMDB_ID, otherItem.LibraryTitle)
+				continue
+			}
 			sharedItem := newItem
 			sharedItem.MediaItem.LibraryTitle = otherItem.LibraryTitle
-			// Use the file info for the other library, if it is known
-			if otherItem.Movie != nil {
-				sharedItem.MediaItem.Movie = otherItem.Movie
-			}
-			if otherItem.Series != nil {
-				sharedItem.MediaItem.Series = otherItem.Series
-			}
+			sharedItem.MediaItem.Movie = otherMediaItem.Movie
+			sharedItem.MediaItem.Series = otherMediaItem.Series
 			Err = Client.UpsertSavedItem(ctx, sharedItem)
 			if Err.Message != "" {
 				return Err
@@ -356,6 +376,13 @@ func UpsertSavedItem(ctx context.Context, newItem models.DBSavedItem) (Err loggi
 	}
 	syncLibraryCache(ctx, newItem.MediaItem.TMDB_ID, newItem.MediaItem.Edition, newItem.MediaItem.LibraryTitle)
 	return logging.LogErrorInfo{}
+}
+
+func SaveDownloadedImage(ctx context.Context, item models.MediaItem, setID string, image models.ImageFile) (saved bool, Err logging.LogErrorInfo) {
+	if Client == nil {
+		return false, logging.Error_DBClientNotInitialized()
+	}
+	return Client.SaveDownloadedImage(ctx, item, setID, image)
 }
 
 func CheckIfMediaItemExists(ctx context.Context, TMDB_ID, libraryTitle, edition string) (ignored bool, ignoreMode string, sets []models.DBSavedSet, logErr logging.LogErrorInfo) {
@@ -609,11 +636,32 @@ func DeleteAllDownloadQueueJobs(ctx context.Context) (Err logging.LogErrorInfo) 
 	return Client.DeleteAllDownloadQueueJobs(ctx)
 }
 
+func MoveDownloadQueueJobToTop(ctx context.Context, jobID int64) (moved bool, Err logging.LogErrorInfo) {
+	if Client == nil {
+		return false, logging.Error_DBClientNotInitialized()
+	}
+	return Client.MoveDownloadQueueJobToTop(ctx, jobID)
+}
+
+func MoveDownloadQueueJobAheadOfOthers(ctx context.Context, jobID int64) (moved bool, Err logging.LogErrorInfo) {
+	if Client == nil {
+		return false, logging.Error_DBClientNotInitialized()
+	}
+	return Client.MoveDownloadQueueJobAheadOfOthers(ctx, jobID)
+}
+
 func InsertDownloadHistoryEntry(ctx context.Context, entry DownloadHistoryEntry) (Err logging.LogErrorInfo) {
 	if Client == nil {
 		return logging.Error_DBClientNotInitialized()
 	}
 	return Client.InsertDownloadHistoryEntry(ctx, entry)
+}
+
+func InsertDownloadEvent(ctx context.Context, event models.DownloadEvent) (Err logging.LogErrorInfo) {
+	if Client == nil {
+		return logging.Error_DBClientNotInitialized()
+	}
+	return Client.InsertDownloadEvent(ctx, event)
 }
 
 func GetDownloadHistory(ctx context.Context, limit, offset int) (entries []DownloadHistoryEntry, total int, Err logging.LogErrorInfo) {

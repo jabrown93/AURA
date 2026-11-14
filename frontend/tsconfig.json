@@ -5,6 +5,7 @@
     "allowJs": true,
     "allowImportingTsExtensions": true,
     "skipLibCheck": true,
+    "types": ["node", "react", "react-dom"],
     "strict": true,
     "noEmit": true,
     "esModuleInterop": true,

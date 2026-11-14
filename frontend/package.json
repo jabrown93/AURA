@@ -11,7 +11,7 @@
     "format": "prettier -l --write \"**/*.{ts,tsx,md,json,js,jsx}\"",
     "format:check": "prettier -l \"**/*.{ts,tsx,md,json,js,jsx}\"",
     "typecheck": "tsc --noEmit",
-    "test": "node --no-warnings --test --experimental-strip-types src/components/layout/app-status-warning.test.ts",
+    "test": "node --no-warnings --test --experimental-strip-types src/components/layout/app-status-warning.test.ts src/components/shared/download-modal.test.mjs",
     "audit": "npm audit",
     "audit:fix": "npm audit fix"
   },
@@ -52,6 +52,7 @@
     "react-hook-form": "7.91.0",
     "react-icons": "5.7.0",
     "react-markdown": "10.1.0",
+    "recharts": "3.10.1",
     "sonner": "2.0.8",
     "tailwind-merge": "3.7.0",
     "zod": "4.6.7",

@@ -143,8 +143,20 @@ type Config_MediaServer struct {
 }
 
 type Config_Mediux struct {
-	ApiToken        string `json:"api_token" yaml:"ApiToken"`               // Authentication token for accessing MediUX services.
-	DownloadQuality string `json:"download_quality" yaml:"DownloadQuality"` // Quality of the media to download from MediUX (Options: "original", "optimized") Defaults to "optimized".
+	ApiToken              string `json:"api_token" yaml:"ApiToken"`                           // Authentication token for accessing MediUX services.
+	DownloadQuality       string `json:"download_quality" yaml:"DownloadQuality"`             // Quality of the media to download from MediUX (Options: "original", "optimized") Defaults to "optimized".
+	SimultaneousDownloads int    `json:"simultaneous_downloads" yaml:"SimultaneousDownloads"` // How many images each download gets at once, and how many Download Queue jobs run at once. The settings page offers 1 to 5. Defaults to 3.
+}
+
+const DefaultSimultaneousDownloads = 3
+
+// SimultaneousDownloads is how many images each download gets at once, and how many Download Queue jobs run at once
+func SimultaneousDownloads() int {
+	n := Current.Mediux.SimultaneousDownloads
+	if n < 1 {
+		return DefaultSimultaneousDownloads
+	}
+	return n
 }
 
 type Config_Jobs struct {
@@ -210,7 +222,7 @@ type Config_SaveImagesLocally struct {
 }
 
 // PageViewPages are the pages whose sort and filter options are saved in the User Preferences
-var PageViewPages = []string{"home", "saved_sets", "collections", "logs", "media_item", "download_queue"}
+var PageViewPages = []string{"home", "saved_sets", "collections", "logs", "media_item", "download_queue", "statistics"}
 
 // maxPageViewSize is the most a page's saved options can take, as JSON
 const maxPageViewSize = 16 << 10
@@ -334,9 +346,9 @@ type Config_UserPreferences struct {
 	DownloadDefaults                 []string                  `json:"download_defaults" yaml:"DownloadDefaults"`                                     // Image types selected by default in the Download Modal.
 	ShowOnlyDownloadDefaults         bool                      `json:"show_only_download_defaults" yaml:"ShowOnlyDownloadDefaults"`                   // Whether to only show the default image types in the Download Modal.
 	ShowDateModified                 bool                      `json:"show_date_modified" yaml:"ShowDateModified"`                                    // Whether to show the date modified on poster sets.
-	DefaultAddToQueue                bool                      `json:"default_add_to_queue" yaml:"DefaultAddToQueue"`                                 // Whether "Add to Queue" is checked by default in the Download Modal.
 	DefaultAddToDBOnly               bool                      `json:"default_add_to_db_only" yaml:"DefaultAddToDBOnly"`                              // Whether "Add to Database Only" is checked by default in the Download Modal.
 	DefaultAutoAddNewCollectionItems bool                      `json:"default_auto_add_new_collection_items" yaml:"DefaultAutoAddNewCollectionItems"` // Whether "Auto Add New Collection Items" is checked by default in the Download Modal.
+	DefaultAutoUpgrade               bool                      `json:"default_auto_upgrade" yaml:"DefaultAutoUpgrade"`                                // Whether "Auto Upgrade" is checked by default in the Download Modal.
 	AutoDownloadNewItems             bool                      `json:"auto_download_new_items" yaml:"AutoDownloadNewItems"`                           // Whether images are downloaded automatically for new items, from the favorite creators.
 	AutoUpgradeSets                  bool                      `json:"auto_upgrade_sets" yaml:"AutoUpgradeSets"`                                      // Whether to automatically upgrade sets when available.
 	AutoIgnoreItemsWithoutSets       bool                      `json:"auto_ignore_items_without_sets" yaml:"AutoIgnoreItemsWithoutSets"`              // Ignore items until artwork becomes available.

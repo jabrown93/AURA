@@ -6,8 +6,10 @@ import {
   ArrowLeftCircle,
   ArrowRightCircle,
   Bookmark as BookmarkIcon,
+  ChartColumn,
   Clock,
   FileCog as FileCogIcon,
+  FlaskConical,
   LayoutGrid,
   ListOrdered,
   LogOutIcon,
@@ -33,6 +35,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
+import { IS_DEV_BUILD } from "@/lib/build-info";
 import { cn } from "@/lib/cn";
 import { DeepResetAllStores } from "@/lib/stores/clear-all-stores";
 import { useCollectionStore } from "@/lib/stores/global-store-collection-store";
@@ -233,7 +236,7 @@ export function Navbar({ version = "dev" }: AppNavbarProps) {
             height: logoSrc === "/aura_logo.svg" ? "30px" : "35px",
           }}
         >
-          <Image src={logoSrc} alt="Logo" fill className="object-contain filter" priority />
+          <Image src={logoSrc} alt="Logo" fill className="object-contain filter" loading="eager" />
         </div>
       </div>
 
@@ -327,6 +330,22 @@ export function Navbar({ version = "dev" }: AppNavbarProps) {
                       {failedCount > 0 && <span className="text-xs text-red-500">{failedCount} Failed</span>}
                     </div>
                   </DropdownMenuItem>
+                  <DropdownMenuItem
+                    className="cursor-pointer flex items-center active:scale-95 hover:brightness-120"
+                    onClick={() => router.push("/statistics")}
+                  >
+                    <ChartColumn className="w-6 h-6 mr-2" />
+                    Statistics
+                  </DropdownMenuItem>
+                  {IS_DEV_BUILD && (
+                    <DropdownMenuItem
+                      className="cursor-pointer flex items-center active:scale-95 hover:brightness-120"
+                      onClick={() => router.push("/sandbox")}
+                    >
+                      <FlaskConical className="w-6 h-6 mr-2" />
+                      Test Sandbox
+                    </DropdownMenuItem>
+                  )}
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
                     className="cursor-pointer flex items-center active:scale-95 hover:brightness-120"

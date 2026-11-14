@@ -445,91 +445,44 @@ func reApplySavedImages(item PlexRefreshedItem) {
 		return
 	}
 
-	applied := 0
-	matchedImages := make([]models.ImageFile, 0)
-	// Track which asset types were actually re-applied so we can hand the same
-	// SelectedTypes the download-queue path passes to AddLabelToMediaItem. This
-	// drives the "Overlay" label removal (and any per-type aura-* labels).
-	appliedTypes := models.SelectedTypes{}
-
+	updates := []models.DBPosterSetDetail{}
 	for _, savedItem := range savedItems.Items {
+		// Only the refreshed edition's saved sets
+		if savedItem.MediaItem.Edition != item.MediaItem.Edition {
+			continue
+		}
 		for _, posterSet := range savedItem.PosterSets {
 			if !posterSet.AutoDownload {
 				continue
 			}
+			update := posterSet
+			update.OnlyImages = nil
 			for _, image := range posterSet.Images {
-				switch image.Type {
-				case "poster":
-					if !posterSet.SelectedTypes.Poster {
-						continue
-					}
-				case "backdrop":
-					if !posterSet.SelectedTypes.Backdrop {
-						continue
-					}
-				case "season_poster":
-					if !posterSet.SelectedTypes.SeasonPoster && !posterSet.SelectedTypes.SpecialSeasonPoster {
-						continue
-					}
-					// If the season number is 0, and we dont have special season poster selected, then skip
-					if image.SeasonNumber != nil && *image.SeasonNumber == 0 && !posterSet.SelectedTypes.SpecialSeasonPoster {
-						continue
-					}
-					// If the season number is greater than 0, and we dont have regular season poster selected, then skip
-					if image.SeasonNumber != nil && *image.SeasonNumber > 0 && !posterSet.SelectedTypes.SeasonPoster {
-						continue
-					}
-				case "titlecard":
-					if !posterSet.SelectedTypes.Titlecard {
-						continue
-					}
-				default:
+				if !models.IsKnownImageType(image.Type) || !models.ImageIsSelected(item.MediaItem, posterSet.SelectedTypes, image) || !shouldReApplyImage(item, image) {
 					continue
 				}
-
-				if !shouldReApplyImage(item, image) {
-					continue
-				}
-
-				matchedImages = append(matchedImages, image)
-				applyErr := mediaserver.DownloadApplyImageToMainMediaServer(logCtx, &item.MediaItem, image)
-				if applyErr.Message != "" {
-					logging.LOGGER.Error().Timestamp().
-						Str("error", applyErr.Message).
-						Str("image_id", image.ID).
-						Str("image_type", image.Type).
-						Str("item_title", item.MediaItem.Title).
-						Str("item_rating_key", item.MediaItem.RatingKey).
-						Msg("Plex Event Listener: Failed to re-apply saved image to refreshed item")
-				} else {
-					applied++
-					markAppliedType(&appliedTypes, image)
-					logging.LOGGER.Info().Timestamp().
-						Str("image_type", image.Type).
-						Str("item_title", item.MediaItem.Title).
-						Str("item_rating_key", item.MediaItem.RatingKey).
-						Msg("Plex Event Listener: Successfully re-applied saved image to refreshed item")
-				}
+				update.OnlyImages = append(update.OnlyImages, models.QueuedImage{
+					ID:          image.ID,
+					Type:        image.Type,
+					ReasonTitle: "Plex Refresh",
+					Reason:      "Plex refreshed the item's metadata, so the saved image is applied again",
+				})
+			}
+			if len(update.OnlyImages) > 0 {
+				updates = append(updates, update)
 			}
 		}
 	}
 
-	if applied == 0 {
-		logging.DevMsgf("Identified %d saved %s images for refreshed item %s, but none matched the criteria for re-application", len(matchedImages), item.ItemType, utils.MediaItemInfo(item.MediaItem))
+	if len(updates) == 0 {
 		logAction.AppendResult("result", "no matching images found for refreshed item")
 		logAction.Complete()
 		return
 	}
-
-	logAction.AppendResult("matched_images", matchedImages)
-	logAction.AppendResult("images_reapplied", applied)
-
-	// Now that we've re-applied the saved images, remove the "Overlay" label (and
-	// apply any per-type aura-* labels) exactly as the download-queue path does, so
-	// Kometa reprocesses the freshly re-applied posters and re-draws its overlays.
-	// Honors LabelsAndTags.RemoveOverlayLabelOnlyOnPosterDownload via appliedTypes.
-	mediaserver.AddLabelToMediaItem(logCtx, item.MediaItem, appliedTypes)
-
+	if Err := addToQueue(logCtx, models.DBSavedItem{MediaItem: item.MediaItem, PosterSets: updates, Source: models.SourcePlexRefresh}); Err.Message != "" {
+		logAction.SetError("Failed to add the saved images to the Download Queue", Err.Message, nil)
+	}
+	logAction.AppendResult("sets_queued", len(updates))
 	logAction.Complete()
 }
 
@@ -537,22 +490,6 @@ func reApplySavedImages(item PlexRefreshedItem) {
 // successfully re-applied. This mirrors the SelectedTypes the download queue passes
 // to AddLabelToMediaItem so the "Overlay" label removal (and any per-type aura-*
 // labels) behave identically on the WebSocket re-apply path.
-func markAppliedType(types *models.SelectedTypes, image models.ImageFile) {
-	switch image.Type {
-	case "poster":
-		types.Poster = true
-	case "backdrop":
-		types.Backdrop = true
-	case "season_poster":
-		if image.SeasonNumber != nil && *image.SeasonNumber == 0 {
-			types.SpecialSeasonPoster = true
-		} else {
-			types.SeasonPoster = true
-		}
-	case "titlecard":
-		types.Titlecard = true
-	}
-}
 
 func shouldReApplyImage(item PlexRefreshedItem, image models.ImageFile) bool {
 	if item.MediaItem.RatingKey == "" || item.MediaItem.LibraryTitle == "" {

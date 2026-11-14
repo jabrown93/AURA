@@ -29,6 +29,14 @@ export const SETTINGS_SEARCH_ENTRIES: SettingsSearchEntry[] = [
     keywords: ["original", "optimized", "resolution"],
     configPath: "download_quality",
   },
+  {
+    sectionId: "mediux",
+    sectionLabel: "MediUX",
+    label: "Simultaneous Downloads",
+    description: "How many images are downloaded at once",
+    keywords: ["parallel", "concurrent", "at once", "speed", "faster", "queue"],
+    configPath: "simultaneous_downloads",
+  },
 
   // Media Server
   {
@@ -331,14 +339,6 @@ export const SETTINGS_SEARCH_ENTRIES: SettingsSearchEntry[] = [
   {
     sectionId: "user-preferences",
     sectionLabel: "User Preferences",
-    label: "Add to Queue by Default",
-    description: 'Check "Add to Queue" when downloading',
-    keywords: ["queue", "download"],
-    configPath: "default_add_to_queue",
-  },
-  {
-    sectionId: "user-preferences",
-    sectionLabel: "User Preferences",
     label: "Add to Database Only by Default",
     description: 'Check "Add to Database Only" when downloading',
     keywords: ["database", "save", "download"],
@@ -351,6 +351,14 @@ export const SETTINGS_SEARCH_ENTRIES: SettingsSearchEntry[] = [
     description: 'Check "Auto Add New Collection Items" when downloading a collection set',
     keywords: ["collection", "auto add", "new movies", "download"],
     configPath: "default_auto_add_new_collection_items",
+  },
+  {
+    sectionId: "user-preferences",
+    sectionLabel: "User Preferences",
+    label: "Auto Upgrade by Default",
+    description: 'Check "Auto Upgrade" when downloading',
+    keywords: ["upgrade", "favorite creators", "keep", "download"],
+    configPath: "default_auto_upgrade",
   },
   {
     sectionId: "user-preferences",

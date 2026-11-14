@@ -26,11 +26,12 @@ func TestSeasonPosterSelected(t *testing.T) {
 		{"season 1 with neither selected", models.SelectedTypes{}, seasonNumber(1), false},
 	}
 
+	item := models.MediaItem{Type: "show", Series: &models.MediaItemSeries{Seasons: []models.MediaItemSeason{{SeasonNumber: 0}, {SeasonNumber: 1}}}}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			image := models.ImageFile{Type: "season_poster", SeasonNumber: tt.seasonNumber}
-			if got := seasonPosterSelected(tt.selectedTypes, image); got != tt.want {
-				t.Errorf("seasonPosterSelected() = %v, want %v", got, tt.want)
+			if got := models.ImageIsSelected(item, tt.selectedTypes, image); got != tt.want {
+				t.Errorf("ImageIsSelected() = %v, want %v", got, tt.want)
 			}
 		})
 	}
