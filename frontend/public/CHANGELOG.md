@@ -1,5 +1,12 @@
 # Changelog
 
+# [2.4.0](https://github.com/jabrown93/AURA/compare/v2.3.0...v2.4.0) (2026-11-14)
+
+
+### Features
+
+* **database:** add PostgreSQL support and offline SQLite import ([#227](https://github.com/jabrown93/AURA/issues/227)) ([4abdfe0](https://github.com/jabrown93/AURA/commit/4abdfe0c6eddbbc54296c038496fb5fccd84acfa))
+
 # [2.3.0](https://github.com/jabrown93/AURA/compare/v2.2.3...v2.3.0) (2026-11-12)
 
 
