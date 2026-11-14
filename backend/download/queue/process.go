@@ -110,6 +110,7 @@ func processQueueJob(ctx, stop context.Context, job database.DownloadQueueJob) {
 
 	fileErrors := []string{}
 	fileWarnings := []string{}
+	appliedImages := []models.ImageFile{}
 
 	finalize := func() {
 		status := "success"
@@ -336,10 +337,11 @@ func processQueueJob(ctx, stop context.Context, job database.DownloadQueueJob) {
 			imageResults = append(imageResults, result)
 		}
 		database.RecordDownloadEvent(ctx, event)
-		if wasStopped {
+		if wasStopped || stop.Err() != nil {
 			stopped()
 			return
 		}
+		appliedImages = append(appliedImages, downloaded...)
 
 		// Only the images that downloaded are saved, so the ones that failed are tried again
 		queueItem.PosterSets[i].Images = imagesToSave(posterSet.Images, results, previousImages[posterSet.ID])
@@ -369,6 +371,11 @@ func processQueueJob(ctx, stop context.Context, job database.DownloadQueueJob) {
 			return
 		}
 		fileErrors = append(fileErrors, errors...)
+	}
+
+	if stop.Err() != nil {
+		stopped()
+		return
 	}
 
 	// Only collection images, there are no sets to save
@@ -423,6 +430,10 @@ func processQueueJob(ctx, stop context.Context, job database.DownloadQueueJob) {
 			selectedTypes.Titlecard = selectedTypes.Titlecard || posterSet.SelectedTypes.Titlecard
 		}
 
+		if queueItem.Source == models.SourcePlexRefresh {
+			selectedTypes = appliedImageTypes(appliedImages)
+		}
+
 		mediaserver.AddLabelToMediaItem(ctx, queueItem.MediaItem, selectedTypes)
 		sonarr_radarr.HandleTags(ctx, queueItem.MediaItem, selectedTypes)
 	}()
@@ -443,7 +454,7 @@ func applyCollectionImages(ctx, stop context.Context, images *models.QueuedColle
 		}
 		event.AddImage(r.Image, r.Err.Message == "")
 	}
-	return errors, stopped
+	return errors, stopped || stop.Err() != nil
 }
 
 // recordDownloadHistory keeps a set's failed download in the history. A set that downloaded without failures clears its earlier ones instead.
@@ -560,17 +571,17 @@ func savedImagesBySet(ctx context.Context, item models.MediaItem) map[string]map
 	return bySet
 }
 
-// imagesToSave is the set's images to save after downloading. A failed image keeps what was saved before, or isn't saved if it's new to the set.
+// imagesToSave advances metadata only for successful downloads, keeping previous metadata for everything else.
 func imagesToSave(setImages []models.ImageFile, results []mediaserver.ImageResult, previous map[string]models.ImageFile) []models.ImageFile {
-	failed := map[string]bool{}
+	succeeded := map[string]bool{}
 	for _, result := range results {
-		if result.Err.Message != "" {
-			failed[imageKey(result.Image)] = true
+		if result.Err.Message == "" && !result.Stopped {
+			succeeded[imageKey(result.Image)] = true
 		}
 	}
 	images := make([]models.ImageFile, 0, len(setImages))
 	for _, image := range setImages {
-		if !failed[imageKey(image)] {
+		if succeeded[imageKey(image)] {
 			images = append(images, image)
 			continue
 		}
@@ -579,6 +590,27 @@ func imagesToSave(setImages []models.ImageFile, results []mediaserver.ImageResul
 		}
 	}
 	return images
+}
+
+// appliedImageTypes keeps refresh labels scoped to images that actually reached Plex.
+func appliedImageTypes(images []models.ImageFile) (selected models.SelectedTypes) {
+	for _, image := range images {
+		switch image.Type {
+		case "poster":
+			selected.Poster = true
+		case "backdrop":
+			selected.Backdrop = true
+		case "season_poster":
+			if image.SeasonNumber != nil && *image.SeasonNumber == 0 {
+				selected.SpecialSeasonPoster = true
+			} else {
+				selected.SeasonPoster = true
+			}
+		case "titlecard":
+			selected.Titlecard = true
+		}
+	}
+	return selected
 }
 
 func imageKey(image models.ImageFile) string {

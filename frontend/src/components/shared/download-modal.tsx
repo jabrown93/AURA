@@ -350,6 +350,7 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
   // The window's jobs in the Download Queue, their progress, and the task each job is for
   const [jobProgress, setJobProgress] = useState<Record<number, DownloadQueueProgress>>({});
   const queueJobsRef = useRef<Record<number, AddToQueueTaskPayload & { taskId: string }>>({});
+  const terminalJobsRef = useRef<Record<number, { status: "completed" | "failed"; error?: string }>>({});
   const [waitingJobs, setWaitingJobs] = useState(0);
   const [followingQueue, setFollowingQueue] = useState(false);
   const [queuingDone, setQueuingDone] = useState(false);
@@ -395,6 +396,7 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
     resetProgress();
     // The jobs keep going in the Download Queue
     queueJobsRef.current = {};
+    terminalJobsRef.current = {};
     setJobProgress({});
     setWaitingJobs(0);
     setFollowingQueue(false);
@@ -836,6 +838,8 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
       queueJobsRef.current[jobId] = { ...payload, jobId, taskId };
       setWaitingJobs((n) => n + 1);
       updateTask(taskId, (t) => ({ ...t, payload: { ...payload, jobId } }));
+      const terminal = terminalJobsRef.current[jobId];
+      if (terminal) finishQueueJob(jobId, terminal.status, terminal.error);
       return true;
     } catch (error) {
       updateTask(taskId, (t) => ({
@@ -868,7 +872,12 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
   // finishQueueJob records how the window's job ended in the Download Queue
   const finishQueueJob = (jobId: number, status: "completed" | "failed", error?: string) => {
     const job = queueJobsRef.current[jobId];
-    if (!job) return;
+    if (!job) {
+      // Workers can finish before the enqueue response registers this job.
+      terminalJobsRef.current[jobId] = { status, error };
+      return;
+    }
+    delete terminalJobsRef.current[jobId];
     delete queueJobsRef.current[jobId];
     updateTask(job.taskId, (t) => ({ ...t, status, error }));
     // The set is saved when its job finishes, unless the job was stopped
@@ -1495,6 +1504,7 @@ const DownloadModal: React.FC<DownloadModalProps> = ({
 
       // Follow the jobs in the Download Queue from the start, so none of their updates are missed
       queueJobsRef.current = {};
+      terminalJobsRef.current = {};
       setJobProgress({});
       setWaitingJobs(0);
       setFollowingQueue(true);

@@ -17,6 +17,7 @@ func TestImagesToSave(t *testing.T) {
 		{ID: "backdrop", Type: "backdrop", Modified: day(9)},
 		{ID: "e1", Type: "titlecard", Modified: day(9)},
 		{ID: "logo", Type: "logo", Modified: day(9)},
+		{ID: "unattempted", Type: "titlecard", Modified: day(9)},
 	}
 	results := []mediaserver.ImageResult{
 		{Image: setImages[0]},
@@ -25,6 +26,7 @@ func TestImagesToSave(t *testing.T) {
 	}
 	previous := map[string]models.ImageFile{
 		"backdrop|backdrop": {ID: "backdrop", Type: "backdrop", Modified: day(1)},
+		"logo|logo":         {ID: "logo", Type: "logo", Modified: day(1)},
 	}
 
 	saved := map[string]time.Time{}
@@ -43,9 +45,44 @@ func TestImagesToSave(t *testing.T) {
 	if _, ok := saved["e1"]; ok {
 		t.Error("the failed new title card shouldn't be saved")
 	}
-	// Images the job didn't download are saved as they are
-	if !saved["logo"].Equal(day(9)) {
-		t.Errorf("logo saved with %v, want it saved as it is", saved["logo"])
+	if !saved["logo"].Equal(day(1)) {
+		t.Errorf("unattempted logo saved with %v, want previous date", saved["logo"])
+	}
+	if _, ok := saved["unattempted"]; ok {
+		t.Error("unattempted new image should not be saved")
+	}
+}
+
+func TestAppliedImageTypes(t *testing.T) {
+	special := 0
+	season := 1
+	for _, tc := range []struct {
+		name   string
+		images []models.ImageFile
+		want   models.SelectedTypes
+	}{
+		{"episode refresh", []models.ImageFile{{Type: "titlecard"}}, models.SelectedTypes{Titlecard: true}},
+		{"season refresh", []models.ImageFile{{Type: "season_poster", SeasonNumber: &season}}, models.SelectedTypes{SeasonPoster: true}},
+		{"special refresh", []models.ImageFile{{Type: "season_poster", SeasonNumber: &special}}, models.SelectedTypes{SpecialSeasonPoster: true}},
+		{"poster and backdrop", []models.ImageFile{{Type: "poster"}, {Type: "backdrop"}}, models.SelectedTypes{Poster: true, Backdrop: true}},
+		{"no successful images", nil, models.SelectedTypes{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := appliedImageTypes(tc.images); got != tc.want {
+				t.Errorf("applied image types = %+v, want %+v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestCollectionImagesDetectsCancellationAfterBatch(t *testing.T) {
+	ctx, ld := logging.CreateLoggingContext(context.Background(), "test")
+	defer ld.Log()
+	stop, cancel := context.WithCancel(ctx)
+	cancel()
+	_, stopped := applyCollectionImages(ctx, stop, &models.QueuedCollectionImages{}, "", newJobProgress(1, "test", nil))
+	if !stopped {
+		t.Fatal("cancellation must be detected even without a stopped image result")
 	}
 }
 
