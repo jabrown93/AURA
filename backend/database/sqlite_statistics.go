@@ -84,6 +84,10 @@ func statisticsQuery(ctx context.Context, query string, args ...any) (*sql.Rows,
 
 // GetDownloadEventTotals returns the downloads of each kind since a time
 func GetDownloadEventTotals(ctx context.Context, since time.Time) (totals []DownloadEventTotal, Err logging.LogErrorInfo) {
+	// Fork: PostgreSQL owns its queries; upstream SQLite SQL stays unchanged.
+	if postgres, ok := Client.(*PostgresDB); ok {
+		return postgres.GetDownloadEventTotals(ctx, since)
+	}
 	where, args := sinceSQL(since)
 	rows, Err := statisticsQuery(ctx, fmt.Sprintf(`
 SELECT kind, media_item_type = 'collection', COUNT(*), SUM(images_succeeded), SUM(images_failed), SUM(bytes), SUM(estimated)
@@ -105,6 +109,10 @@ GROUP BY kind, media_item_type = 'collection';`, where), args...)
 
 // GetDownloadEventTimeline returns the downloads of each kind for each day, week or month since a time
 func GetDownloadEventTimeline(ctx context.Context, since time.Time, period string) (buckets []DownloadEventBucket, Err logging.LogErrorInfo) {
+	// Fork: PostgreSQL owns its queries; upstream SQLite SQL stays unchanged.
+	if postgres, ok := Client.(*PostgresDB); ok {
+		return postgres.GetDownloadEventTimeline(ctx, since, period)
+	}
 	where, args := sinceSQL(since)
 	rows, Err := statisticsQuery(ctx, fmt.Sprintf(`
 SELECT %s AS bucket, kind, media_item_type = 'collection', COUNT(*), SUM(images_succeeded), SUM(images_failed), SUM(bytes)
@@ -128,6 +136,10 @@ ORDER BY bucket;`, periodSQL(period), where), args...)
 // GetDownloadEventGroups returns the sets and images by creator or source since a time, the most sets first.
 // Sets are downloads, collection images and updates only count as images.
 func GetDownloadEventGroups(ctx context.Context, since time.Time, groupBy string, limit int) (groups []DownloadEventGroup, Err logging.LogErrorInfo) {
+	// Fork: PostgreSQL owns its queries; upstream SQLite SQL stays unchanged.
+	if postgres, ok := Client.(*PostgresDB); ok {
+		return postgres.GetDownloadEventGroups(ctx, since, groupBy, limit)
+	}
 	column := map[string]string{"creator": "set_creator", "source": "source"}[groupBy]
 	if column == "" {
 		return nil, logging.LogErrorInfo{Message: fmt.Sprintf("Unknown download group '%s'", groupBy)}
@@ -155,6 +167,10 @@ LIMIT ?;`, column, where), append(args, limit)...)
 
 // GetDownloadEventImageTypes returns the images downloaded of each type since a time
 func GetDownloadEventImageTypes(ctx context.Context, since time.Time) (types []NameCount, Err logging.LogErrorInfo) {
+	// Fork: PostgreSQL owns its queries; upstream SQLite SQL stays unchanged.
+	if postgres, ok := Client.(*PostgresDB); ok {
+		return postgres.GetDownloadEventImageTypes(ctx, since)
+	}
 	where, args := sinceSQL(since)
 	rows, Err := statisticsQuery(ctx, fmt.Sprintf(`
 SELECT image_type.key, SUM(image_type.value)
@@ -178,6 +194,10 @@ ORDER BY 2 DESC;`, where), args...)
 
 // GetRedownloadCount returns how many set downloads since a time were of a set already downloaded for the item
 func GetRedownloadCount(ctx context.Context, since time.Time) (redownloads int, Err logging.LogErrorInfo) {
+	// Fork: PostgreSQL owns its queries; upstream SQLite SQL stays unchanged.
+	if postgres, ok := Client.(*PostgresDB); ok {
+		return postgres.GetRedownloadCount(ctx, since)
+	}
 	where, args := sinceSQL(since)
 	rows, Err := statisticsQuery(ctx, fmt.Sprintf(`
 SELECT COUNT(*)
@@ -204,6 +224,10 @@ WHERE %s AND event.kind = 'download' AND event.media_item_type != 'collection'
 
 // GetFailureReasons returns the most common reasons images failed, from the Download History
 func GetFailureReasons(ctx context.Context, limit int) (reasons []NameCount, Err logging.LogErrorInfo) {
+	// Fork: PostgreSQL owns its queries; upstream SQLite SQL stays unchanged.
+	if postgres, ok := Client.(*PostgresDB); ok {
+		return postgres.GetFailureReasons(ctx, limit)
+	}
 	rows, Err := statisticsQuery(ctx, `
 SELECT COALESCE(NULLIF(json_extract(failed.value, '$.failure_reason'), ''), 'Unknown'), COUNT(*)
 FROM DownloadHistory, json_each(DownloadHistory.failed_images) AS failed
@@ -226,6 +250,10 @@ LIMIT ?;`, limit)
 
 // UpsertStatisticsSnapshot saves the numbers of a day, replacing that day's earlier numbers
 func UpsertStatisticsSnapshot(ctx context.Context, date string, data string) logging.LogErrorInfo {
+	// Fork: PostgreSQL owns its queries; upstream SQLite SQL stays unchanged.
+	if postgres, ok := Client.(*PostgresDB); ok {
+		return postgres.UpsertStatisticsSnapshot(ctx, date, data)
+	}
 	conn, _, Err := GetDBConnection(ctx)
 	if Err.Message != "" {
 		return Err
@@ -240,6 +268,10 @@ ON CONFLICT(snapshot_date) DO UPDATE SET data = excluded.data, updated_at = excl
 
 // GetStatisticsSnapshots returns the daily numbers from a day, the oldest first
 func GetStatisticsSnapshots(ctx context.Context, sinceDate string) (snapshots []StatisticsSnapshot, Err logging.LogErrorInfo) {
+	// Fork: PostgreSQL owns its queries; upstream SQLite SQL stays unchanged.
+	if postgres, ok := Client.(*PostgresDB); ok {
+		return postgres.GetStatisticsSnapshots(ctx, sinceDate)
+	}
 	rows, Err := statisticsQuery(ctx, `
 SELECT snapshot_date, data FROM StatisticsSnapshots WHERE snapshot_date >= ? ORDER BY snapshot_date;`, sinceDate)
 	if Err.Message != "" {
@@ -258,6 +290,10 @@ SELECT snapshot_date, data FROM StatisticsSnapshots WHERE snapshot_date >= ? ORD
 
 // CollectionCounts is the collections aura applied their own images to, and the collection sets saved for movies
 func CollectionCounts(ctx context.Context) (withImages int, savedCollectionSets int, Err logging.LogErrorInfo) {
+	// Fork: PostgreSQL owns its queries; upstream SQLite SQL stays unchanged.
+	if postgres, ok := Client.(*PostgresDB); ok {
+		return postgres.CollectionCounts(ctx)
+	}
 	rows, Err := statisticsQuery(ctx, `
 SELECT
   (SELECT COUNT(DISTINCT tmdb_id || '|' || library_title) FROM DownloadEvents WHERE media_item_type = 'collection' AND images_succeeded > 0),
@@ -276,6 +312,10 @@ SELECT
 
 // CountDownloadHistory returns how many downloads are in the Download History
 func CountDownloadHistory(ctx context.Context) (count int, Err logging.LogErrorInfo) {
+	// Fork: PostgreSQL owns its queries; upstream SQLite SQL stays unchanged.
+	if postgres, ok := Client.(*PostgresDB); ok {
+		return postgres.CountDownloadHistory(ctx)
+	}
 	rows, Err := statisticsQuery(ctx, `SELECT COUNT(*) FROM DownloadHistory;`)
 	if Err.Message != "" {
 		return 0, Err

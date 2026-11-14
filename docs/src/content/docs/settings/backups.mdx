@@ -9,7 +9,9 @@ import { Aside, Steps } from "@astrojs/starlight/components";
 
 ![Settings > Backups](../../../assets/screenshots/settings_backups.png)
 
-aura backs up its database every day with the **Backup Database** job (at 3:00 AM by default, see [Jobs](/AURA/how-to-use/jobs/)). Each backup is a complete copy of the database, with your settings, saved sets and download history.
+These controls apply to **SQLite only**. With [PostgreSQL](/AURA/installation/postgresql/), backups, restores, retention, and maintenance are operator-managed; AURA does not schedule SQLite backups or offer file-backup controls.
+
+aura backs up its SQLite database every day with the **Backup Database** job (at 3:00 AM by default, see [Jobs](/AURA/how-to-use/jobs/)). Each backup is a complete copy of the database, with your settings, saved sets and download history.
 
 ## Keep Backups
 

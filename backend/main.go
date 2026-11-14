@@ -55,6 +55,11 @@ func main() {
 	stopCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// Fork: offline imports must finish before API startup or database-backed workers.
+	if handled, code := forkDatabaseCommand(stopCtx, os.Args[1:], os.Stdout, os.Stderr); handled {
+		os.Exit(code)
+	}
+
 	// Serve immediately with onboarding/public routes first.
 	config.AppFullyLoaded = false
 	config.AppVersion = APP_VERSION

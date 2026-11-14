@@ -40,6 +40,10 @@ func StartBackupDatabaseJob() error {
 	}
 
 	removeScheduledJob(JobKeyBackupDatabase)
+	// Fork: PostgreSQL backups are operator-managed, regardless of imported schedule settings.
+	if database.IsPostgres() {
+		return nil
+	}
 
 	enabled, spec := config.Current.Jobs.BackupDatabase.Resolve(config.JobDefaults.BackupDatabase)
 	if !enabled {

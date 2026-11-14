@@ -203,7 +203,7 @@ type DB interface {
 }
 
 func NewDatabaseClient() (DB, logging.LogErrorInfo) {
-	return &SQliteDB{}, logging.LogErrorInfo{}
+	return forkDatabaseClient() // Fork: SQLite remains the default.
 }
 
 func GetDBConnection(ctx context.Context) (conn *sql.DB, newDB bool, Err logging.LogErrorInfo) {

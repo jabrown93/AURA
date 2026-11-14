@@ -2,6 +2,7 @@ package jobs
 
 import (
 	"aura/config"
+	"aura/database"
 	"aura/logging"
 	"context"
 	"fmt"
@@ -189,6 +190,10 @@ func StartJob(key JobKey) error {
 
 // TriggerJob runs a job immediately, regardless of whether it is currently enabled/scheduled for automatic runs
 func TriggerJob(key JobKey) error {
+	// Fork: PostgreSQL backups must be run by its operator.
+	if key == JobKeyBackupDatabase && database.IsPostgres() {
+		return fmt.Errorf("PostgreSQL backups are operator-managed")
+	}
 	def, ok := findJobDefinition(key)
 	if !ok {
 		return fmt.Errorf("unknown job: %s", key)
@@ -260,6 +265,10 @@ func GetListOfJobs() []JobInfo {
 
 	jobsList := make([]JobInfo, 0, len(jobDefinitions))
 	for _, def := range jobDefinitions {
+		// Fork: do not offer an unsupported SQLite backup action.
+		if def.Key == JobKeyBackupDatabase && database.IsPostgres() {
+			continue
+		}
 		enabled, cron := def.Setting().Resolve(def.Default)
 
 		info := JobInfo{

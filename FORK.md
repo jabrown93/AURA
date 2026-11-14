@@ -47,12 +47,14 @@ the target upstream commit and compare.
 5. **Schema:** fork columns are added by `applyForkSchema` in
    `backend/database/migration/fork_migrations.go`, never as a numbered migration, so upstream's
    numbering can't collide with ours again.
-6. New behavioral conflicts the policy does not cover: record a decision here before merging.
+6. **PostgreSQL:** keep upstream SQLite implementations and numbered migrations intact. Port storage behavior explicitly into `backend/database/fork_postgres_*`; never mark the database tree fork-owned. `scripts/check-postgres-compat.sh` checks `.postgres-storage-contract` against production database/migration, model, and config sources. CI and sync `--finish` block on drift. Review SQL/schema/config/JSON/queue changes, update PostgreSQL and offline import as needed, run real SQLite/PostgreSQL contracts, then explicitly run `scripts/check-postgres-compat.sh --record`. A matching hash acknowledges review; it does not prove correctness.
+7. New behavioral conflicts the policy does not cover: record a decision here before merging.
 
 ## Fork differences
 
 | Area | Behavior | Where |
 | --- | --- | --- |
+| PostgreSQL | Optional environment-selected backend; SQLite default. Independent transactional schema ledger, explicit pgx SQL, offline one-way SQLite snapshot import, operator-owned PostgreSQL backups. Single AURA instance only. PostgreSQL statistics bucket in UTC. | `backend/database/fork_postgres_*`, `backend/database/fork_database_driver.go`, `backend/database/migration/fork_postgres_import.go`, `backend/fork_database_cli.go`, `docs/src/content/docs/installation/postgresql.mdx` |
 | Container | Shell-less, rootless DHI Node runtime; `docker/launcher.mjs` supervises both processes and forwards SIGTERM. No `HEALTHCHECK` (no `wget` in the image). | `Dockerfile`, `docker/launcher.mjs` |
 | HTTPS | `TLS_CERT_FILE`/`TLS_KEY_FILE` add HTTPS listeners on 3443 (UI) and 8443 (API). | `backend/fork_startup.go`, `docker/launcher.mjs` |
 | Versioning | semantic-release from Conventional Commits; the in-app changelog shows fork releases. | `.releaserc.js`, `version-release.yml` |

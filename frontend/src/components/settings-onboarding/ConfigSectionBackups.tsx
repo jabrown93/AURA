@@ -78,6 +78,17 @@ export const ConfigSectionBackups: React.FC<ConfigSectionBackupsProps> = ({
     setBackups(response.data);
   };
 
+  if (backups?.supported === false) {
+    return (
+      <Card className="p-4 sm:p-5">
+        <p className="text-sm text-muted-foreground">
+          PostgreSQL backups and maintenance are operator-managed. Use pg_dump or your database server’s backup tools.
+          SQLite file backups and backup jobs are unavailable for this database.
+        </p>
+      </Card>
+    );
+  }
+
   return (
     <Card className={cn("gap-4 p-4 sm:p-5", errors.keep ? "border-red-500" : "border-muted")}>
       {/* Keep Backups */}
@@ -119,7 +130,13 @@ export const ConfigSectionBackups: React.FC<ConfigSectionBackupsProps> = ({
               </p>
             </PopoverHelp>
           </div>
-          <Button variant="outline" size="sm" onClick={handleBackUpNow} disabled={backingUp} className="cursor-pointer">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleBackUpNow}
+            disabled={backingUp || !backups || !!loadError}
+            className="cursor-pointer"
+          >
             {backingUp ? <Loader2 className="h-4 w-4 animate-spin" /> : <DatabaseBackup className="h-4 w-4" />}
             Back Up Now
           </Button>

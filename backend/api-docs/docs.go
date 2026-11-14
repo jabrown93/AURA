@@ -1078,6 +1078,12 @@ const docTemplate = `{
                         "schema": {
                             "$ref": "#/definitions/httpx.JSONResponse"
                         }
+                    },
+                    "501": {
+                        "description": "PostgreSQL backups are operator-managed",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.JSONResponse"
+                        }
                     }
                 }
             }
@@ -2529,6 +2535,43 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/images/kometa/item": {
+            "get": {
+                "description": "Serve a locally-imported Kometa asset by its image ID (kometa|\u003cfolder\u003e/\u003cfile\u003e) from the configured asset directory.",
+                "produces": [
+                    "image/jpeg",
+                    "image/png",
+                    "image/webp"
+                ],
+                "tags": [
+                    "Images"
+                ],
+                "summary": "Get Kometa Asset Image",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Kometa image ID (kometa|\u003cfolder\u003e/\u003cfile\u003e)",
+                        "name": "asset_id",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Image data",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.JSONResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/images/media/collection": {
             "get": {
                 "description": "Get a collection item image (poster or backdrop) from the media server by rating key and image type",
@@ -2852,6 +2895,111 @@ const docTemplate = `{
                                     "properties": {
                                         "data": {
                                             "$ref": "#/definitions/routes_jobs.runJobResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized (only when Auth.Enabled=true)",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.UnauthorizedResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Job is already running",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.JSONResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.JSONResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/kometa/import": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Return whether a Kometa asset import is currently running and the result of the most recent run.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Kometa"
+                ],
+                "summary": "Get Kometa Asset Import Status",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/httpx.JSONResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/routes_kometa.importResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized (only when Auth.Enabled=true)",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.UnauthorizedResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.JSONResponse"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Scan the configured Kometa asset directory, upload matching assets to Plex, and record them in the database. Runs asynchronously; poll GET /api/kometa/import for progress.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Kometa"
+                ],
+                "summary": "Trigger Kometa Asset Import",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/httpx.JSONResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/routes_kometa.importResponse"
                                         }
                                     }
                                 }
@@ -4730,6 +4878,38 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/radarr/webhook": {
+            "post": {
+                "description": "Apply saved collection sets to a movie newly imported by Radarr.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sonarr-Radarr"
+                ],
+                "summary": "Radarr Webhook",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Library title the movie belongs to",
+                        "name": "library",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
         "/api/search": {
             "get": {
                 "description": "Perform a search across media items, collection items, Mediux users, and saved sets based on the provided query and filters. The search supports filtering by year, library section, and unique identifiers (TMDB ID or RatingKey) using specific query syntax. The response includes matching media items, collection items, Mediux users, and saved sets, along with metadata about the last full update for each category to help clients determine if they need to refresh their cached data.",
@@ -5532,6 +5712,13 @@ const docTemplate = `{
                         "type": "string"
                     }
                 },
+                "allowed_groups": {
+                    "description": "Groups permitted to sign in.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "client_id": {
                     "description": "OIDC client ID.",
                     "type": "string"
@@ -5543,6 +5730,10 @@ const docTemplate = `{
                 "enabled": {
                     "description": "Whether OIDC (Single Sign-On) login is enabled.",
                     "type": "boolean"
+                },
+                "groups_claim": {
+                    "description": "Fork: group-based authorization. When AllowedGroups is set the user must be in one of them.",
+                    "type": "string"
                 },
                 "issuer_url": {
                     "description": "OIDC issuer URL (used for discovery).",
@@ -5627,6 +5818,14 @@ const docTemplate = `{
                         }
                     ]
                 },
+                "kometa": {
+                    "description": "Fork: Kometa asset directory integration (Plex only).",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/config.Config_Kometa"
+                        }
+                    ]
+                },
                 "save_images_locally": {
                     "description": "Settings for saving images locally alongside content.",
                     "allOf": [
@@ -5652,6 +5851,14 @@ const docTemplate = `{
         "config.Config_Jobs": {
             "type": "object",
             "properties": {
+                "anidb_refresh": {
+                    "description": "Schedule for refreshing the AniDB mapping used for HAMA anime items.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/config.Config_JobSetting"
+                        }
+                    ]
+                },
                 "auto_download": {
                     "description": "Schedule for auto-downloads.",
                     "allOf": [
@@ -5700,6 +5907,14 @@ const docTemplate = `{
                         }
                     ]
                 },
+                "kometa_import": {
+                    "description": "Fork: fork-only jobs, see ForkJobDefaults.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/config.Config_JobSetting"
+                        }
+                    ]
+                },
                 "refresh_media_items_and_collections": {
                     "description": "Schedule for refreshing media items and collections from media server.",
                     "allOf": [
@@ -5723,6 +5938,30 @@ const docTemplate = `{
                             "$ref": "#/definitions/config.Config_JobSetting"
                         }
                     ]
+                }
+            }
+        },
+        "config.Config_Kometa": {
+            "type": "object",
+            "properties": {
+                "asset_directory": {
+                    "description": "Path to the Kometa asset directory (the same directory Kometa reads assets from). Uses the folder-per-item (asset_folders: true) layout.",
+                    "type": "string"
+                },
+                "enabled": {
+                    "description": "Whether to write downloaded images into the Kometa asset directory using Kometa naming conventions. Plex exclusive feature.",
+                    "type": "boolean"
+                },
+                "library_asset_folders": {
+                    "description": "Optional per-library subfolder (relative to AssetDirectory) keyed by Plex library title. When set, a library's assets are written to \u003cAssetDirectory\u003e/\u003csubfolder\u003e/\u003citem\u003e/... instead of directly under AssetDirectory. Must match the per-library asset_directory configured in Kometa itself. A library with no entry keeps writing flat to AssetDirectory.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "sonarr_radarr_fallback": {
+                    "description": "When a media-server lookup fails (e.g. Plex returns a 404) but the item exists in Sonarr/Radarr, still write the downloaded images into the Kometa asset directory, deriving the asset folder name from the Sonarr/Radarr path. Requires Enabled. Plex exclusive feature.",
+                    "type": "boolean"
                 }
             }
         },
@@ -6427,6 +6666,10 @@ const docTemplate = `{
                 "set_title": {
                     "type": "string"
                 },
+                "source": {
+                    "description": "What added the download that failed, empty for failures from before it was saved",
+                    "type": "string"
+                },
                 "status": {
                     "type": "string"
                 },
@@ -6550,6 +6793,87 @@ const docTemplate = `{
                 },
                 "spec": {
                     "type": "string"
+                }
+            }
+        },
+        "kometa.FolderOutcome": {
+            "type": "object",
+            "properties": {
+                "detail": {
+                    "type": "string"
+                },
+                "folder": {
+                    "type": "string"
+                },
+                "images_failed": {
+                    "type": "integer"
+                },
+                "images_skipped_owned": {
+                    "description": "assets not uploaded because a MediUX set owns their image type",
+                    "type": "integer"
+                },
+                "images_uploaded": {
+                    "type": "integer"
+                },
+                "managed_by_aura": {
+                    "description": "one or more image types were skipped to protect MediUX selections",
+                    "type": "boolean"
+                },
+                "outcome": {
+                    "description": "matched, unmatched, collection, skipped, error",
+                    "type": "string"
+                },
+                "registered_in_db": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "kometa.ImportResult": {
+            "type": "object",
+            "properties": {
+                "collections": {
+                    "type": "integer"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "finished_at": {
+                    "type": "string"
+                },
+                "folders": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/kometa.FolderOutcome"
+                    }
+                },
+                "folders_scanned": {
+                    "type": "integer"
+                },
+                "images_failed": {
+                    "type": "integer"
+                },
+                "images_skipped_owned": {
+                    "description": "assets not uploaded because a MediUX set owns their image type",
+                    "type": "integer"
+                },
+                "images_uploaded": {
+                    "type": "integer"
+                },
+                "items_registered": {
+                    "type": "integer"
+                },
+                "matched": {
+                    "type": "integer"
+                },
+                "skipped_managed_by_aura": {
+                    "description": "items where at least one image type was protected",
+                    "type": "integer"
+                },
+                "started_at": {
+                    "type": "string"
+                },
+                "unmatched_folders": {
+                    "type": "integer"
                 }
             }
         },
@@ -7130,6 +7454,10 @@ const docTemplate = `{
                 "date_updated": {
                     "description": "Last updated date",
                     "type": "string"
+                },
+                "force_preload_missing": {
+                    "description": "Fork: pre-stage missing seasons and episodes in Kometa assets.",
+                    "type": "boolean"
                 },
                 "id": {
                     "description": "Set ID",
@@ -7880,9 +8208,19 @@ const docTemplate = `{
                     "description": "Friendly name of the media server",
                     "type": "string"
                 },
+                "media_server_reachable": {
+                    "description": "Fork: an outage is a degraded state shown in the navbar, not a reason to open setup.",
+                    "type": "boolean"
+                },
+                "mediux_reachable": {
+                    "type": "boolean"
+                },
                 "mediux_site_link": {
                     "description": "Current Mediux site link",
                     "type": "string"
+                },
+                "mediux_valid": {
+                    "type": "boolean"
                 },
                 "needs_setup": {
                     "description": "Whether the app needs initial setup",
@@ -8102,6 +8440,10 @@ const docTemplate = `{
                 "keep": {
                     "description": "How many backups are kept",
                     "type": "integer"
+                },
+                "supported": {
+                    "description": "Fork: SQLite file backups only.",
+                    "type": "boolean"
                 }
             }
         },
@@ -8122,6 +8464,10 @@ const docTemplate = `{
                 "keep": {
                     "description": "How many backups are kept",
                     "type": "integer"
+                },
+                "supported": {
+                    "description": "Fork: SQLite file backups only.",
+                    "type": "boolean"
                 }
             }
         },
@@ -8433,6 +8779,20 @@ const docTemplate = `{
             "properties": {
                 "message": {
                     "type": "string"
+                }
+            }
+        },
+        "routes_kometa.importResponse": {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "type": "string"
+                },
+                "result": {
+                    "$ref": "#/definitions/kometa.ImportResult"
+                },
+                "running": {
+                    "type": "boolean"
                 }
             }
         },

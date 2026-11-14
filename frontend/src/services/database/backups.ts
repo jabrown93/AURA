@@ -12,6 +12,7 @@ export interface DatabaseBackup {
 }
 
 export interface DatabaseBackups_Response {
+  supported?: boolean;
   backups: DatabaseBackup[]; // Newest first
   folder: string; // Where the backups are saved
   keep: number; // How many backups are kept

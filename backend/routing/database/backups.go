@@ -9,9 +9,10 @@ import (
 )
 
 type databaseBackupsResponse struct {
-	Backups []database.DatabaseBackup `json:"backups"` // Newest first
-	Folder  string                    `json:"folder"`  // Where the backups are saved
-	Keep    int                       `json:"keep"`    // How many backups are kept
+	Supported bool                      `json:"supported"` // Fork: SQLite file backups only.
+	Backups   []database.DatabaseBackup `json:"backups"`   // Newest first
+	Folder    string                    `json:"folder"`    // Where the backups are saved
+	Keep      int                       `json:"keep"`      // How many backups are kept
 }
 
 type createDatabaseBackupResponse struct {
@@ -47,6 +48,7 @@ func GetDatabaseBackups(w http.ResponseWriter, r *http.Request) {
 // @Security     ApiKeyAuth
 // @Failure      401  {object}  httpx.UnauthorizedResponse "Unauthorized (only when Auth.Enabled=true)"
 // @Success      200  {object}  httpx.JSONResponse{data=createDatabaseBackupResponse}
+// @Failure      501  {object}  httpx.JSONResponse "PostgreSQL backups are operator-managed"
 // @Failure      500  {object}  httpx.JSONResponse "Internal Server Error"
 // @Router       /api/db/backups [post]
 func CreateDatabaseBackup(w http.ResponseWriter, r *http.Request) {
@@ -54,6 +56,12 @@ func CreateDatabaseBackup(w http.ResponseWriter, r *http.Request) {
 	logAction := ld.AddAction("Create Database Backup", logging.LevelInfo)
 	ctx = logging.WithCurrentAction(ctx, logAction)
 
+	// Fork: reject unsupported backups before touching SQLite files.
+	if database.IsPostgres() {
+		logAction.SetError("PostgreSQL backups are operator-managed", "Use pg_dump or server backups", nil)
+		httpx.SendResponseWithStatus(w, ld, nil, http.StatusNotImplemented)
+		return
+	}
 	var response createDatabaseBackupResponse
 	backup, Err := database.CreateBackup(ctx, config.Current.Backups.Keep)
 	if Err.Message != "" {
@@ -67,7 +75,10 @@ func CreateDatabaseBackup(w http.ResponseWriter, r *http.Request) {
 
 // listDatabaseBackups returns the backups, and sets an error on the action if they can't be read
 func listDatabaseBackups(logAction *logging.LogAction) (response databaseBackupsResponse, ok bool) {
-	response = databaseBackupsResponse{Backups: []database.DatabaseBackup{}, Folder: database.BackupsFolder(), Keep: config.Current.Backups.Keep}
+	if database.IsPostgres() { // Fork: no SQLite files belong to this database.
+		return databaseBackupsResponse{Backups: []database.DatabaseBackup{}}, true
+	}
+	response = databaseBackupsResponse{Supported: true, Backups: []database.DatabaseBackup{}, Folder: database.BackupsFolder(), Keep: config.Current.Backups.Keep}
 	backups, err := database.ListBackups()
 	if err != nil {
 		logAction.SetError("Could not read the backups folder", "Make sure the config folder can be read", map[string]any{"error": err.Error(), "folder": response.Folder})
