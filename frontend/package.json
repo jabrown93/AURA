@@ -59,7 +59,7 @@
     "zustand": "5.1.0"
   },
   "devDependencies": {
-    "@eslint-react/eslint-plugin": "5.30.5",
+    "@eslint-react/eslint-plugin": "5.30.6",
     "@tailwindcss/postcss": "4.3.5",
     "@trivago/prettier-plugin-sort-imports": "6.0.2",
     "@types/node": "26.6.6",
