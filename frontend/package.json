@@ -63,7 +63,7 @@
     "@tailwindcss/postcss": "4.3.5",
     "@trivago/prettier-plugin-sort-imports": "6.0.2",
     "@types/node": "26.6.10",
-    "@types/react": "19.3.1",
+    "@types/react": "19.3.2",
     "@types/react-dom": "19.3.0",
     "baseline-browser-mapping": "2.11.39",
     "eslint": "10.15.0",
